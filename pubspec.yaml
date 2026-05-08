@@ -1,0 +1,11 @@
+name: egon_bot
+description: Discord bot powered by nyxx.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  dotenv: ^4.2.0
+  nyxx: ^6.9.0

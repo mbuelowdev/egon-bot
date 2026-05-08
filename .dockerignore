@@ -1,0 +1,6 @@
+.git
+.github
+.idea
+.dart_tool
+build
+.env

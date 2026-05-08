@@ -1,0 +1,19 @@
+name: Build and deploy
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [ 'master' ]
+        paths: [ 'deployment.json' ]
+
+jobs:
+    build-and-deploy:
+        uses: mbuelowdev/ssh-docker-deployment/.github/workflows/build-and-deploy.yml@master
+        with:
+            config_path: './deployment.json'
+            discord_channel_id: '1461803674144735252'
+            deployment_user: 'root'
+            deployment_host: 'mbuelow.dev'
+        secrets:
+            deployment_ssh_key: ${{ secrets.DEPLOYMENT_SSH_KEY }}
+            discord_bot_token: ${{ secrets.DISCORD_BOT_TOKEN }}
