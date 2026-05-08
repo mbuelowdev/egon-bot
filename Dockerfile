@@ -2,12 +2,11 @@ FROM dart:stable AS build
 
 WORKDIR /app
 
-COPY pubspec.yaml ./
-COPY pubspec.lock ./
+COPY pubspec.* ./
 RUN dart pub get
 
 COPY . .
-RUN dart compile exe main.dart -o /app/build/egon-bot
+RUN dart compile exe main.dart -o /app/app.exe
 
 FROM debian:bookworm-slim AS runtime
 
@@ -18,6 +17,6 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=build /runtime/ /
-COPY --from=build /app/build/egon-bot /app/egon-bot
+COPY --from=build /app/app.exe /app/app.exe
 
-CMD ["./egon-bot"]
+CMD ["./app.exe"]
