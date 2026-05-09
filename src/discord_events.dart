@@ -33,7 +33,7 @@ Future<void> hookDiscordEvents({
     channelHistory.add(
       ChannelMessageMemoryEntry(
         timestamp: message.timestamp,
-        userName: _authorDisplayName(message.author),
+        userName: await _authorDisplayName(event),
         content: message.content,
       ),
     );
@@ -68,7 +68,39 @@ bool _isMentioned(String content, String botUserId) {
       content.contains('<@!$botUserId>');
 }
 
-String _authorDisplayName(MessageAuthor author) {
+/// Resolves the best name to show for a message author in the context of the
+/// channel/guild the message was sent in.
+///
+/// Priority:
+///   1. Guild member nickname (`Member.nick`) — the per-server profile name.
+///   2. Global display name (`User.globalName`) — set in Discord account settings.
+///   3. Username (`MessageAuthor.username`) — the unique handle.
+///   4. The numeric user id, as a last resort.
+Future<String> _authorDisplayName(MessageCreateEvent event) async {
+  final author = event.message.author;
+
+  final partialMember = event.member;
+  if (partialMember != null) {
+    try {
+      final member = await partialMember.get();
+      final nick = member.nick?.trim();
+      if (nick != null && nick.isNotEmpty) {
+        return nick;
+      }
+    } catch (error) {
+      stdout.writeln(
+        'Failed to resolve guild member ${partialMember.id} for nickname: $error',
+      );
+    }
+  }
+
+  if (author is User) {
+    final globalName = author.globalName?.trim();
+    if (globalName != null && globalName.isNotEmpty) {
+      return globalName;
+    }
+  }
+
   final username = author.username.trim();
   if (username.isNotEmpty) {
     return username;

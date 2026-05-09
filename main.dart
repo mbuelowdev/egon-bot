@@ -8,6 +8,9 @@ import 'src/discord_events.dart';
 const allowedChannelIds = <String>{
   '234802941540696064',  // Geringverdiener; #nein-haben-wir-nicht
   '1461803674144735252', // Private Chat Michael/Egon
+  '116205171205210117', // Hi na? - #chat1
+  '480039711705137153', // Hi na? - #chat2
+  '1029457370516049981', // Hi na? - #event-chat
 };
 const reconnectDelay = Duration(minutes: 5);
 
