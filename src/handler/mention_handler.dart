@@ -53,7 +53,7 @@ Future<void> handleBotMention({
         content:
             'Michael ist grad am Rechner — will ihm die Ressourcen nicht klauen :)\n'
             'Später nochmal probieren!',
-        referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
+        //referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
       ));
       return;
     }
@@ -73,10 +73,9 @@ Future<void> handleBotMention({
     }
     final seconds =
         generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
-    final contentWithTiming =
-        '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
+    //final contentWithTiming = '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
     await message.channel.sendMessage(MessageBuilder(
-      content: contentWithTiming,
+      content: aiReply,
       referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
     ));
     return;
