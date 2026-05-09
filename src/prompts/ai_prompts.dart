@@ -13,6 +13,25 @@ String replaceBotMentionsForPrompt(
       .replaceAll('<@!$botUserId>', '@$label');
 }
 
+/// Marker appended when a history message is shortened, so the model can tell
+/// the cut was intentional instead of treating it as a sentence end.
+const _historyTruncationMarker = ' …[truncated]';
+
+/// Returns [content] shortened to at most [maxChars] characters, appending
+/// [_historyTruncationMarker] when a cut is made. If [maxChars] is too small
+/// to fit the marker, falls back to a hard substring so we never exceed the
+/// requested budget.
+String _truncateForHistory(String content, int maxChars) {
+  if (maxChars <= 0 || content.length <= maxChars) {
+    return content;
+  }
+  if (maxChars <= _historyTruncationMarker.length) {
+    return content.substring(0, maxChars);
+  }
+  return content.substring(0, maxChars - _historyTruncationMarker.length) +
+      _historyTruncationMarker;
+}
+
 String buildReplyToUserPrompt({
   required String targetUserName,
   required String targetMessage,
@@ -20,7 +39,8 @@ String buildReplyToUserPrompt({
   required List<ChannelMessageMemoryEntry> chatHistory,
   required String botUserId,
   required String botDisplayName,
-  int maxHistoryItems = 30,
+  int maxHistoryItems = 10,
+  int maxHistoryMessageChars = 512,
 }) {
   final start = chatHistory.length > maxHistoryItems
       ? chatHistory.length - maxHistoryItems
@@ -36,14 +56,17 @@ String buildReplyToUserPrompt({
       '[${formatEuropeBerlinForPrompt(targetMessageTimestamp)}] $latestMessageFiltered';
 
   // Replaces the bot's id mentions (<@123456789>) with the bots name (Egon)
+  // and trims overly long messages so a single pasted wall of text can't
+  // dominate the prompt budget.
   final historySlice = chatHistory.sublist(start);
   final historyLines = historySlice.map((entry) {
+    final replaced = replaceBotMentionsForPrompt(
+      entry.content,
+      botUserId,
+      botDisplayName,
+    );
     final line = entry.toPromptLine(
-      contentForPrompt: replaceBotMentionsForPrompt(
-        entry.content,
-        botUserId,
-        botDisplayName,
-      ),
+      contentForPrompt: _truncateForHistory(replaced, maxHistoryMessageChars),
     );
     return '- $line';
   }).join('\n');
