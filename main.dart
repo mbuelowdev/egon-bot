@@ -20,9 +20,7 @@ Future<void> main() async {
   }
   final token = env['DISCORD_BOT_TOKEN'];
   final ollamaBaseUrl = env['OLLAMA_API_BASE_URL'] ?? 'http://127.0.0.1:11434';
-  final windowsApiBaseUrl =
-      env['WINDOWS_MONITOR_API_BASE_URL'] ?? 'http://127.0.0.1:11433';
-  final ollamaModel = env['OLLAMA_MODEL'] ?? 'qwen3:4b';
+  final windowsApiBaseUrl = env['WINDOWS_MONITOR_API_BASE_URL'] ?? 'http://127.0.0.1:11433';
 
   if (token == null || token.isEmpty) {
     stderr.writeln(
@@ -35,7 +33,7 @@ Future<void> main() async {
   final externalApi = ExternalApi(
     ollamaBaseUrl: Uri.parse(ollamaBaseUrl),
     windowsMonitorBaseUrl: Uri.parse(windowsApiBaseUrl),
-    ollamaModel: ollamaModel,
+    ollamaModel: 'qwen3:4b',
   );
 
   await _runBotSupervisor(

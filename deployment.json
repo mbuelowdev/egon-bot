@@ -1,5 +1,5 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "name": "home.mbuelow.dev/egon-bot",
   "tag": "latest",
   "url": null,
@@ -13,7 +13,7 @@
         "tag": "latest",
         "argPorts": "",
         "argVolumes": "",
-        "argExtra": " -e DISCORD_BOT_TOKEN"
+        "argExtra": " -e DISCORD_BOT_TOKEN -e OLLAMA_API_BASE_URL -e WINDOWS_MONITOR_API_BASE_URL"
     }
   ]
 }

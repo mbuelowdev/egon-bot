@@ -20,6 +20,9 @@ Future<void> hookDiscordEvents({
     final message = event.message;
     final channelId = message.channelId.toString();
     if (!allowedChannelIds.contains(channelId)) {
+      stdout.writeln(
+        'Ignoring message from non-whitelisted channelId:$channelId from ${message.author.username}'
+      );
       continue;
     }
 
