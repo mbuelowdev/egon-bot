@@ -33,7 +33,7 @@ Future<void> main() async {
   final externalApi = ExternalApi(
     ollamaBaseUrl: Uri.parse(ollamaBaseUrl),
     windowsMonitorBaseUrl: Uri.parse(windowsApiBaseUrl),
-    ollamaModel: 'qwen3:4b',
+    ollamaModel: 'gpt-oss:20b',
   );
 
   await _runBotSupervisor(
