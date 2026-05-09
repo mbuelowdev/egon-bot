@@ -40,10 +40,16 @@ Future<void> handleBotMention({
       return;
     }
 
+    final generationStopwatch = Stopwatch()..start();
     final aiReply = await externalApi.generateReply(prompt: prompt);
+    generationStopwatch.stop();
     print('AI response:\n$aiReply');
+    final seconds =
+        generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+    final contentWithTiming =
+        '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
     await message.channel.sendMessage(MessageBuilder(
-      content: aiReply,
+      content: contentWithTiming,
       referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
     ));
     return;
