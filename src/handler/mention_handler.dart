@@ -54,18 +54,24 @@ Future<void> handleBotMention({
       return;
     }
 
+    final generationStopwatch = Stopwatch()..start();
     final aiReply = await runToolLoop(
       externalApi: externalApi,
       searchApi: searchApi,
       initialMessages: initialMessages,
     );
+    generationStopwatch.stop();
     print('AI response:\n$aiReply');
     if (aiReply.isEmpty) {
       print('AI returned empty content; not sending a reply.');
       return;
     }
+    final seconds =
+        generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+    final contentWithTiming =
+        '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
     await message.channel.sendMessage(MessageBuilder(
-      content: aiReply,
+      content: contentWithTiming,
       referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
     ));
     return;
