@@ -50,7 +50,7 @@ Future<void> handleBotMention({
     final isUserActive = await externalApi.isUserActive();
     if (isUserActive) {
       await message.channel.sendMessage(MessageBuilder(
-        content: 'Michael ist grad am Zocken, ich will ihm die GPU-Power nicht klauen. Sorry!',
+        content: 'Michael zockt gerade und braucht seine Grafikkarte selber. Versuch es später noch mal!',
         //referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
       ));
       return;
