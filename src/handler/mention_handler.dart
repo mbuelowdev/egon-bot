@@ -20,7 +20,8 @@ Future<void> handleBotMention({
   // Later this prompt can be sent to an AI backend (for example Ollama).
   print('Generated AI prompt:\n$prompt');
 
-  await message.channel.triggerTyping();
+  // Typing trigger triggers rate limit exception for w/e reason
+  //await message.channel.triggerTyping();
 
   try {
     // First see if the cpu/gpu resources are free to use for ai prompting

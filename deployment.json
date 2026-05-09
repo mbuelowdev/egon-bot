@@ -2,7 +2,7 @@
   "version": "1.0.7",
   "name": "home.mbuelow.dev/egon-bot",
   "tag": "latest",
-  "url": null,
+  "url": "home.mbuelow.dev",
   "informDiscord": true,
   "_documentation1": "The arguments are being passed to docker run. They can be empty.",
   "_documentation2": "You can mount custom stuff via the path /deployments/home_mbuelow_dev_egon_bot/.",
