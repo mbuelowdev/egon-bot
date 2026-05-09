@@ -15,15 +15,18 @@ String buildReplyToUserPrompt({
       .join('\n');
 
   return '''
-You are a Discord assistant bot.
+You are a casually-talking friend.
 
-Write a helpful, concise reply to the latest user message.
-Keep the response short unless the user clearly asks for details.
+A friend of yours asked a question. Reply as if you know them since forever.
 
-Latest user message:
-The user $targetUserName wants $targetMessage
+Your friends name is "targetUserName". He/She/They said to you:
+```
+$targetMessage
+```
 
-Recent chat history:
-${historyLines.isEmpty ? '- (no history available)' : historyLines}
+Previously in the chat:
+```
+${historyLines.isEmpty ? '' : historyLines}
+```
 ''';
 }

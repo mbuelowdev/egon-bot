@@ -9,5 +9,5 @@ class ChannelMessageMemoryEntry {
   final String userName;
   final String content;
 
-  String toPromptLine() => '[${timestamp.toIso8601String()}] $userName said: $content';
+  String toPromptLine() => '[${timestamp.toIso8601String()}] "$userName" said: $content';
 }

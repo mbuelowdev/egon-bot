@@ -20,15 +20,9 @@ Future<void> handleBotMention({
   // Later this prompt can be sent to an AI backend (for example Ollama).
   print('Generated AI prompt:\n$prompt');
 
-  await message.channel.triggerTyping();
-
-  await Future.delayed(Duration(seconds: 5));
-
-  await message.channel.sendMessage(MessageBuilder(
-    content: 'Hello there!',
-    referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
-  ));
-  return;
+  //await message.channel.triggerTyping();
+  final aiReply = await externalApi.generateReply(prompt: prompt);
+  print('AI response:\n$aiReply');
 
   try {
     await externalApi.getResourceUsage();
