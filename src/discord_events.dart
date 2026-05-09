@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:nyxx/nyxx.dart';
 
 import 'api/external_api.dart';
+import 'api/search_api.dart';
 import 'handler/mention_handler.dart';
 import 'models/channel_message_memory_entry.dart';
 
@@ -15,6 +16,7 @@ Future<void> hookDiscordEvents({
   required NyxxGateway client,
   required Set<String> allowedChannelIds,
   required ExternalApi externalApi,
+  required SearchApi searchApi,
 }) async {
   final botUserId = client.user.id.toString();
   final messagesByChannel = <String, List<ChannelMessageMemoryEntry>>{};
@@ -29,11 +31,15 @@ Future<void> hookDiscordEvents({
       continue;
     }
 
+    // Resolve the author's per-server name once and reuse it for both the
+    // history entry and the AI handler so the model and the prompt agree.
+    final authorDisplayName = await _authorDisplayName(event);
+
     final channelHistory = messagesByChannel.putIfAbsent(channelId, () => []);
     channelHistory.add(
       ChannelMessageMemoryEntry(
         timestamp: message.timestamp,
-        userName: await _authorDisplayName(event),
+        userName: authorDisplayName,
         content: message.content,
       ),
     );
@@ -57,6 +63,8 @@ Future<void> hookDiscordEvents({
       event: event,
       channelHistory: List.unmodifiable(channelHistory),
       externalApi: externalApi,
+      searchApi: searchApi,
+      authorDisplayName: authorDisplayName,
       botUserId: botUserId,
       botDisplayName: botPromptDisplayName,
     );

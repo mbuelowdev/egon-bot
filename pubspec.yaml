@@ -8,5 +8,6 @@ environment:
 
 dependencies:
   dotenv: ^4.2.0
+  html: ^0.15.6
   nyxx: ^6.9.0
   timezone: ^0.10.1

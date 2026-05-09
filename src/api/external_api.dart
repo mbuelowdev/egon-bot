@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'ollama_models.dart';
+
 class ExternalApi {
   ExternalApi({
     required this.ollamaBaseUrl,
@@ -44,6 +46,34 @@ class ExternalApi {
       return response.trim();
     }
     throw StateError('Ollama response did not contain text.');
+  }
+
+  /// Sends a chat-style request to Ollama, optionally declaring [tools] the
+  /// model is allowed to invoke. Returns the assistant message, including any
+  /// `tool_calls` it emitted.
+  Future<OllamaChatMessage> chatCompletion({
+    required List<OllamaChatMessage> messages,
+    List<OllamaTool> tools = const [],
+  }) async {
+    final body = <String, Object?>{
+      'model': ollamaModel,
+      'messages': messages.map((m) => m.toJson()).toList(),
+      'stream': false,
+    };
+    if (tools.isNotEmpty) {
+      body['tools'] = tools.map((t) => t.toJson()).toList();
+    }
+
+    final json = await _postJson(
+      ollamaBaseUrl.resolve('/api/chat'),
+      body,
+    );
+
+    final raw = json['message'];
+    if (raw is Map) {
+      return OllamaChatMessage.fromJson(raw.cast<String, Object?>());
+    }
+    throw StateError('Ollama chat response did not contain a message.');
   }
 
   Future<Map<String, Object?>> _getJson(Uri uri) async {

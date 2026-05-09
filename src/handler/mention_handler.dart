@@ -1,29 +1,43 @@
 import 'package:nyxx/nyxx.dart';
 
 import '../api/external_api.dart';
+import '../api/ollama_models.dart';
+import '../api/search_api.dart';
 import '../models/channel_message_memory_entry.dart';
 import '../prompts/ai_prompts.dart';
+import 'tool_loop.dart';
 
 Future<void> handleBotMention({
   required MessageCreateEvent event,
   required List<ChannelMessageMemoryEntry> channelHistory,
   required ExternalApi externalApi,
+  required SearchApi searchApi,
+  required String authorDisplayName,
   required String botUserId,
   required String botDisplayName,
 }) async {
   final message = event.message;
-  final prompt = buildReplyToUserPrompt(
-    targetUserName: message.author.username,
-    targetMessage: message.content,
-    targetMessageTimestamp: message.timestamp,
+
+  final systemPrompt = buildSystemPromptForChat(
     chatHistory: channelHistory,
     botUserId: botUserId,
     botDisplayName: botDisplayName,
   );
+  final userContent = buildUserMessageForChat(
+    targetUserName: authorDisplayName,
+    targetMessage: message.content,
+    targetMessageTimestamp: message.timestamp,
+    botUserId: botUserId,
+    botDisplayName: botDisplayName,
+  );
 
-  // Keep prompt generation in one place; this handler just orchestrates usage.
-  // Later this prompt can be sent to an AI backend (for example Ollama).
-  print('Generated AI prompt:\n$prompt');
+  final initialMessages = <OllamaChatMessage>[
+    OllamaChatMessage(role: 'system', content: systemPrompt),
+    OllamaChatMessage(role: 'user', content: userContent),
+  ];
+
+  print('System prompt:\n$systemPrompt');
+  print('User message: $userContent');
 
   // Typing trigger triggers rate limit exception for w/e reason
   //await message.channel.triggerTyping();
@@ -40,16 +54,18 @@ Future<void> handleBotMention({
       return;
     }
 
-    final generationStopwatch = Stopwatch()..start();
-    final aiReply = await externalApi.generateReply(prompt: prompt);
-    generationStopwatch.stop();
+    final aiReply = await runToolLoop(
+      externalApi: externalApi,
+      searchApi: searchApi,
+      initialMessages: initialMessages,
+    );
     print('AI response:\n$aiReply');
-    final seconds =
-        generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
-    final contentWithTiming =
-        '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
+    if (aiReply.isEmpty) {
+      print('AI returned empty content; not sending a reply.');
+      return;
+    }
     await message.channel.sendMessage(MessageBuilder(
-      content: contentWithTiming,
+      content: aiReply,
       referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
     ));
     return;

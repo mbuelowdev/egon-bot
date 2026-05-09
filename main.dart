@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dotenv/dotenv.dart';
 import 'package:nyxx/nyxx.dart';
 import 'src/api/external_api.dart';
+import 'src/api/search_api.dart';
 import 'src/discord_events.dart';
 
 const allowedChannelIds = <String>{
@@ -38,16 +39,19 @@ Future<void> main() async {
     windowsMonitorBaseUrl: Uri.parse(windowsApiBaseUrl),
     ollamaModel: 'gpt-oss:20b',
   );
+  final searchApi = SearchApi();
 
   await _runBotSupervisor(
     token: token,
     externalApi: externalApi,
+    searchApi: searchApi,
   );
 }
 
 Future<void> _runBotSupervisor({
   required String token,
   required ExternalApi externalApi,
+  required SearchApi searchApi,
 }) async {
   var allowEarlyRetry = false;
 
@@ -67,6 +71,7 @@ Future<void> _runBotSupervisor({
         client: client,
         allowedChannelIds: allowedChannelIds,
         externalApi: externalApi,
+        searchApi: searchApi,
       );
 
       stderr.writeln('Discord event stream ended unexpectedly.');
