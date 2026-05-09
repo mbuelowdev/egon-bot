@@ -62,10 +62,5 @@ Your friends name is "$targetUserName". He/She/They said to you:
 ```
 $latestMessageWithTimestamp
 ```
-
-Previously in the chat:
-```
-${historyLines.isEmpty ? '' : historyLines}
-```
 ''';
 }
