@@ -50,9 +50,7 @@ Future<void> handleBotMention({
     final isUserActive = await externalApi.isUserActive();
     if (isUserActive) {
       await message.channel.sendMessage(MessageBuilder(
-        content:
-            'Michael ist grad am Rechner — will ihm die Ressourcen nicht klauen :)\n'
-            'Später nochmal probieren!',
+        content: 'Michael ist grad am Zocken, ich will ihm die GPU-Power nicht klauen. Sorry!',
         //referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
       ));
       return;
@@ -76,7 +74,7 @@ Future<void> handleBotMention({
     //final contentWithTiming = '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
     await message.channel.sendMessage(MessageBuilder(
       content: aiReply,
-      referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
+      //referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
     ));
     return;
   } catch (e) {
