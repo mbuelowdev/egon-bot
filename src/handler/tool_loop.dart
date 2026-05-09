@@ -10,18 +10,19 @@ import '../api/search_api.dart';
 const OllamaTool webSearchTool = OllamaTool(
   name: 'web_search',
   description:
-      'Search the public web for up-to-date facts. Use only when the question '
-      'requires information you cannot answer from general knowledge '
-      '(current events, recent prices, dates, sports scores, weather, '
-      'recent releases, etc.). Do not use for opinions or jokes. Returns a '
-      'list of {title, snippet, url}; pass any of those URLs to fetch_url to '
-      'read the full page.',
+      'Sucht im öffentlichen Web nach aktuellen Fakten. Nur nutzen, wenn die '
+      'Frage Infos braucht, die du nicht sicher aus Allgemeinwissen beantworten '
+      'kannst (Nachrichten, Daten, Preise, Sport, Wetter, Termine, Spielzeiten '
+      'usw.). Nicht für Meinungen oder Witze. Liefert {title, snippet, url} '
+      'pro Treffer; mit fetch_url eine URL vollständig lesen. '
+      'Antwort an den Nutzer immer in dessen Sprache formulieren.',
   parameters: {
     'type': 'object',
     'properties': {
       'query': {
         'type': 'string',
-        'description': "Search query in the user's language. Keep it concise.",
+        'description':
+            'Suchbegriff in der Sprache des Nutzers, kurz und präzise.',
       },
     },
     'required': ['query'],
@@ -32,17 +33,17 @@ const OllamaTool webSearchTool = OllamaTool(
 const OllamaTool fetchUrlTool = OllamaTool(
   name: 'fetch_url',
   description:
-      'Fetch the contents of a public web page as plain text. Use after '
-      'web_search to read a result in full, or whenever you have a concrete '
-      'http(s) URL whose contents you need. Returns {url, title, text, '
-      'content_type, truncated}; long pages are cut off. Only http and https '
-      'URLs are supported; binary content is rejected.',
+      'Lädt eine öffentliche Webseite als Klartext. Nach web_search nutzen, '
+      'um ein Suchergebnis voll zu lesen, oder wenn eine konkrete http(s)-URL '
+      'vorliegt. Rückgabe: {url, title, text, content_type, truncated}; lange '
+      'Seiten werden gekürzt. Nur http/https; keine Binärdateien. '
+      'Antwort an den Nutzer immer in dessen Sprache formulieren.',
   parameters: {
     'type': 'object',
     'properties': {
       'url': {
         'type': 'string',
-        'description': 'Absolute http(s) URL to fetch.',
+        'description': 'Vollständige http(s)-URL.',
       },
     },
     'required': ['url'],
@@ -106,8 +107,9 @@ Future<String> runToolLoop({
   messages.add(OllamaChatMessage(
     role: 'system',
     content:
-        'You have used your tool budget for this turn. Reply now in your '
-        'normal voice using only the facts you have already gathered.',
+        'Tool-Limit für diese Runde erreicht. Antworte jetzt in deinem '
+        'normalen Stil nur mit dem, was du schon weißt — gleiche Sprache wie '
+        'der Chat, kein Englisch und keine Meta-Kommentare.',
   ));
   final finalAssistant = await externalApi.chatCompletion(
     messages: messages,
@@ -127,12 +129,21 @@ Future<Map<String, Object?>> _dispatch(
       if (query.isEmpty) {
         return {
           'error':
-              'web_search requires a non-empty "query" argument. It does not '
-                  'accept a "url" parameter — use fetch_url for that.',
+              'web_search braucht ein nicht leeres „query“. URLs gehören zu '
+              'fetch_url, nicht hierher.',
         };
       }
       try {
         final results = await searchApi.search(query, limit: _maxResults);
+        if (results.isEmpty) {
+          return {
+            'query': query,
+            'results': <Object?>[],
+            'hinweis':
+                'Keine Online-Treffer. Sag das locker in der Sprache des '
+                'Chats — ohne englische Kurzkommentare oder Meta-Sätze.',
+          };
+        }
         return {
           'query': query,
           'results': results
@@ -145,14 +156,18 @@ Future<Map<String, Object?>> _dispatch(
         };
       } catch (error) {
         stderr.writeln('web_search dispatch failed: $error');
-        return {'error': 'web_search failed'};
+        return {
+          'error':
+              'Suche ist fehlgeschlagen. Kurz in Chat-Sprache erklären, ohne '
+              'englische Floskeln.',
+        };
       }
     case 'fetch_url':
       final url = (call.arguments['url'] as String?)?.trim() ?? '';
       if (url.isEmpty) {
         return {
           'error':
-              'fetch_url requires a non-empty "url" argument (absolute http or https).',
+              'fetch_url braucht eine nicht leere http(s)-URL.',
         };
       }
       try {
@@ -160,10 +175,14 @@ Future<Map<String, Object?>> _dispatch(
         return page.toJson();
       } catch (error) {
         stderr.writeln('fetch_url dispatch failed for $url: $error');
-        return {'error': 'fetch_url failed: $error'};
+        return {
+          'error':
+              'Seite konnte nicht geladen werden. Kurz in Chat-Sprache sagen, '
+              'ohne englische Floskeln.',
+        };
       }
     default:
-      return {'error': 'unknown tool: ${call.name}'};
+      return {'error': 'Unbekanntes Tool: ${call.name}'};
   }
 }
 
