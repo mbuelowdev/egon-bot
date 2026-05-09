@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:nyxx/nyxx.dart';
 
 import 'api/external_api.dart';
+import 'api/fetch_api.dart';
 import 'api/search_api.dart';
 import 'handler/mention_handler.dart';
 import 'models/channel_message_memory_entry.dart';
@@ -17,6 +18,7 @@ Future<void> hookDiscordEvents({
   required Set<String> allowedChannelIds,
   required ExternalApi externalApi,
   required SearchApi searchApi,
+  required FetchApi fetchApi,
 }) async {
   final botUserId = client.user.id.toString();
   final messagesByChannel = <String, List<ChannelMessageMemoryEntry>>{};
@@ -64,6 +66,7 @@ Future<void> hookDiscordEvents({
       channelHistory: List.unmodifiable(channelHistory),
       externalApi: externalApi,
       searchApi: searchApi,
+      fetchApi: fetchApi,
       authorDisplayName: authorDisplayName,
       botUserId: botUserId,
       botDisplayName: botPromptDisplayName,

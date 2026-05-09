@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dotenv/dotenv.dart';
 import 'package:nyxx/nyxx.dart';
 import 'src/api/external_api.dart';
+import 'src/api/fetch_api.dart';
 import 'src/api/search_api.dart';
 import 'src/discord_events.dart';
 
@@ -40,11 +41,13 @@ Future<void> main() async {
     ollamaModel: 'gpt-oss:20b',
   );
   final searchApi = SearchApi();
+  final fetchApi = FetchApi();
 
   await _runBotSupervisor(
     token: token,
     externalApi: externalApi,
     searchApi: searchApi,
+    fetchApi: fetchApi,
   );
 }
 
@@ -52,6 +55,7 @@ Future<void> _runBotSupervisor({
   required String token,
   required ExternalApi externalApi,
   required SearchApi searchApi,
+  required FetchApi fetchApi,
 }) async {
   var allowEarlyRetry = false;
 
@@ -72,6 +76,7 @@ Future<void> _runBotSupervisor({
         allowedChannelIds: allowedChannelIds,
         externalApi: externalApi,
         searchApi: searchApi,
+        fetchApi: fetchApi,
       );
 
       stderr.writeln('Discord event stream ended unexpectedly.');

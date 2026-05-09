@@ -1,6 +1,7 @@
 import 'package:nyxx/nyxx.dart';
 
 import '../api/external_api.dart';
+import '../api/fetch_api.dart';
 import '../api/ollama_models.dart';
 import '../api/search_api.dart';
 import '../models/channel_message_memory_entry.dart';
@@ -12,6 +13,7 @@ Future<void> handleBotMention({
   required List<ChannelMessageMemoryEntry> channelHistory,
   required ExternalApi externalApi,
   required SearchApi searchApi,
+  required FetchApi fetchApi,
   required String authorDisplayName,
   required String botUserId,
   required String botDisplayName,
@@ -58,6 +60,7 @@ Future<void> handleBotMention({
     final aiReply = await runToolLoop(
       externalApi: externalApi,
       searchApi: searchApi,
+      fetchApi: fetchApi,
       initialMessages: initialMessages,
     );
     generationStopwatch.stop();
