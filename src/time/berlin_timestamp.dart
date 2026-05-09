@@ -17,15 +17,8 @@ String _two(int n) => n.toString().padLeft(2, '0');
 String formatEuropeBerlinForPrompt(DateTime instant) {
   _ensureTimeZones();
   final z = TZDateTime.from(instant.toUtc(), getLocation('Europe/Berlin'));
-  final off = z.timeZoneOffset;
-  final sign = off.isNegative ? '-' : '+';
-  final totalMinutes = off.inMinutes.abs();
-  final oh = totalMinutes ~/ 60;
-  final om = totalMinutes % 60;
-  final offsetLabel =
-      '$sign${oh.toString().padLeft(2, '0')}:${om.toString().padLeft(2, '0')}';
 
   return '${z.year}-${_two(z.month)}-${_two(z.day)} '
       '${_two(z.hour)}:${_two(z.minute)}:${_two(z.second)} '
-      '${z.timeZoneName} (UTC$offsetLabel)';
+      '${z.timeZoneName}';
 }
