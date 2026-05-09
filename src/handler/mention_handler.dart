@@ -20,11 +20,10 @@ Future<void> handleBotMention({
   // Later this prompt can be sent to an AI backend (for example Ollama).
   print('Generated AI prompt:\n$prompt');
 
-  //await message.channel.triggerTyping();
-  final aiReply = await externalApi.generateReply(prompt: prompt);
-  print('AI response:\n$aiReply');
+  await message.channel.triggerTyping();
 
   try {
+    // First see if the cpu/gpu resources are free to use for ai prompting
     await externalApi.getResourceUsage();
     final isUserActive = await externalApi.isUserActive();
     if (isUserActive) {
@@ -35,8 +34,8 @@ Future<void> handleBotMention({
       return;
     }
 
-    await message.channel.triggerTyping();
     final aiReply = await externalApi.generateReply(prompt: prompt);
+    print('AI response:\n$aiReply');
     await message.channel.sendMessage(MessageBuilder(
       content: aiReply,
       referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
@@ -45,9 +44,4 @@ Future<void> handleBotMention({
   } catch (e) {
     print('External API call failed: $e');
   }
-
-  await message.channel.sendMessage(MessageBuilder(
-    content: 'I could not reach Ollama or Windows monitor API.',
-    referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
-  ));
 }
