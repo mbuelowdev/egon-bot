@@ -9,3 +9,4 @@ environment:
 dependencies:
   dotenv: ^4.2.0
   nyxx: ^6.9.0
+  timezone: ^0.10.1

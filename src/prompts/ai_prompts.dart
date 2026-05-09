@@ -1,4 +1,5 @@
 import '../models/channel_message_memory_entry.dart';
+import '../time/berlin_timestamp.dart';
 
 /// Replaces Discord mention tokens for the bot with a readable `@Name` for prompts.
 String replaceBotMentionsForPrompt(
@@ -15,6 +16,7 @@ String replaceBotMentionsForPrompt(
 String buildReplyToUserPrompt({
   required String targetUserName,
   required String targetMessage,
+  required DateTime targetMessageTimestamp,
   required List<ChannelMessageMemoryEntry> chatHistory,
   required String botUserId,
   required String botDisplayName,
@@ -30,6 +32,8 @@ String buildReplyToUserPrompt({
     botUserId,
     botDisplayName,
   );
+  final latestMessageWithTimestamp =
+      '[${formatEuropeBerlinForPrompt(targetMessageTimestamp)}] $latestMessageFiltered';
 
   // Replaces the bot's id mentions (<@123456789>) with the bots name (Egon)
   final historySlice = chatHistory.sublist(start);
@@ -45,13 +49,17 @@ String buildReplyToUserPrompt({
   }).join('\n');
 
   return '''
-You are a casually-talking friend and discord bot.
+You are a casual friend and discord bot.
+- You live in Düsseldorf
+- Your code is hosted here: https://github.com/mbuelowdev/egon-bot
+- You were created in the image of Dr. Egon Spengler from the movie Ghostbusters
+- Your were created in the year 2019
 
-A friend of yours asked a question. Reply as if you know them since forever. Reply in their language.
+A friend of yours asked a question. Reply casually in their language.
 
 Your friends name is "$targetUserName". He/She/They said to you:
 ```
-$latestMessageFiltered
+$latestMessageWithTimestamp
 ```
 
 Previously in the chat:

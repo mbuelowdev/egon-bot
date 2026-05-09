@@ -15,6 +15,7 @@ Future<void> handleBotMention({
   final prompt = buildReplyToUserPrompt(
     targetUserName: message.author.username,
     targetMessage: message.content,
+    targetMessageTimestamp: message.timestamp,
     chatHistory: channelHistory,
     botUserId: botUserId,
     botDisplayName: botDisplayName,

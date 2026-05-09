@@ -1,3 +1,5 @@
+import '../time/berlin_timestamp.dart';
+
 class ChannelMessageMemoryEntry {
   ChannelMessageMemoryEntry({
     required this.timestamp,
@@ -11,6 +13,6 @@ class ChannelMessageMemoryEntry {
 
   String toPromptLine({String? contentForPrompt}) {
     final text = contentForPrompt ?? content;
-    return '[${timestamp.toIso8601String()}] "$userName" said: $text';
+    return '[${formatEuropeBerlinForPrompt(timestamp)}] "$userName" said: $text';
   }
 }
