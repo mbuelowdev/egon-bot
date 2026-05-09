@@ -46,7 +46,7 @@ Future<void> _runBotSupervisor({
   required String token,
   required ExternalApi externalApi,
 }) async {
-  var allowImmediateRetry = false;
+  var allowEarlyRetry = false;
 
   while (true) {
     try {
@@ -57,8 +57,8 @@ Future<void> _runBotSupervisor({
       );
       stdout.writeln('Discord bot connected as user ${client.user.id}.');
 
-      // If this connection dies later, first retry should be immediate.
-      allowImmediateRetry = true;
+      // If this connection dies later, first retry should be a bit earlier.
+      allowEarlyRetry = true;
 
       await hookDiscordEvents(
         client: client,
@@ -72,9 +72,10 @@ Future<void> _runBotSupervisor({
       stderr.writeln(stackTrace);
     }
 
-    if (allowImmediateRetry) {
-      stderr.writeln('Trying immediate reconnect...');
-      allowImmediateRetry = false;
+    if (allowEarlyRetry) {
+      stderr.writeln('Trying early reconnect in 60s...');
+      allowEarlyRetry = false;
+      await Future<void>.delayed(const Duration(seconds: 60));
       continue;
     }
 
@@ -82,6 +83,6 @@ Future<void> _runBotSupervisor({
       'Reconnect failed again. Retrying in ${reconnectDelay.inMinutes} minutes...',
     );
     await Future<void>.delayed(reconnectDelay);
-    allowImmediateRetry = true;
+    allowEarlyRetry = true;
   }
 }

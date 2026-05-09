@@ -8,12 +8,16 @@ Future<void> handleBotMention({
   required MessageCreateEvent event,
   required List<ChannelMessageMemoryEntry> channelHistory,
   required ExternalApi externalApi,
+  required String botUserId,
+  required String botDisplayName,
 }) async {
   final message = event.message;
   final prompt = buildReplyToUserPrompt(
     targetUserName: message.author.username,
     targetMessage: message.content,
     chatHistory: channelHistory,
+    botUserId: botUserId,
+    botDisplayName: botDisplayName,
   );
 
   // Keep prompt generation in one place; this handler just orchestrates usage.

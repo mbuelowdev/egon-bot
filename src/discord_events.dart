@@ -8,6 +8,9 @@ import 'models/channel_message_memory_entry.dart';
 
 const maxMessagesPerChannel = 200;
 
+/// Name used in AI prompts when replacing `<@botId>` mentions (Discord username may differ).
+const botPromptDisplayName = 'Egon';
+
 Future<void> hookDiscordEvents({
   required NyxxGateway client,
   required Set<String> allowedChannelIds,
@@ -54,6 +57,8 @@ Future<void> hookDiscordEvents({
       event: event,
       channelHistory: List.unmodifiable(channelHistory),
       externalApi: externalApi,
+      botUserId: botUserId,
+      botDisplayName: botPromptDisplayName,
     );
   }
 }
