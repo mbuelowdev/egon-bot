@@ -13,6 +13,7 @@ const allowedChannelIds = <String>{
   '116205171205210117', // Hi na? - #chat1
   '480039711705137153', // Hi na? - #chat2
   '1029457370516049981', // Hi na? - #event-chat
+  '1503447806000627864', // eydu - #botting
 };
 const reconnectDelay = Duration(minutes: 5);
 
