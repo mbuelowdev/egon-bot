@@ -27,9 +27,7 @@ Future<void> hookDiscordEvents({
     final message = event.message;
     final channelId = message.channelId.toString();
     if (!allowedChannelIds.contains(channelId)) {
-      stdout.writeln(
-        'Ignoring message from non-whitelisted channelId:$channelId from ${message.author.username}'
-      );
+      stdout.writeln('Ignoring message from non-whitelisted channelId:$channelId from ${message.author.username}');
       continue;
     }
 
@@ -75,8 +73,7 @@ Future<void> hookDiscordEvents({
 }
 
 bool _isMentioned(String content, String botUserId) {
-  return content.contains('<@$botUserId>') ||
-      content.contains('<@!$botUserId>');
+  return content.contains('<@$botUserId>') || content.contains('<@!$botUserId>');
 }
 
 /// Resolves the best name to show for a message author in the context of the
@@ -118,4 +115,3 @@ Future<String> _authorDisplayName(MessageCreateEvent event) async {
   }
   return author.id.toString();
 }
-

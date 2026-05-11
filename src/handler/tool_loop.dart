@@ -9,8 +9,7 @@ import '../api/search_api.dart';
 /// Tool schema sent to Ollama declaring the `web_search` capability.
 const OllamaTool webSearchTool = OllamaTool(
   name: 'web_search',
-  description:
-      'Sucht im öffentlichen Web nach aktuellen Fakten. Nur nutzen, wenn die '
+  description: 'Sucht im öffentlichen Web nach aktuellen Fakten. Nur nutzen, wenn die '
       'Frage Infos braucht, die du nicht sicher aus Allgemeinwissen beantworten '
       'kannst (Nachrichten, Daten, Preise, Sport, Wetter, Termine, Spielzeiten '
       'usw.). Nicht für Meinungen oder Witze. Liefert {title, snippet, url} '
@@ -21,8 +20,7 @@ const OllamaTool webSearchTool = OllamaTool(
     'properties': {
       'query': {
         'type': 'string',
-        'description':
-            'Suchbegriff in der Sprache des Nutzers, kurz und präzise.',
+        'description': 'Suchbegriff in der Sprache des Nutzers, kurz und präzise.',
       },
     },
     'required': ['query'],
@@ -32,8 +30,7 @@ const OllamaTool webSearchTool = OllamaTool(
 /// Tool schema sent to Ollama declaring the `fetch_url` capability.
 const OllamaTool fetchUrlTool = OllamaTool(
   name: 'fetch_url',
-  description:
-      'Lädt eine öffentliche Webseite als Klartext. Nach web_search nutzen, '
+  description: 'Lädt eine öffentliche Webseite als Klartext. Nach web_search nutzen, '
       'um ein Suchergebnis voll zu lesen, oder wenn eine konkrete http(s)-URL '
       'vorliegt. Rückgabe: {url, title, text, content_type, truncated}; lange '
       'Seiten werden gekürzt. Nur http/https; keine Binärdateien. '
@@ -106,8 +103,7 @@ Future<String> runToolLoop({
   // never sees an unfinished tool dance.
   messages.add(OllamaChatMessage(
     role: 'system',
-    content:
-        'Tool-Limit für diese Runde erreicht. Antworte jetzt in deinem '
+    content: 'Tool-Limit für diese Runde erreicht. Antworte jetzt in deinem '
         'normalen Stil nur mit dem, was du schon weißt — gleiche Sprache wie '
         'der Chat, kein Englisch und keine Meta-Kommentare.',
   ));
@@ -128,8 +124,7 @@ Future<Map<String, Object?>> _dispatch(
       final query = (call.arguments['query'] as String?)?.trim() ?? '';
       if (query.isEmpty) {
         return {
-          'error':
-              'web_search braucht ein nicht leeres „query“. URLs gehören zu '
+          'error': 'web_search braucht ein nicht leeres „query“. URLs gehören zu '
               'fetch_url, nicht hierher.',
         };
       }
@@ -139,8 +134,7 @@ Future<Map<String, Object?>> _dispatch(
           return {
             'query': query,
             'results': <Object?>[],
-            'hinweis':
-                'Keine Online-Treffer. Sag das locker in der Sprache des '
+            'hinweis': 'Keine Online-Treffer. Sag das locker in der Sprache des '
                 'Chats — ohne englische Kurzkommentare oder Meta-Sätze.',
           };
         }
@@ -157,8 +151,7 @@ Future<Map<String, Object?>> _dispatch(
       } catch (error) {
         stderr.writeln('web_search dispatch failed: $error');
         return {
-          'error':
-              'Suche ist fehlgeschlagen. Kurz in Chat-Sprache erklären, ohne '
+          'error': 'Suche ist fehlgeschlagen. Kurz in Chat-Sprache erklären, ohne '
               'englische Floskeln.',
         };
       }
@@ -166,8 +159,7 @@ Future<Map<String, Object?>> _dispatch(
       final url = (call.arguments['url'] as String?)?.trim() ?? '';
       if (url.isEmpty) {
         return {
-          'error':
-              'fetch_url braucht eine nicht leere http(s)-URL.',
+          'error': 'fetch_url braucht eine nicht leere http(s)-URL.',
         };
       }
       try {
@@ -176,8 +168,7 @@ Future<Map<String, Object?>> _dispatch(
       } catch (error) {
         stderr.writeln('fetch_url dispatch failed for $url: $error');
         return {
-          'error':
-              'Seite konnte nicht geladen werden. Kurz in Chat-Sprache sagen, '
+          'error': 'Seite konnte nicht geladen werden. Kurz in Chat-Sprache sagen, '
               'ohne englische Floskeln.',
         };
       }

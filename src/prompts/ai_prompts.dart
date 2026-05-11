@@ -8,9 +8,7 @@ String replaceBotMentionsForPrompt(
   String botDisplayName,
 ) {
   final label = botDisplayName.trim().isEmpty ? 'Bot' : botDisplayName.trim();
-  return content
-      .replaceAll('<@$botUserId>', '@$label')
-      .replaceAll('<@!$botUserId>', '@$label');
+  return content.replaceAll('<@$botUserId>', '@$label').replaceAll('<@!$botUserId>', '@$label');
 }
 
 /// Marker appended when a history message is shortened, so the model can tell
@@ -28,8 +26,7 @@ String _truncateForHistory(String content, int maxChars) {
   if (maxChars <= _historyTruncationMarker.length) {
     return content.substring(0, maxChars);
   }
-  return content.substring(0, maxChars - _historyTruncationMarker.length) +
-      _historyTruncationMarker;
+  return content.substring(0, maxChars - _historyTruncationMarker.length) + _historyTruncationMarker;
 }
 
 /// Builds the `system` role message for the chat-format Ollama call.
@@ -45,9 +42,7 @@ String buildSystemPromptForChat({
   int maxHistoryItems = 10,
   int maxHistoryMessageChars = 500,
 }) {
-  final start = chatHistory.length > maxHistoryItems
-      ? chatHistory.length - maxHistoryItems
-      : 0;
+  final start = chatHistory.length > maxHistoryItems ? chatHistory.length - maxHistoryItems : 0;
   final historySlice = chatHistory.sublist(start);
   final historyLines = historySlice.map((entry) {
     final replaced = replaceBotMentionsForPrompt(

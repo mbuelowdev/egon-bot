@@ -40,8 +40,7 @@ class SearchApi {
 
   /// A realistic desktop user-agent. DDG lite serves the simple layout to
   /// most browsers; an obviously-empty UA tends to draw bot challenges.
-  static const String _userAgent =
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+  static const String _userAgent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   final HttpClient _httpClient;
@@ -77,8 +76,7 @@ class SearchApi {
     final request = await _httpClient.getUrl(uri).timeout(_timeout);
     request.headers
       ..set(HttpHeaders.userAgentHeader, _userAgent)
-      ..set(HttpHeaders.acceptHeader,
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+      ..set(HttpHeaders.acceptHeader, 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
       ..set(HttpHeaders.acceptLanguageHeader, 'de-DE,de;q=0.9,en;q=0.8');
     final response = await request.close().timeout(_timeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -98,10 +96,7 @@ class SearchApi {
     // Defensive fallback: if class names ever drift, fall back to any anchor
     // whose href is a DDG redirect (`/l/?uddg=...`).
     if (anchors.isEmpty) {
-      anchors = document
-          .querySelectorAll('a')
-          .where((a) => _looksLikeResultLink(a.attributes['href']))
-          .toList();
+      anchors = document.querySelectorAll('a').where((a) => _looksLikeResultLink(a.attributes['href'])).toList();
     }
 
     final results = <SearchResult>[];

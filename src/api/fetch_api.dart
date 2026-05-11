@@ -60,8 +60,7 @@ class FetchApi {
 
   /// A realistic desktop user-agent. Sites often serve a stripped-down or
   /// challenge page to obviously-empty UAs, which would defeat the tool.
-  static const String _userAgent =
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+  static const String _userAgent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   final HttpClient _httpClient;
@@ -83,7 +82,7 @@ class FetchApi {
       ..set(
         HttpHeaders.acceptHeader,
         'text/html,application/xhtml+xml,application/xml;q=0.9,'
-            'application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+        'application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
       )
       ..set(HttpHeaders.acceptLanguageHeader, 'de-DE,de;q=0.9,en;q=0.8');
 
@@ -94,8 +93,7 @@ class FetchApi {
       );
     }
 
-    final mimeType =
-        response.headers.contentType?.mimeType ?? 'application/octet-stream';
+    final mimeType = response.headers.contentType?.mimeType ?? 'application/octet-stream';
 
     if (!_isTextLike(mimeType)) {
       throw HttpException(
@@ -182,8 +180,7 @@ class FetchApi {
   _ExtractedHtml _extractFromHtml(String html) {
     final document = html_parser.parse(html);
     document
-        .querySelectorAll(
-            'script, style, noscript, svg, template, iframe, link, meta')
+        .querySelectorAll('script, style, noscript, svg, template, iframe, link, meta')
         .forEach((dom.Element e) => e.remove());
     final title = document.querySelector('title')?.text.trim() ?? '';
     final body = document.body ?? document.documentElement;
