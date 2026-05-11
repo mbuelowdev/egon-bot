@@ -39,7 +39,8 @@ Future<void> handleBotMention({
   ];
 
   //print('System prompt:\n$systemPrompt');
-  print('User message received: ${userContent.substring(0, 100)} (max 100)');
+  int length = userContent.length < 100 ? userContent.length : 100;
+  print('User message received: ${userContent.substring(0, length)} (length:${userContent.length})');
 
   // Typing trigger triggers rate limit exception for w/e reason
   //await message.channel.triggerTyping();
