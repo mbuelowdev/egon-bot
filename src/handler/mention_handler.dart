@@ -38,8 +38,8 @@ Future<void> handleBotMention({
     OllamaChatMessage(role: 'user', content: userContent),
   ];
 
-  print('System prompt:\n$systemPrompt');
-  print('User message: $userContent');
+  //print('System prompt:\n$systemPrompt');
+  print('User message received: ${userContent.substring(0, 100)} (max 100)');
 
   // Typing trigger triggers rate limit exception for w/e reason
   //await message.channel.triggerTyping();
@@ -63,15 +63,16 @@ Future<void> handleBotMention({
       fetchApi: fetchApi,
       initialMessages: initialMessages,
     );
+
     generationStopwatch.stop();
-    print('AI response:\n$aiReply');
+    final seconds = generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+    print('AI response within ${seconds.toStringAsFixed(2)}s');
+
     if (aiReply.isEmpty) {
       print('AI returned empty content; not sending a reply.');
       return;
     }
-    final seconds =
-        generationStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
-    //final contentWithTiming = '${aiReply.trimRight()} (${seconds.toStringAsFixed(2)}s)';
+
     await message.channel.sendMessage(MessageBuilder(
       content: aiReply,
       //referencedMessage: MessageReferenceBuilder.reply(messageId: message.id),
