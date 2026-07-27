@@ -1,20 +1,10 @@
 import 'dart:io';
 
 import 'package:dotenv/dotenv.dart';
+import 'package:egon_bot/src/discord/message_loop.dart';
+import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:nyxx/nyxx.dart';
-import 'src/api/external_api.dart';
-import 'src/api/fetch_api.dart';
-import 'src/api/search_api.dart';
-import 'src/discord_events.dart';
 
-const allowedChannelIds = <String>{
-  '234802941540696064',  // Geringverdiener; #nein-haben-wir-nicht
-  '1461803674144735252', // Private Chat Michael/Egon
-  '116205171205210117', // Hi na? - #chat1
-  '480039711705137153', // Hi na? - #chat2
-  '1029457370516049981', // Hi na? - #event-chat
-  '1503447806000627864', // eydu - #botting
-};
 const reconnectDelay = Duration(minutes: 5);
 
 Future<void> main() async {
@@ -24,9 +14,10 @@ Future<void> main() async {
   } else {
     stdout.writeln('No .env file found, using process environment variables.');
   }
+
   final token = env['DISCORD_BOT_TOKEN'];
   final ollamaBaseUrl = env['OLLAMA_API_BASE_URL'] ?? 'http://127.0.0.1:11434';
-  final windowsApiBaseUrl = env['WINDOWS_MONITOR_API_BASE_URL'] ?? 'http://127.0.0.1:11433';
+  final ollamaModel = env['OLLAMA_MODEL'] ?? 'gpt-oss:20b';
 
   if (token == null || token.isEmpty) {
     stderr.writeln(
@@ -36,27 +27,20 @@ Future<void> main() async {
     return;
   }
 
-  final externalApi = ExternalApi(
-    ollamaBaseUrl: Uri.parse(ollamaBaseUrl),
-    windowsMonitorBaseUrl: Uri.parse(windowsApiBaseUrl),
-    ollamaModel: 'gpt-oss:20b',
+  final ollama = OllamaClient(
+    baseUrl: Uri.parse(ollamaBaseUrl),
+    model: ollamaModel,
   );
-  final searchApi = SearchApi();
-  final fetchApi = FetchApi();
 
-  await _runBotSupervisor(
-    token: token,
-    externalApi: externalApi,
-    searchApi: searchApi,
-    fetchApi: fetchApi,
-  );
+  await _runBotSupervisor(token: token, ollama: ollama);
 }
 
+/// Keeps the bot connected forever. If the gateway connection drops or the
+/// event loop throws, we reconnect: first retry after 60s, subsequent
+/// retries every [reconnectDelay].
 Future<void> _runBotSupervisor({
   required String token,
-  required ExternalApi externalApi,
-  required SearchApi searchApi,
-  required FetchApi fetchApi,
+  required OllamaClient ollama,
 }) async {
   var allowEarlyRetry = false;
 
@@ -64,6 +48,9 @@ Future<void> _runBotSupervisor({
     try {
       final client = await Nyxx.connectGateway(
         token,
+        // NOTE: add GatewayIntents.messageContent once the privileged
+        // "Message Content Intent" is enabled in the Discord developer portal.
+        // DMs and direct mentions already deliver content without it.
         GatewayIntents.allUnprivileged,
         options: GatewayClientOptions(plugins: [logging, cliIntegration]),
       );
@@ -72,13 +59,7 @@ Future<void> _runBotSupervisor({
       // If this connection dies later, first retry should be a bit earlier.
       allowEarlyRetry = true;
 
-      await hookDiscordEvents(
-        client: client,
-        allowedChannelIds: allowedChannelIds,
-        externalApi: externalApi,
-        searchApi: searchApi,
-        fetchApi: fetchApi,
-      );
+      await runMessageLoop(client: client, ollama: ollama);
 
       stderr.writeln('Discord event stream ended unexpectedly.');
     } catch (error, stackTrace) {

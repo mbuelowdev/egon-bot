@@ -3,50 +3,13 @@ import 'dart:io';
 
 import 'ollama_models.dart';
 
-class ExternalApi {
-  ExternalApi({
-    required this.ollamaBaseUrl,
-    required this.windowsMonitorBaseUrl,
-    required this.ollamaModel,
-  });
+/// Thin HTTP client for a local Ollama instance.
+class OllamaClient {
+  OllamaClient({required this.baseUrl, required this.model});
 
-  final Uri ollamaBaseUrl;
-  final Uri windowsMonitorBaseUrl;
-  final String ollamaModel;
+  final Uri baseUrl;
+  final String model;
   final HttpClient _httpClient = HttpClient();
-
-  Future<bool> isUserActive() async {
-    final json = await _getJson(
-      windowsMonitorBaseUrl.resolve('/isUserActive'),
-    );
-    return json['isUserActive'] == true;
-  }
-
-  Future<Map<String, Object?>> getResourceUsage() async {
-    final json = await _getJson(
-      windowsMonitorBaseUrl.resolve('/getResourceUsage'),
-    );
-    return json;
-  }
-
-  Future<String> generateReply({
-    required String prompt,
-  }) async {
-    final json = await _postJson(
-      ollamaBaseUrl.resolve('/api/generate'),
-      {
-        'model': ollamaModel,
-        'prompt': prompt,
-        'stream': false,
-      },
-    );
-
-    final response = json['response'];
-    if (response is String && response.trim().isNotEmpty) {
-      return response.trim();
-    }
-    throw StateError('Ollama response did not contain text.');
-  }
 
   /// Sends a chat-style request to Ollama, optionally declaring [tools] the
   /// model is allowed to invoke. Returns the assistant message, including any
@@ -56,7 +19,7 @@ class ExternalApi {
     List<OllamaTool> tools = const [],
   }) async {
     final body = <String, Object?>{
-      'model': ollamaModel,
+      'model': model,
       'messages': messages.map((m) => m.toJson()).toList(),
       'stream': false,
     };
@@ -64,22 +27,13 @@ class ExternalApi {
       body['tools'] = tools.map((t) => t.toJson()).toList();
     }
 
-    final json = await _postJson(
-      ollamaBaseUrl.resolve('/api/chat'),
-      body,
-    );
+    final json = await _postJson(baseUrl.resolve('/api/chat'), body);
 
     final raw = json['message'];
     if (raw is Map) {
       return OllamaChatMessage.fromJson(raw.cast<String, Object?>());
     }
     throw StateError('Ollama chat response did not contain a message.');
-  }
-
-  Future<Map<String, Object?>> _getJson(Uri uri) async {
-    final request = await _httpClient.getUrl(uri);
-    final response = await request.close();
-    return _readJsonResponse(response, uri);
   }
 
   Future<Map<String, Object?>> _postJson(
@@ -90,13 +44,7 @@ class ExternalApi {
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
     final response = await request.close();
-    return _readJsonResponse(response, uri);
-  }
 
-  Future<Map<String, Object?>> _readJsonResponse(
-    HttpClientResponse response,
-    Uri uri,
-  ) async {
     final payload = await utf8.decodeStream(response);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(

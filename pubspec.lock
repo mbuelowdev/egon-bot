@@ -33,14 +33,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
-  csslib:
-    dependency: transitive
-    description:
-      name: csslib
-      sha256: "09bad715f418841f976c77db72d5398dc1253c21fb9c0c7f0b0b985860b2d58e"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.0.2"
   dotenv:
     dependency: "direct main"
     description:
@@ -65,14 +57,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.2.0"
-  html:
-    dependency: "direct main"
-    description:
-      name: html
-      sha256: "6d1264f2dffa1b1101c25a91dff0dc2daee4c18e87cd8538729773c073dbf602"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.15.6"
   http:
     dependency: transitive
     description:
@@ -101,18 +85,18 @@ packages:
     dependency: transitive
     description:
       name: meta
-      sha256: df0c643f44ad098eb37988027a8e2b2b5a031fd3977f06bbfd3a76637e8df739
+      sha256: "307249ce4ff29d58a18e97f6345f539382eb9c9c29ecda628900f31de0443dd9"
       url: "https://pub.dev"
     source: hosted
-    version: "1.18.2"
+    version: "1.19.0"
   nyxx:
     dependency: "direct main"
     description:
       name: nyxx
-      sha256: "8b0dd3a65fb3afad5eb5e85a6d37a3a5c5a1aa2e0d0b52b1474de02fb8bcc3de"
+      sha256: "53f2ffbf1423b9cf425971f30796a055d86d8e822550db7adfc55df0b9161ff0"
       url: "https://pub.dev"
     source: hosted
-    version: "6.9.0"
+    version: "6.9.0+1"
   oauth2:
     dependency: transitive
     description:
@@ -161,14 +145,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.2"
-  timezone:
-    dependency: "direct main"
-    description:
-      name: timezone
-      sha256: dd14a3b83cfd7cb19e7888f1cbc20f258b8d71b54c06f79ac585f14093a287d1
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.10.1"
   typed_data:
     dependency: transitive
     description:

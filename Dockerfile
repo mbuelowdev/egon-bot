@@ -6,7 +6,7 @@ COPY pubspec.* ./
 RUN dart pub get
 
 COPY . .
-RUN dart compile exe main.dart -o /app/app.exe
+RUN dart compile exe bin/main.dart -o /app/app.exe
 
 FROM debian:bookworm-slim AS runtime
 

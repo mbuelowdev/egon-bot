@@ -42,7 +42,10 @@ class OllamaChatMessage {
       role: (json['role'] as String?) ?? 'assistant',
       content: (json['content'] as String?) ?? '',
       toolCalls: rawCalls is List
-          ? rawCalls.whereType<Map>().map((m) => OllamaToolCall.fromJson(m.cast<String, Object?>())).toList()
+          ? rawCalls
+              .whereType<Map>()
+              .map((m) => OllamaToolCall.fromJson(m.cast<String, Object?>()))
+              .toList()
           : const [],
     );
   }
@@ -73,7 +76,8 @@ class OllamaToolCall {
       };
 
   factory OllamaToolCall.fromJson(Map<String, Object?> json) {
-    final fn = (json['function'] as Map?)?.cast<String, Object?>() ?? const <String, Object?>{};
+    final fn = (json['function'] as Map?)?.cast<String, Object?>() ??
+        const <String, Object?>{};
     return OllamaToolCall(
       id: json['id'] as String?,
       name: (fn['name'] as String?) ?? '',
