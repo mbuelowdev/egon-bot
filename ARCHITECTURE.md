@@ -16,13 +16,22 @@ below describes the target design.
 | R3 | Memorize text sent directly to the bot | §7 Memory |
 | R4 | Scheduled/deferred actions ("remind me in 3 days…") | §8 Scheduler |
 | R5 | List its own tools | §6 Tool system (`list_tools`) |
-| R6 | Web search | §9 Web tools |
-| R7 | Google Calendar integration | §10 Google Calendar |
-| R8 | Edit Obsidian notes — vault synced into the container via Obsidian credentials; every change shown as a diff and applied only after owner approval | §11 Obsidian, §6.5 Approvals |
+| R6 | Web search | §11 Web tools |
+| R7 | Google Calendar integration | §12 Google Calendar |
+| R8 | Edit Obsidian notes — vault synced into the container via Obsidian credentials; every change shown as a diff and applied only after owner approval | §13 Obsidian, §6.5 Approvals |
 | R9 | Implement its own tools in Dart + restart with new code | §6.4 Self-extension |
 | R10 | Query local Ollama for LLM tasks | §5 LLM layer |
 | R11 | GPU is shared (16 GB VRAM, gaming PC) — queue big-model calls until the Windows monitor reports the GPU as free | §5.1 GPU gate |
-| R12 | Whitelisted users get non-personal features only; dangerous actions by non-owners need owner approval in the same chat | §13 Security, §6.5 Approvals |
+| R12 | Whitelisted users get non-personal features only; dangerous actions by non-owners need owner approval in the same chat | §16 Security, §6.5 Approvals |
+| R13 | Idea capture via text **or voice message** — evaluate the idea or preserve it in Obsidian | §10 Inputs |
+| R14 | Deep-research jobs: build a step-by-step plan, execute it, report back with a structured document | §9 Jobs |
+| R15 | Recover from any outage and resume in-progress work | §9 Jobs, §3 Process model |
+| R16 | Incoming work is always queued and executed sequentially | §9 Jobs |
+| R17 | Cancel running work mid-flight ("stop researching about wood") | §9 Jobs |
+| R18 | Analyze a website / its API, then use that API | §11 Web tools |
+| R19 | Scheduled web watchers ("tell me when X goes live") | §8 Watchers |
+| R20 | On-demand overview of everything running or scheduled | §9 (`status_overview`) |
+| R21 | Address book: "send this document to Jan", with clarifying questions back | §14 Contacts |
 
 ## 2. High-level overview
 
@@ -37,6 +46,7 @@ flowchart TB
                 AGENT["Agent core<br/>(context builder + tool loop)"]
                 REG["Tool registry"]
                 SCHED["Scheduler tick loop"]
+                JOBS["Job runner<br/>(sequential queue)"]
                 MEM["Memory service"]
             end
         end
@@ -61,6 +71,8 @@ flowchart TB
     REG --> GCAL
     REG --> VOL
     SCHED --> AGENT
+    JOBS --> AGENT
+    JOBS --> VOL
     MEM --> VOL
     SCHED --> VOL
 ```
@@ -85,7 +97,7 @@ The container's entrypoint is not the bot itself but a small supervisor loop
 2. Run `dart run tool/generate_tool_registry.dart` (see §6.3).
 3. `dart pub get` (offline-first, falls back to network).
 4. Start the **Obsidian sync sidecar**: `ob sync --continuous` in `/data/vault`
-   (background process, §11). If it dies, the supervisor restarts it independently of
+   (background process, §13). If it dies, the supervisor restarts it independently of
    the bot; the bot keeps running either way.
 5. Start the bot: `dart run bin/main.dart`.
 6. React to the exit code:
@@ -117,8 +129,9 @@ Because the bot must be able to load *new Dart source* after a self-restart (R9)
 runtime image is not a compiled-AOT `debian-slim` image. **There is no compile step at
 all** (decided): the image is based on `dart:stable`, the bot runs JIT via `dart run`,
 and the seed's Dockerfile already works this way. The image additionally contains
-Node.js 22 and the `obsidian-headless` npm package for vault sync (§11). Trade-off:
-image grows to roughly 1.2 GB and startup takes a few seconds longer — acceptable for a
+Node.js 22 and the `obsidian-headless` npm package for vault sync (§13), plus `ffmpeg`
+and `whisper.cpp` with a speech model for voice-message transcription (§10). Trade-off:
+image grows to roughly 1.5 GB and startup takes a few seconds longer — acceptable for a
 single long-running bot on a home server.
 
 ## 4. Repository layout (target)
@@ -127,7 +140,7 @@ single long-running bot on a home server.
 bin/
   main.dart                     # entrypoint: env, supervisor-aware boot, watchdog
 lib/src/
-  config.dart                   # typed access to all env vars (§12)
+  config.dart                   # typed access to all env vars (§15)
   discord/
     gateway.dart                # connect, intents, reconnect loop
     message_router.dart         # DM / mention / whitelist routing
@@ -166,6 +179,15 @@ lib/src/
       obsidian_append_note_tool.dart
       obsidian_delete_note_tool.dart
       obsidian_search_notes_tool.dart
+      start_job_tool.dart       # long-running work with a plan (§9)
+      cancel_job_tool.dart
+      status_overview_tool.dart # everything running/scheduled/waiting (§9)
+      watch_url_tool.dart       # scheduled web watchers (§8)
+      http_request_tool.dart    # ad-hoc API calls (§11)
+      add_contact_tool.dart
+      update_contact_tool.dart
+      list_contacts_tool.dart
+      send_to_contact_tool.dart # DM a document/message to a contact (§14)
       whitelist_user_tool.dart
       unwhitelist_user_tool.dart
       create_tool_tool.dart     # the self-extension tool
@@ -177,6 +199,15 @@ lib/src/
   scheduler/
     scheduler.dart              # tick loop, due-task execution, recurrence
     recurrence.dart             # cron parsing / next-occurrence math
+    watcher.dart                # watch-task execution: fetch, compare, alert (§8)
+  jobs/
+    job_runner.dart             # sequential queue, resume, cancellation (§9)
+    planner.dart                # instructions -> step plan (utility JSON call)
+  media/
+    attachments.dart            # download, size cap, files table (§10)
+    transcription.dart          # ffmpeg + whisper.cpp voice-to-text (§10)
+  contacts/
+    contacts_service.dart       # address book + name resolution (§14)
   storage/
     database.dart               # SQLite open/migrate (schema_version pragma)
     migrations.dart
@@ -202,11 +233,12 @@ Persistent volume layout (`/data`, mounted via `deployment.json`):
 
 ```
 /data/
-  egon.db                # SQLite: memories, tasks, conversations, audit log
+  egon.db                # SQLite: memories, tasks, jobs, contacts, files, audit log
+  files/                 # downloaded attachments + job artifacts (§10)
   tools/                 # self-written tool sources (*.dart)
   tools/quarantine/      # tools removed after causing crash loops
   google/token.json      # OAuth refresh token for Calendar
-  vault/                 # Obsidian vault, synced by obsidian-headless (§11)
+  vault/                 # Obsidian vault, synced by obsidian-headless (§13)
   obsidian/              # headless client login state + sync config
   state/                 # supervisor bookkeeping (crash counters, last-good marker)
 ```
@@ -328,7 +360,7 @@ agent.
 Every capability — built-in or self-written — implements one abstract class:
 
 ```dart
-/// Who may trigger a tool, and what it takes (§13 for the full matrix).
+/// Who may trigger a tool, and what it takes (§16 for the full matrix).
 enum ToolAccess {
   /// Any whitelisted user: web search, list_tools, reminders in shared chats.
   standard,
@@ -552,8 +584,9 @@ CREATE TABLE scheduled_tasks (
   created_at    TEXT NOT NULL,
   created_by    TEXT NOT NULL,          -- user id
   channel_id    TEXT NOT NULL,          -- where the result gets posted
-  kind          TEXT NOT NULL,          -- 'message' | 'agent'
-  payload       TEXT NOT NULL,          -- message text, or agent instruction
+  kind          TEXT NOT NULL,          -- 'message' | 'agent' | 'watch'
+  payload       TEXT NOT NULL,          -- message text, agent instruction, or watch spec
+  state_json    TEXT,                   -- watcher snapshot/state between runs
   due_at        TEXT,                   -- one-shot: ISO-8601 UTC
   recurrence    TEXT,                   -- cron expression (5-field), or NULL
   timezone      TEXT NOT NULL DEFAULT 'Europe/Berlin',
@@ -602,7 +635,197 @@ Example — "Remind me in 3 days in this chat that I want to go to the mall" bec
   in the in-memory queue.
 - `list_scheduled_tasks` / `cancel_scheduled_task(id)` round out the management surface.
 
-## 9. Web tools (R6)
+### Watchers: scheduled web scrapers (R19)
+
+"Tell me when the ticket shop goes live" is a recurring `watch` task created by the
+`watch_url` tool:
+
+```
+watch_url(url, condition, interval, until_triggered = true)
+```
+
+Each run is cheap and GPU-free:
+
+1. `fetch_url` the page (same extraction pipeline as §11).
+2. Compare against the previous snapshot stored in `state_json` (content hash + the
+   text region relevant to the condition).
+3. If the content changed, the **utility model** (CPU, always available) evaluates the
+   condition against old vs new text: *"has it gone live?"*.
+4. If triggered: post an alert to the originating channel with the evidence quote and
+   the URL. With `until_triggered` (the default) the watcher then marks itself `done`;
+   otherwise it keeps watching (e.g. price monitoring).
+
+Watchers are ordinary scheduled tasks: they appear in `list_scheduled_tasks` and
+`status_overview`, and are cancelled with `cancel_scheduled_task`. Minimum interval
+15 minutes to stay polite to the target site. Watchers created by whitelisted users are
+capped at 3 per user; the owner is uncapped.
+
+## 9. Jobs — long-running work (R14–R17, R20)
+
+A chat turn (§6) lasts seconds to minutes. *"Analyze how to properly seal wood
+outdoors, summarize in a small document, find good products, check the local Bauhaus
+first"* lasts much longer, needs a plan, and must survive restarts. That is a **job**.
+
+### Life cycle
+
+```
+queued ──► planning ──► running ──► done
+                          │  ▲         ├─► failed
+                          ▼  │         └─► cancelled
+                       waiting_user
+```
+
+### Data model
+
+```sql
+CREATE TABLE jobs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT NOT NULL,
+  channel_id    TEXT NOT NULL,          -- where progress + report get posted
+  title         TEXT NOT NULL,          -- short label, e.g. "wood sealing research"
+  instructions  TEXT NOT NULL,          -- the user's full request, verbatim
+  plan_json     TEXT,                   -- [{step, description, status, summary}]
+  current_step  INTEGER,
+  status        TEXT NOT NULL DEFAULT 'queued',
+                -- queued|planning|running|waiting_user|done|failed|cancelled
+  question      TEXT,                   -- pending question while waiting_user
+  progress_log  TEXT,                   -- append-only notes, persisted per step
+  result        TEXT,                   -- final report (markdown)
+  updated_at    TEXT NOT NULL
+);
+```
+
+### Planning
+
+The `start_job` tool creates the row; the `JobRunner` asks the **big model** (utility
+JSON call, gated) to expand `instructions` into a plan of 2–10 concrete steps. For the
+wood example that looks like:
+
+```json
+["Research wood sealing methods for outdoor use (web_search + fetch_url)",
+ "Research recommended product categories and ingredients to avoid",
+ "Search bauhaus.info for matching products, collect names + prices + links",
+ "Broaden product search to other German retailers as fallback",
+ "Write summary document to Obsidian: Inbox/Research/Holz versiegeln.md",
+ "Post short report with top product picks to the channel"]
+```
+
+The plan is posted to the channel once ("Here's my plan — say stop anytime"), then
+execution starts. No approval needed to *start* — only individual mutating tool calls
+inside the job go through §6.5 as usual (e.g. writing the Obsidian document).
+
+### Execution — strictly sequential (R16)
+
+- `JobRunner` is a singleton worker: **one job runs at a time**, others wait in
+  `queued`, FIFO. New requests while a job runs get "queued behind ⟨current job⟩".
+- Each step is executed as a bounded tool loop (§6) whose goal is that step's
+  description, with the accumulated summaries of previous steps as context.
+- After every step the plan status, a step summary, and `progress_log` are persisted —
+  this is the resume point. A progress message is posted at step boundaries for jobs
+  with more than 2 steps.
+- Job LLM calls are `big`-tier: while you game, the job simply pauses at the gate and
+  the progress log notes "waiting for GPU". No VRAM is ever stolen from a game by a
+  background job.
+
+### Cancellation (R17)
+
+Two paths, same effect:
+
+- Explicit: the `cancel_job` tool.
+- Natural language: while a job is running, every new owner message in that channel is
+  first classified by the **utility model** (CPU, instant): *"is this a cancel/change
+  request for the running job ⟨title⟩?"*. "Stop researching about wood" → yes.
+
+Cancellation sets a flag that the runner checks between tool calls and between steps —
+a long tool call finishes, but nothing new starts. The job posts what it had so far
+("Cancelled. Partial findings: …") and is marked `cancelled`.
+
+### Clarifying questions
+
+Any step may conclude that it needs input (missing detail, ambiguous contact, a choice
+between options). The job posts the question in its channel, moves to `waiting_user`,
+and — so one stuck question never blocks everything (R16 applies to *active* work) —
+the next queued job may start. The owner's reply re-queues the waiting job at the front.
+
+### Outage recovery (R15)
+
+On boot the runner scans the jobs table:
+
+- `running` → the current step restarts from its beginning. Read-only tools simply run
+  again; mutating tools were either already applied (visible in `progress_log`) or go
+  through approval again — no double writes.
+- `queued` / `waiting_user` → untouched, still valid.
+- A notice is posted: "Back online, resuming ⟨title⟩ at step 3/6."
+
+Combined with §3 (crash restarts) and the scheduler's downtime policy, every kind of
+outage ends with the bot picking its work back up.
+
+### Reporting
+
+The final step of research-type plans is always twofold: the full structured document
+goes to the Obsidian vault (diff-approved, §6.5), and a short digest (≤ 2 000 chars)
+with the key findings and links is posted to the channel.
+
+### `status_overview` (R20)
+
+One tool renders the whole runtime state whenever you ask "what are you working on?":
+
+- active job with current step and elapsed time,
+- queued jobs and `waiting_user` questions,
+- upcoming reminders and scheduled tasks (next 5),
+- active watchers with last-checked time,
+- pending approvals,
+- GPU gate state (free / busy / monitor down) and queued big-model calls.
+
+## 10. Inputs: voice messages and attachments (R13)
+
+### Attachments
+
+The message router downloads every attachment on messages addressed to the bot
+(≤ 25 MB) into `/data/files/` and records it:
+
+```sql
+CREATE TABLE files (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL,
+  channel_id  TEXT NOT NULL,
+  message_id  TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  path        TEXT NOT NULL
+);
+```
+
+"Send *this document* to Jan" resolves "this document" to the most recent file in the
+channel (the context builder injects the last few file records). Text-like attachments
+(txt, md, json, csv, pdf via `pdftotext`) can also be read into context on request.
+
+### Voice messages
+
+Discord voice messages arrive as ogg/opus attachments with a voice-message flag.
+Pipeline, running entirely on the bot's server CPU (never the gaming PC):
+
+```
+ogg/opus ──ffmpeg──► 16 kHz mono wav ──whisper.cpp (WHISPER_MODEL, default small)──► text
+```
+
+The transcript is then handled exactly like a typed message — same routing, memory
+capture, and agent turn — prefixed `(voice message)` so the model knows transcription
+noise is possible. `ggml-small` (~460 MB, in the image) handles German and English
+well; a voice memo of a minute transcribes in a few seconds on server CPU.
+
+### Idea capture
+
+No special mechanics needed on top: a text or voice DM lands as a normal agent turn,
+and the persona instructions say — *if the owner shares an idea, either discuss and
+evaluate it when asked, or preserve it via `obsidian_append_note` to
+`Inbox/Ideas.md` (date-stamped) when he wants it saved; when unclear, ask which.*
+The append is diff-approved like every vault write, so a one-tap Approve completes the
+capture.
+
+## 11. Web tools (R6, R18)
 
 Port of the previous implementation (recoverable from git history, commit `2bca07a`),
 repackaged as two `Tool` classes:
@@ -613,13 +836,31 @@ repackaged as two `Tool` classes:
   `{url, title, text, content_type, truncated}` capped at 8 000 chars. Text-like MIME
   types only.
 
+### API analysis and usage (R18)
+
+"Look at this website, figure out their API, then use it" decomposes into existing
+pieces plus one new tool:
+
+- **Analysis**: the agent uses `fetch_url` on the site, then probes the usual suspects —
+  `/openapi.json`, `/swagger.json`, `/api`, developer-docs links found on the page — and
+  summarizes endpoints, auth requirements, and parameters. (Limitation worth knowing:
+  no JavaScript execution; SPAs that only reveal their API in the browser's network tab
+  need you to paste an example request.)
+- **Usage**: `http_request(method, url, headers?, body?)` makes the actual API calls.
+  `ToolAccess.personal`; non-GET methods (anything that mutates remote state) show a
+  preview approval (§6.5) with the exact request before it is sent. Private/loopback
+  address ranges are blocked so a prompt-injected page can't probe the home network.
+- **Permanence**: when an API turns out to be useful repeatedly, the natural follow-up
+  is "make yourself a tool for this" → `create_tool` (§6.4) generates a dedicated,
+  typed tool wrapping that API.
+
 Prompt-injection note: content fetched from the web is untrusted. The tool loop tags web
 results, and the system prompt instructs the model to never treat fetched text as
-instructions. Additionally, `ownerOnly` tools cannot be *triggered by* a turn whose
-requesting user isn't the owner regardless of what fetched content says (enforced in the
-registry, not the prompt).
+instructions. Additionally, `personal`/`dangerous` tools cannot be *triggered by* a turn
+whose requesting user isn't the owner regardless of what fetched content says (enforced
+in the registry, not the prompt).
 
-## 10. Google Calendar (R7)
+## 12. Google Calendar (R7)
 
 - Packages: `googleapis` (CalendarApi) + `googleapis_auth`.
 - Auth: **OAuth 2.0 desktop-app flow with a stored refresh token** (a service account
@@ -629,16 +870,20 @@ registry, not the prompt).
     `/data/google/token.json` (refresh token + client id/secret).
   - At runtime the client auto-refreshes access tokens; if the refresh token is revoked,
     calendar tools return a "re-run setup" error instead of crashing.
-- Tools (all `ownerOnly` except listing):
+- Tools (all `ToolAccess.personal`; mutations show a preview approval):
   - `calendar_list_events(time_min, time_max, query?)`
   - `calendar_create_event(summary, start, end, description?, location?)`
   - `calendar_update_event(event_id, ...changed fields)`
   - `calendar_delete_event(event_id)`
-- Target calendar id comes from `GOOGLE_CALENDAR_ID` (default `primary`).
+- **Decided: writes go to a dedicated "Egon" calendar.** The setup script creates it if
+  missing and stores its id in `/data/google/config.json`; reads cover all calendars
+  visible to the account (so the bot sees your real appointments too), writes/updates/
+  deletes are restricted to the Egon calendar. `GOOGLE_CALENDAR_ID` overrides the write
+  target if ever needed.
 - All timestamps are converted to/from `Europe/Berlin` for the model, RFC 3339 on the
   wire.
 
-## 11. Obsidian integration (R8)
+## 13. Obsidian integration (R8)
 
 **Decided: the vault is synced into the container with Obsidian account credentials**,
 using the official **Obsidian Headless** client
@@ -686,7 +931,41 @@ Tools (all mutating ones are `ToolAccess.personal` + preview-approved):
 - `obsidian_search_notes(query)` — case-insensitive content grep, returns path + matching
   lines.
 
-## 12. Configuration
+## 14. Contacts and sending documents (R21)
+
+The address book lives in SQLite:
+
+```sql
+CREATE TABLE contacts (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at       TEXT NOT NULL,
+  name             TEXT NOT NULL,      -- canonical: "Jan Müller"
+  aliases          TEXT,               -- comma-separated: "jan,jan m,müller"
+  discord_user_id  TEXT,               -- delivery target
+  notes            TEXT                -- free text: "climbing group", "brother of ..."
+);
+```
+
+Tools (all `ToolAccess.personal`): `add_contact`, `update_contact`, `list_contacts`,
+and the interesting one:
+
+- `send_to_contact(contact_query, file_ref?, message?)`
+  1. **Resolve the contact**: case-insensitive match on name + aliases. Exactly one hit
+     → proceed. Zero or several → the bot asks back in the same chat: *"Which Jan do
+     you mean? I know Jan M. and Jan K."* — in a chat turn that's just the reply; inside
+     a job the job moves to `waiting_user` (§9). The answer can extend the address book
+     ("the third one, add him: discord id …").
+  2. **Resolve the document**: `file_ref` may be the most recent attachment in the
+     channel (default for "this document"), a URL to fetch, an Obsidian note path, or a
+     file generated by a previous step.
+  3. **Preview approval** (§6.5): recipient, file name/size, and the accompanying
+     message are shown; nothing leaves before Approve.
+  4. **Deliver**: the bot opens a DM to `discord_user_id` and sends the file + message,
+     then confirms with a link. Constraint: Discord bots can only DM users who share a
+     server with the bot — the tool reports this cleanly when delivery fails, and falls
+     back to offering the file in the current channel.
+
+## 15. Configuration
 
 All configuration via environment variables (dotenv locally, `-e` flags in
 `deployment.json` in production), typed in `lib/src/config.dart`:
@@ -704,18 +983,20 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `GPU_POLL_INTERVAL_SECONDS` | no | `60` | Re-poll interval while jobs are queued |
 | `DATA_DIR` | no | `/data` | Volume root |
 | `BOT_TIMEZONE` | no | `Europe/Berlin` | Scheduler + prompt timestamps |
-| `OBSIDIAN_EMAIL` | for notes | — | Obsidian account email (headless sync login, §11) |
+| `OBSIDIAN_EMAIL` | for notes | — | Obsidian account email (headless sync login, §13) |
 | `OBSIDIAN_PASSWORD` | for notes | — | Obsidian account password |
 | `OBSIDIAN_VAULT_NAME` | for notes | — | Remote vault name to sync |
 | `OBSIDIAN_E2EE_PASSWORD` | no | — | Only for end-to-end-encrypted vaults |
 | `OBSIDIAN_VAULT_DIR` | no | `/data/vault` | Local sync target |
-| `GOOGLE_CALENDAR_ID` | no | `primary` | Target calendar |
+| `GOOGLE_CALENDAR_ID` | no | *(auto: "Egon" calendar)* | Write-target calendar override |
+| `WHISPER_MODEL` | no | `small` | whisper.cpp model for voice transcription (§10) |
+| `MAX_ATTACHMENT_MB` | no | `25` | Attachment download cap (§10) |
 
 The privileged **Message Content Intent** is enabled in the developer portal (decided),
 so the bot reads guild messages that don't mention it and can build conversation
 context. The seed connects with `allUnprivileged | messageContent`.
 
-## 13. Security model
+## 16. Security model
 
 Three actor roles and three tool tiers (decided):
 
@@ -731,7 +1012,7 @@ Three actor roles and three tool tiers (decided):
 - **Enforcement location**: all of the above lives in `ToolRegistry.dispatch` and the
   message router, never in the prompt.
 - **Channel whitelist**: guild messages outside `ALLOWED_CHANNEL_IDS` are ignored.
-- **Vault sandbox**: §11.
+- **Vault sandbox**: §13.
 - **Generated-code limits**: import whitelist + `dart analyze` gate + quarantine (§6.4).
   Note the honest limitation: a self-written tool still runs with the bot's full OS
   privileges inside the container. The container itself is the sandbox — it gets no
@@ -740,7 +1021,7 @@ Three actor roles and three tool tiers (decided):
   (`id, at, tool, caller, channel, args_json, ok, duration_ms`).
 - **Secrets** never enter the prompt; the config object redacts itself in `toString`.
 
-## 14. Failure modes and recovery
+## 17. Failure modes and recovery
 
 | Failure | Detected by | Recovery |
 |---------|-------------|----------|
@@ -753,36 +1034,45 @@ Three actor roles and three tool tiers (decided):
 | GPU busy (user gaming / high load) | LLM gate poll (§5.1) | interactive: answer immediately via CPU utility model (degraded mode), hard requests queued for the big model; scheduled `agent` tasks: defer +5 min in SQLite |
 | Windows monitor unreachable | gate poll fails | treat GPU as busy; notify owner once after 15 min with queued-job count |
 | Reminders due during downtime | boot scan | ≤6h late: fire with "(delayed)"; older: mark `missed`, notify owner |
+| Job interrupted by crash/restart | boot scan of jobs table | resume at the current step, post "resuming ⟨job⟩ at step n/m" (§9) |
+| Watcher target site down/changed markup | fetch error / empty extraction | keep previous snapshot, retry at next interval; warn owner after 3 consecutive failures |
+| Voice transcription fails | whisper/ffmpeg error | reply "couldn't understand the voice message, please type it" |
 | Google token revoked | 401 on refresh | calendar tools return setup instructions |
 | Obsidian sync sidecar dies / login fails | supervisor process watch | restart sidecar with backoff; note tools return "vault sync unavailable" instead of writing stale files |
 | SQLite corruption | open/migrate failure | supervisor keeps last-known-good backup `/data/state/egon.db.bak` (rotated daily), restores and notifies |
 
-## 15. Open questions
+## 18. Decisions and proposed extras
 
-Still open:
-
-1. **Google Calendar** — creating a free Google Cloud OAuth desktop-app client is
-   required for the consent flow. And: should the bot write to your **primary** calendar
-   or to a dedicated "Egon" calendar it fully owns (recommended — mistakes can't damage
-   real appointments, and both overlay in the Google Calendar UI)?
-   *Default assumed: dedicated calendar, read access to primary.*
-2. **Persona** — should the German "Egon" persona survive in group channels while the
-   DM assistant stays neutral? *Default assumed: yes, persona in group channels only.*
-
-Decided so far:
+All previously open questions are decided:
 
 - **Models (§5.1)**: two tiers — `gpt-oss:20b` on the GPU (gated), `llama3.2:3b`
   CPU-only, always available. Pull once with `ollama pull llama3.2:3b`.
-- **Obsidian (§11)**: vault synced into the container via the official
+- **Obsidian (§13)**: vault synced into the container via the official
   `obsidian-headless` client using account credentials; full write access to the whole
   vault; every change diff-approved in chat before it is applied.
-- **Audience (§13)**: owner gets everything; whitelisted users get non-personal
+- **Audience (§16)**: owner gets everything; whitelisted users get non-personal
   features; their dangerous requests need owner approval in the same channel.
-- **Web search (§9)**: keyless DuckDuckGo-lite scraping.
+- **Web search (§11)**: keyless DuckDuckGo-lite scraping.
 - **Runtime (§3)**: run from source, no compile step, `dart:stable` + Node 22 image.
-- **Message Content Intent (§12)**: enabled in the developer portal.
+- **Message Content Intent (§15)**: enabled in the developer portal.
+- **Google Calendar (§12)**: dedicated "Egon" calendar for writes, all visible
+  calendars for reads. One-time OAuth desktop-app consent flow.
+- **Persona**: German "Egon" persona in whitelisted group channels; neutral, concise
+  assistant voice in owner DMs.
 
-## 16. Implementation order
+Proposed extras — not yet committed, say yes/no per item:
+
+1. **Morning briefing** — a recurring `agent` task (e.g. 07:30) posting today's
+   calendar, due reminders, active jobs/watchers, and anything new in `Inbox/Ideas.md`.
+   Cheap to build (it's just a scheduled task once phases 1–5 exist).
+2. **"What did you do today?"** — an audit-log summary tool: every tool call is already
+   recorded (§6.2), this renders it as a daily activity report.
+3. **Memory consolidation** — a weekly job that condenses accumulated memories into a
+   tidy Obsidian note and prunes duplicates, keeping FTS recall sharp.
+4. **Email integration** — read/summarize/send via IMAP/SMTP. Genuinely useful for an
+   assistant but a separate credential + security surface; only worth it if you want it.
+
+## 19. Implementation order
 
 Each phase leaves the bot deployable and useful on its own:
 
@@ -794,11 +1084,18 @@ Each phase leaves the bot deployable and useful on its own:
    auto-capture, `remember`/`recall_memories`/`forget_memory`, automatic memory
    injection into context.
 3. **Scheduler**: task table, tick loop, `schedule_task`/`list`/`cancel`, downtime
-   policy. This delivers the "remind me in 3 days" flow end to end.
-4. **Self-extension runtime**: supervisor entrypoint, registry codegen, `create_tool`
+   policy. This delivers the "remind me next Thursday 8 am" flow end to end.
+4. **Jobs**: `JobRunner`, planner, sequential queue, cancellation (tool + natural
+   language), resume-on-boot, `status_overview`. This delivers the deep-research flow.
+5. **Self-extension runtime**: supervisor entrypoint, registry codegen, `create_tool`
    with analyze gate + quarantine, exit-code-42 protocol, dangerous-tool escalation.
-5. **Obsidian**: headless-sync sidecar in the supervisor, vault service, six note tools
-   with diff previews.
-6. **Google Calendar**: setup script, client, four calendar tools with previews.
-7. **Hardening**: watchdog, audit log review command, DB backup rotation, tests for
-   scheduler recurrence, vault sandboxing, and approval expiry.
+6. **Obsidian**: headless-sync sidecar in the supervisor, vault service, note tools
+   with diff previews. Unlocks research reports and idea capture end to end.
+7. **Media + contacts**: attachment pipeline, whisper.cpp voice transcription, contacts
+   table and `send_to_contact` with clarification flow.
+8. **Google Calendar**: setup script (creates the Egon calendar), client, four calendar
+   tools with previews.
+9. **Watchers + API usage**: `watch_url` on the scheduler, `http_request` with
+   private-network blocking, API-analysis prompt playbook.
+10. **Hardening**: watchdog, audit log review, DB backup rotation, tests for scheduler
+    recurrence, vault sandboxing, approval expiry, and job resume.
