@@ -13,7 +13,7 @@
         "tag": "latest",
         "argPorts": "",
         "argVolumes": "",
-        "argExtra": " -e DISCORD_BOT_TOKEN -e OLLAMA_API_BASE_URL -e OLLAMA_MODEL"
+        "argExtra": " -e DISCORD_BOT_TOKEN -e OLLAMA_API_BASE_URL -e OLLAMA_MODEL -e WINDOWS_MONITOR_API_BASE_URL"
     }
   ]
 }

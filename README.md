@@ -14,6 +14,11 @@ rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHIT
 - `lib/src/discord/message_loop.dart` — replies via Ollama when the bot is DM'd or
   mentioned. Proof-of-life only; the agent core from the architecture doc replaces this.
 - `lib/src/llm/` — Ollama `/api/chat` client with tool-calling support.
+- `lib/src/integrations/windows_monitor_client.dart` + `tools/windows_monitor_api.dart` —
+  the GPU monitor sidecar (runs on the Windows machine hosting Ollama) and its client.
+  The GPU is shared with games, so Ollama is only called while the monitor reports it
+  free; the full design queues requests instead (ARCHITECTURE.md §5.1). Leave
+  `WINDOWS_MONITOR_API_BASE_URL` unset to disable gating during development.
 
 ## Running locally
 

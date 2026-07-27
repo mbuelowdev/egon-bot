@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dotenv/dotenv.dart';
 import 'package:egon_bot/src/discord/message_loop.dart';
+import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:nyxx/nyxx.dart';
 
@@ -18,6 +19,7 @@ Future<void> main() async {
   final token = env['DISCORD_BOT_TOKEN'];
   final ollamaBaseUrl = env['OLLAMA_API_BASE_URL'] ?? 'http://127.0.0.1:11434';
   final ollamaModel = env['OLLAMA_MODEL'] ?? 'gpt-oss:20b';
+  final windowsMonitorBaseUrl = env['WINDOWS_MONITOR_API_BASE_URL'];
 
   if (token == null || token.isEmpty) {
     stderr.writeln(
@@ -32,7 +34,19 @@ Future<void> main() async {
     model: ollamaModel,
   );
 
-  await _runBotSupervisor(token: token, ollama: ollama);
+  // The GPU that Ollama uses is shared with the Windows machine's primary
+  // user. When the monitor sidecar is configured, big-model calls only run
+  // while the GPU is free. Unset = gating disabled (local development).
+  final monitor = windowsMonitorBaseUrl == null || windowsMonitorBaseUrl.isEmpty
+      ? null
+      : WindowsMonitorClient(baseUrl: Uri.parse(windowsMonitorBaseUrl));
+  if (monitor == null) {
+    stdout.writeln(
+      'WINDOWS_MONITOR_API_BASE_URL not set — GPU gating disabled.',
+    );
+  }
+
+  await _runBotSupervisor(token: token, ollama: ollama, monitor: monitor);
 }
 
 /// Keeps the bot connected forever. If the gateway connection drops or the
@@ -41,6 +55,7 @@ Future<void> main() async {
 Future<void> _runBotSupervisor({
   required String token,
   required OllamaClient ollama,
+  required WindowsMonitorClient? monitor,
 }) async {
   var allowEarlyRetry = false;
 
@@ -59,7 +74,7 @@ Future<void> _runBotSupervisor({
       // If this connection dies later, first retry should be a bit earlier.
       allowEarlyRetry = true;
 
-      await runMessageLoop(client: client, ollama: ollama);
+      await runMessageLoop(client: client, ollama: ollama, monitor: monitor);
 
       stderr.writeln('Discord event stream ended unexpectedly.');
     } catch (error, stackTrace) {

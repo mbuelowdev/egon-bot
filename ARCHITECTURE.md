@@ -21,6 +21,7 @@ below describes the target design.
 | R8 | Edit Obsidian notes | §11 Obsidian |
 | R9 | Implement its own tools in Dart + restart with new code | §6.4 Self-extension |
 | R10 | Query local Ollama for LLM tasks | §5 LLM layer |
+| R11 | GPU is shared (16 GB VRAM, gaming PC) — queue big-model calls until the Windows monitor reports the GPU as free | §5.1 GPU gate |
 
 ## 2. High-level overview
 
@@ -40,15 +41,20 @@ flowchart TB
         end
         VOL[("/data volume<br/>SQLite DB, generated tools,<br/>Google token, vault")]
     end
+    subgraph winpc["Windows gaming PC (shared GPU, 16 GB VRAM)"]
+        OLLAMA(("Ollama<br/>/api/chat"))
+        MON["Windows monitor sidecar<br/>(tools/windows_monitor_api.dart)<br/>/isUserActive /getResourceUsage"]
+    end
     DISCORD(("Discord API"))
-    OLLAMA(("Ollama<br/>/api/chat"))
     WEB(("Web / DuckDuckGo"))
     GCAL(("Google Calendar API"))
 
     SUP -->|spawns / restarts| bot
     GW <--> DISCORD
     GW --> ROUTER --> AGENT
-    AGENT <--> OLLAMA
+    AGENT --> GATE["LLM gate + queue<br/>(§5.1)"]
+    GATE -->|GPU free?| MON
+    GATE <--> OLLAMA
     AGENT <--> REG
     REG --> WEB
     REG --> GCAL
@@ -128,6 +134,7 @@ lib/src/
   llm/
     ollama_client.dart          # /api/chat (+ /api/embed later)
     ollama_models.dart          # message/tool-call/tool-schema DTOs
+    llm_gate.dart               # GPU-aware FIFO queue in front of the client (§5.1)
   tools/
     tool.dart                   # abstract class Tool + ToolContext + ToolResult
     tool_registry.dart          # lookup, schema export, list_tools rendering
@@ -165,11 +172,15 @@ lib/src/
   integrations/
     google_calendar_client.dart
     obsidian_vault.dart         # sandboxed file access to the vault
+    windows_monitor_client.dart # client for the GPU monitor sidecar (§5.1)
 tool/                           # dev-time scripts (not shipped tools!)
   generate_tool_registry.dart   # codegen for tool_registry.g.dart
   google_calendar_setup.dart    # one-time OAuth consent flow
 supervisor/
   entrypoint.sh                 # Layer-2 supervisor (§3)
+tools/
+  windows_monitor_api.dart      # sidecar: runs ON the Windows gaming PC (not in the
+                                # container); reports Parsec activity + GPU load
 test/                           # unit tests per subsystem
 ARCHITECTURE.md
 Dockerfile
@@ -201,6 +212,72 @@ Persistent volume layout (`/data`, mounted via `deployment.json`):
     reminder request into JSON") using Ollama's `format` parameter for guaranteed-JSON
     output. The scheduler and `create_tool` use this mode.
 - Timeouts: 120s per completion (local models are slow); one retry on transport error.
+
+### 5.1 GPU gate and request queue (R11)
+
+Ollama runs on the Windows gaming PC and shares its 16 GB of VRAM with games. The bot
+must never load an expensive model while the machine is in use. The **Windows monitor
+sidecar** (`tools/windows_monitor_api.dart`, runs on that PC, port 11433) is the source
+of truth:
+
+- `/isUserActive` — `true` while a Parsec session is connected.
+- `/getResourceUsage` — current + 5-minute-average CPU/GPU utilization.
+
+**No code calls `OllamaClient` directly.** Everything goes through the `LlmGate`
+(`lib/src/llm/llm_gate.dart`), a single-worker FIFO queue in front of the client:
+
+```dart
+enum ModelTier { big, small }
+
+class LlmJob {
+  final ModelTier tier;
+  final List<OllamaChatMessage> messages;
+  final List<OllamaTool> tools;
+  final String? originChannelId;   // where to deliver a deferred answer
+  final DateTime enqueuedAt;
+  final Completer<OllamaChatMessage> completer;
+}
+```
+
+Gate policy, evaluated before dispatching each `big` job (and re-polled every
+`GPU_POLL_INTERVAL_SECONDS`, default 60, while jobs wait):
+
+| Condition | Verdict |
+|-----------|---------|
+| `isUserActive == true` | busy — someone is on the machine |
+| `gpuUsagePercent.avg5m > GPU_BUSY_THRESHOLD_PERCENT` (default 40) | busy — GPU loaded by something else |
+| monitor unreachable | busy — the PC (and with it Ollama) is most likely off |
+| otherwise | free — dispatch job |
+
+Behavior per caller:
+
+- **Interactive chat turns**: if the gate is busy, the bot immediately answers
+  *"GPU is in use — I've queued your request and will answer here once it's free."* and
+  the job stays queued. When it eventually runs, the answer is posted to
+  `originChannelId` as a reply to the original message. Interactive jobs expire after
+  6 hours with a short apology. Queue cap: 20 jobs; beyond that the bot asks the user to
+  try later.
+- **Scheduler `agent` tasks**: never enter the in-memory queue while busy. The task's
+  `next_run_at` is pushed +5 minutes and it stays `pending` in SQLite — durable across
+  restarts, retried until the GPU frees up.
+- **Utility calls** (reminder parsing, `create_tool` codegen) are `big`-tier too by
+  default, since they use the same model. If a small CPU-friendly utility model is
+  configured later (`OLLAMA_UTILITY_MODEL`), `small`-tier jobs bypass the GPU check.
+
+Edge cases:
+
+- Monitor unreachable for >15 minutes while jobs are queued → notify the owner once
+  ("monitor down, N requests waiting"), keep waiting.
+- Concurrency is 1 by design: one big model call at a time, so Ollama never holds more
+  than one model's VRAM plus context.
+- The queue is in-memory. On a *graceful* restart (exit 42) the bot first posts "I'm
+  restarting, please re-send your request" to the origin channels of queued jobs. After
+  a crash, queued interactive jobs are simply lost (scheduled tasks are not — they live
+  in SQLite).
+
+The seed already contains the first slice of this: `WindowsMonitorClient` plus a
+check-and-refuse gate in the message loop. The queue replaces the refusal in the full
+agent.
 
 ## 6. Tool system (R5, R9)
 
@@ -413,6 +490,10 @@ Example — "Remind me in 3 days in this chat that I want to go to the mall" bec
 - **Downtime policy**: at boot, tasks overdue by less than 6 hours are executed
   immediately with a "(delayed)" prefix; older ones are marked `missed` and the owner is
   notified. Recurring tasks skip missed occurrences and resume at the next one.
+- **GPU interplay** (§5.1): `message` tasks fire regardless of GPU state (no LLM call
+  involved). `agent` tasks check the gate first; while the GPU is busy their
+  `next_run_at` is pushed +5 minutes so they stay durable in SQLite instead of sitting
+  in the in-memory queue.
 - `list_scheduled_tasks` / `cancel_scheduled_task(id)` round out the management surface.
 
 ## 9. Web tools (R6)
@@ -487,6 +568,9 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `ALLOWED_CHANNEL_IDS` | no | *(empty = DMs only)* | Comma-separated guild channel whitelist |
 | `OLLAMA_API_BASE_URL` | no | `http://127.0.0.1:11434` | Ollama endpoint |
 | `OLLAMA_MODEL` | no | `gpt-oss:20b` | Must support tool calling |
+| `WINDOWS_MONITOR_API_BASE_URL` | no | *(unset = gating disabled)* | GPU monitor sidecar on the Ollama machine (§5.1) |
+| `GPU_BUSY_THRESHOLD_PERCENT` | no | `40` | 5-min-avg GPU load above which big calls wait |
+| `GPU_POLL_INTERVAL_SECONDS` | no | `60` | Re-poll interval while jobs are queued |
 | `DATA_DIR` | no | `/data` | Volume root |
 | `BOT_TIMEZONE` | no | `Europe/Berlin` | Scheduler + prompt timestamps |
 | `OBSIDIAN_VAULT_DIR` | no | `/data/vault` | Vault root (Option A/B) |
@@ -522,6 +606,8 @@ with unprivileged intents only.
 | Bad self-written tool crashes boot | crash-loop counter | quarantine newest tool, notify owner |
 | Host reboot / OOM kill | docker | `--restart unless-stopped` |
 | Ollama down / timeout | HTTP error | reply "brain offline" to the user; scheduler retries `agent` tasks once after 5 min |
+| GPU busy (user gaming / high load) | LLM gate poll (§5.1) | interactive: notify + queue, answer when free; scheduled `agent` tasks: defer +5 min in SQLite |
+| Windows monitor unreachable | gate poll fails | treat GPU as busy; notify owner once after 15 min with queued-job count |
 | Reminders due during downtime | boot scan | ≤6h late: fire with "(delayed)"; older: mark `missed`, notify owner |
 | Google token revoked | 401 on refresh | calendar tools return setup instructions |
 | SQLite corruption | open/migrate failure | supervisor keeps last-known-good backup `/data/state/egon.db.bak` (rotated daily), restores and notifies |
@@ -544,9 +630,11 @@ Answers to these change details above; defaults chosen so work can start regardl
    image instead of ~120 MB). Acceptable for your deployment? *Default assumed: yes.*
 5. **Message Content Intent** — OK to enable in the developer portal? Without it the bot
    only "hears" DMs and direct mentions. *Default assumed: yes.*
-6. **Ollama model** — stay on `gpt-oss:20b`? It supports tool calling, but if you want
-   faster reminder parsing a smaller secondary model for utility calls is an option.
-   *Default assumed: single model, `gpt-oss:20b`.*
+6. **Ollama model** — stay on `gpt-oss:20b`? It supports tool calling. Worth considering
+   with the GPU gate (§5.1): a small CPU-only utility model (e.g. a 3B quant with
+   `num_gpu: 0`) would let reminder parsing and simple replies keep working *while you
+   game*, with only heavyweight turns waiting for the GPU.
+   *Default assumed: single gated model, `gpt-oss:20b`.*
 7. **Google Cloud project** — you need to create one OAuth desktop-app client (free) for
    the Calendar consent flow. Any objection? *Default assumed: no.*
 
@@ -555,8 +643,9 @@ Answers to these change details above; defaults chosen so work can start regardl
 Each phase leaves the bot deployable and useful on its own:
 
 1. **Core agent**: `Tool` interface, registry (hand-written list first), tool loop,
-   `list_tools`, SQLite storage, config, owner gate. Port `web_search`/`fetch_url` from
-   git history as the first real tools.
+   `list_tools`, SQLite storage, config, owner gate, and the **LLM gate + queue** (§5.1)
+   so the shared GPU is respected from day one. Port `web_search`/`fetch_url` from git
+   history as the first real tools.
 2. **Memory**: DM auto-capture, `remember`/`recall_memories`/`forget_memory`, automatic
    memory injection into context.
 3. **Scheduler**: task table, tick loop, `schedule_task`/`list`/`cancel`, downtime

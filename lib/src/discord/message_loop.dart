@@ -2,15 +2,21 @@ import 'dart:io';
 
 import 'package:nyxx/nyxx.dart';
 
+import '../integrations/windows_monitor_client.dart';
 import '../llm/ollama_client.dart';
 import '../llm/ollama_models.dart';
 
 /// Minimal proof-of-life loop: replies via Ollama when the bot is mentioned
 /// or messaged directly. This is the seed the new architecture grows from —
 /// see ARCHITECTURE.md.
+///
+/// When [monitor] is provided, the shared GPU is checked before every Ollama
+/// call. The seed simply refuses while the GPU is busy; the full design
+/// queues the request instead (ARCHITECTURE.md §5.1).
 Future<void> runMessageLoop({
   required NyxxGateway client,
   required OllamaClient ollama,
+  required WindowsMonitorClient? monitor,
 }) async {
   final botUserId = client.user.id.toString();
 
@@ -23,6 +29,24 @@ Future<void> runMessageLoop({
     final isDm = event.guildId == null;
     if (!isDm && !_isMentioned(message.content, botUserId)) {
       continue;
+    }
+
+    if (monitor != null) {
+      try {
+        if (await monitor.isUserActive()) {
+          await message.channel.sendMessage(
+            MessageBuilder(
+              content: 'The GPU is in use right now — try again later.',
+            ),
+          );
+          continue;
+        }
+      } catch (error) {
+        // Monitor unreachable most likely means the Windows machine (and
+        // with it Ollama) is off. Treat the GPU as busy and stay quiet.
+        stderr.writeln('Windows monitor unreachable, skipping reply: $error');
+        continue;
+      }
     }
 
     try {
