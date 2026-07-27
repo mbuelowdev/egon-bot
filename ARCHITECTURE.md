@@ -160,6 +160,7 @@ lib/src/
       obsidian_search_notes_tool.dart
       create_tool_tool.dart     # the self-extension tool
       restart_self_tool.dart
+      defer_to_big_model_tool.dart  # registered in degraded mode only (§5.1)
     generated/                  # synced from /data/tools at boot, gitignored
   memory/
     memory_service.dart         # store/search/forget, DM auto-capture
@@ -205,12 +206,20 @@ Persistent volume layout (`/data`, mounted via `deployment.json`):
   (default `http://127.0.0.1:11434`) using `/api/chat` with `stream: false`.
 - Tool declarations use Ollama's OpenAI-compatible `tools` array; tool results are fed
   back as `role: tool` messages. This already exists in `lib/src/llm/`.
-- The model (`OLLAMA_MODEL`, currently `gpt-oss:20b`) **must support tool calling**.
+- **Two models, both served by the same Ollama instance, both tool-calling capable:**
+  - **Big model** (`OLLAMA_MODEL`, default `gpt-oss:20b`) — runs on the GPU. Every call
+    is gated by §5.1.
+  - **Utility model** (`OLLAMA_UTILITY_MODEL`, default `llama3.2:3b`) — forced onto the
+    CPU with per-request `options: {"num_gpu": 0}` so it **never touches VRAM** and is
+    therefore always available, even mid-game. Optionally capped with `num_thread` to
+    stay polite to a running game. Set the variable to an empty string to disable the
+    tier.
 - Two calling modes:
   - **Chat turn**: full persona system prompt + history + memories + all tool schemas.
+    Big model when the GPU is free; utility model in degraded mode when it isn't (§5.1).
   - **Utility call**: schema-constrained extraction with no persona (e.g. "parse this
     reminder request into JSON") using Ollama's `format` parameter for guaranteed-JSON
-    output. The scheduler and `create_tool` use this mode.
+    output. Always the utility model — reminder parsing keeps working while you game.
 - Timeouts: 120s per completion (local models are slow); one retry on transport error.
 
 ### 5.1 GPU gate and request queue (R11)
@@ -239,6 +248,7 @@ class LlmJob {
 }
 ```
 
+`small` jobs run on the utility model (CPU-only) and **bypass the GPU check entirely**.
 Gate policy, evaluated before dispatching each `big` job (and re-polled every
 `GPU_POLL_INTERVAL_SECONDS`, default 60, while jobs wait):
 
@@ -246,37 +256,58 @@ Gate policy, evaluated before dispatching each `big` job (and re-polled every
 |-----------|---------|
 | `isUserActive == true` | busy — someone is on the machine |
 | `gpuUsagePercent.avg5m > GPU_BUSY_THRESHOLD_PERCENT` (default 40) | busy — GPU loaded by something else |
-| monitor unreachable | busy — the PC (and with it Ollama) is most likely off |
+| monitor unreachable | busy — the PC (and with it *both* models) is most likely off |
 | otherwise | free — dispatch job |
 
-Behavior per caller:
+Tier routing:
 
-- **Interactive chat turns**: if the gate is busy, the bot immediately answers
-  *"GPU is in use — I've queued your request and will answer here once it's free."* and
-  the job stays queued. When it eventually runs, the answer is posted to
-  `originChannelId` as a reply to the original message. Interactive jobs expire after
-  6 hours with a short apology. Queue cap: 20 jobs; beyond that the bot asks the user to
-  try later.
+| Call | Tier |
+|------|------|
+| Full agent turn, GPU free | big |
+| Full agent turn, GPU busy | **small — degraded mode** (see below) |
+| Utility calls (reminder parsing, structured extraction, memory tagging) | small, always |
+| `create_tool` code generation | big — code quality matters; queued while busy |
+| Scheduler `agent` tasks | big — background work, no urgency; deferred while busy |
+
+**Degraded mode** is what makes the assistant usable while you game: when the GPU is
+busy, an interactive turn is handled *immediately* by the utility model with the full
+toolset — reminders, memory, scheduling, even web search work fine on a 3B model. Its
+degraded-mode system prompt says it is the lightweight fallback and instructs it to
+call the special `defer_to_big_model` tool (only registered in degraded mode) whenever
+the request needs real reasoning. That tool call ends the turn with *"GPU is in use —
+I've queued this and will answer properly once it's free."* and enqueues the original
+turn as a `big` job.
+
+Behavior of the big-model queue:
+
+- **Queued interactive turns** (via `defer_to_big_model`, or when the utility tier is
+  disabled): when the job eventually runs, the answer is posted to `originChannelId` as
+  a reply to the original message. Interactive jobs expire after 6 hours with a short
+  apology. Queue cap: 20 jobs; beyond that the bot asks the user to try later.
 - **Scheduler `agent` tasks**: never enter the in-memory queue while busy. The task's
   `next_run_at` is pushed +5 minutes and it stays `pending` in SQLite — durable across
   restarts, retried until the GPU frees up.
-- **Utility calls** (reminder parsing, `create_tool` codegen) are `big`-tier too by
-  default, since they use the same model. If a small CPU-friendly utility model is
-  configured later (`OLLAMA_UTILITY_MODEL`), `small`-tier jobs bypass the GPU check.
 
 Edge cases:
 
+- **VRAM hygiene**: when the monitor reports the user just became active and no big job
+  is mid-flight, the gate immediately unloads the big model from VRAM
+  (`/api/generate` with `"keep_alive": 0`) instead of letting Ollama's keep-alive hold
+  ~13 GB for another 5 minutes while a game starts.
 - Monitor unreachable for >15 minutes while jobs are queued → notify the owner once
-  ("monitor down, N requests waiting"), keep waiting.
+  ("monitor down, N requests waiting"), keep waiting. No degraded mode either — the
+  utility model lives on the same machine.
 - Concurrency is 1 by design: one big model call at a time, so Ollama never holds more
-  than one model's VRAM plus context.
+  than one big model's VRAM plus context. Small jobs may run concurrently with a big
+  job (different resource pools: CPU vs GPU).
 - The queue is in-memory. On a *graceful* restart (exit 42) the bot first posts "I'm
   restarting, please re-send your request" to the origin channels of queued jobs. After
   a crash, queued interactive jobs are simply lost (scheduled tasks are not — they live
   in SQLite).
 
-The seed already contains the first slice of this: `WindowsMonitorClient` plus a
-check-and-refuse gate in the message loop. The queue replaces the refusal in the full
+The seed already contains the first slice of this: `WindowsMonitorClient`, and a message
+loop that answers via the CPU-only utility model while the GPU is busy (refusing only if
+the utility tier is disabled). The queue and degraded-mode toolset arrive with the full
 agent.
 
 ## 6. Tool system (R5, R9)
@@ -567,7 +598,8 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `OWNER_USER_ID` | yes | — | Discord user id allowed to use `ownerOnly` tools |
 | `ALLOWED_CHANNEL_IDS` | no | *(empty = DMs only)* | Comma-separated guild channel whitelist |
 | `OLLAMA_API_BASE_URL` | no | `http://127.0.0.1:11434` | Ollama endpoint |
-| `OLLAMA_MODEL` | no | `gpt-oss:20b` | Must support tool calling |
+| `OLLAMA_MODEL` | no | `gpt-oss:20b` | Big model (GPU, gated); must support tool calling |
+| `OLLAMA_UTILITY_MODEL` | no | `llama3.2:3b` | Small model, CPU-only (`num_gpu: 0`), always available; empty string disables the tier |
 | `WINDOWS_MONITOR_API_BASE_URL` | no | *(unset = gating disabled)* | GPU monitor sidecar on the Ollama machine (§5.1) |
 | `GPU_BUSY_THRESHOLD_PERCENT` | no | `40` | 5-min-avg GPU load above which big calls wait |
 | `GPU_POLL_INTERVAL_SECONDS` | no | `60` | Re-poll interval while jobs are queued |
@@ -606,7 +638,7 @@ with unprivileged intents only.
 | Bad self-written tool crashes boot | crash-loop counter | quarantine newest tool, notify owner |
 | Host reboot / OOM kill | docker | `--restart unless-stopped` |
 | Ollama down / timeout | HTTP error | reply "brain offline" to the user; scheduler retries `agent` tasks once after 5 min |
-| GPU busy (user gaming / high load) | LLM gate poll (§5.1) | interactive: notify + queue, answer when free; scheduled `agent` tasks: defer +5 min in SQLite |
+| GPU busy (user gaming / high load) | LLM gate poll (§5.1) | interactive: answer immediately via CPU utility model (degraded mode), hard requests queued for the big model; scheduled `agent` tasks: defer +5 min in SQLite |
 | Windows monitor unreachable | gate poll fails | treat GPU as busy; notify owner once after 15 min with queued-job count |
 | Reminders due during downtime | boot scan | ≤6h late: fire with "(delayed)"; older: mark `missed`, notify owner |
 | Google token revoked | 401 on refresh | calendar tools return setup instructions |
@@ -630,13 +662,12 @@ Answers to these change details above; defaults chosen so work can start regardl
    image instead of ~120 MB). Acceptable for your deployment? *Default assumed: yes.*
 5. **Message Content Intent** — OK to enable in the developer portal? Without it the bot
    only "hears" DMs and direct mentions. *Default assumed: yes.*
-6. **Ollama model** — stay on `gpt-oss:20b`? It supports tool calling. Worth considering
-   with the GPU gate (§5.1): a small CPU-only utility model (e.g. a 3B quant with
-   `num_gpu: 0`) would let reminder parsing and simple replies keep working *while you
-   game*, with only heavyweight turns waiting for the GPU.
-   *Default assumed: single gated model, `gpt-oss:20b`.*
-7. **Google Cloud project** — you need to create one OAuth desktop-app client (free) for
+6. **Google Cloud project** — you need to create one OAuth desktop-app client (free) for
    the Calendar consent flow. Any objection? *Default assumed: no.*
+
+*Decided: two-tier model setup (§5.1). Big model `gpt-oss:20b` on the GPU, gated;
+utility model `llama3.2:3b` CPU-only, always available, handles degraded-mode turns and
+all structured-extraction calls. Pull it once with `ollama pull llama3.2:3b`.*
 
 ## 16. Implementation order
 

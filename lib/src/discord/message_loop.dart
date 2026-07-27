@@ -11,12 +11,15 @@ import '../llm/ollama_models.dart';
 /// see ARCHITECTURE.md.
 ///
 /// When [monitor] is provided, the shared GPU is checked before every Ollama
-/// call. The seed simply refuses while the GPU is busy; the full design
-/// queues the request instead (ARCHITECTURE.md §5.1).
+/// call. While the GPU is busy, replies fall back to [utilityModel] running
+/// CPU-only (`num_gpu: 0`) so they never touch VRAM — or are refused when no
+/// utility model is configured. The full design adds a queue and degraded-mode
+/// toolset on top (ARCHITECTURE.md §5.1).
 Future<void> runMessageLoop({
   required NyxxGateway client,
   required OllamaClient ollama,
   required WindowsMonitorClient? monitor,
+  required String? utilityModel,
 }) async {
   final botUserId = client.user.id.toString();
 
@@ -31,22 +34,25 @@ Future<void> runMessageLoop({
       continue;
     }
 
+    var gpuBusy = false;
     if (monitor != null) {
       try {
-        if (await monitor.isUserActive()) {
-          await message.channel.sendMessage(
-            MessageBuilder(
-              content: 'The GPU is in use right now — try again later.',
-            ),
-          );
-          continue;
-        }
+        gpuBusy = await monitor.isUserActive();
       } catch (error) {
         // Monitor unreachable most likely means the Windows machine (and
-        // with it Ollama) is off. Treat the GPU as busy and stay quiet.
+        // with it Ollama, including the CPU tier) is off. Stay quiet.
         stderr.writeln('Windows monitor unreachable, skipping reply: $error');
         continue;
       }
+    }
+
+    if (gpuBusy && utilityModel == null) {
+      await message.channel.sendMessage(
+        MessageBuilder(
+          content: 'The GPU is in use right now — try again later.',
+        ),
+      );
+      continue;
     }
 
     try {
@@ -59,6 +65,10 @@ Future<void> runMessageLoop({
           ),
           OllamaChatMessage(role: 'user', content: message.content),
         ],
+        // Degraded mode: the GPU belongs to the game right now, so answer
+        // with the small utility model pinned to the CPU.
+        modelOverride: gpuBusy ? utilityModel : null,
+        options: gpuBusy ? const {'num_gpu': 0} : null,
       );
       if (reply.content.trim().isEmpty) {
         continue;

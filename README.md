@@ -16,9 +16,11 @@ rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHIT
 - `lib/src/llm/` — Ollama `/api/chat` client with tool-calling support.
 - `lib/src/integrations/windows_monitor_client.dart` + `tools/windows_monitor_api.dart` —
   the GPU monitor sidecar (runs on the Windows machine hosting Ollama) and its client.
-  The GPU is shared with games, so Ollama is only called while the monitor reports it
-  free; the full design queues requests instead (ARCHITECTURE.md §5.1). Leave
-  `WINDOWS_MONITOR_API_BASE_URL` unset to disable gating during development.
+  The GPU is shared with games: while the monitor reports it busy, replies fall back to
+  the small CPU-only utility model (`OLLAMA_UTILITY_MODEL`, `num_gpu: 0`), so the bot
+  stays responsive even mid-game. The full design adds a queue for big-model requests
+  on top (ARCHITECTURE.md §5.1). Leave `WINDOWS_MONITOR_API_BASE_URL` unset to disable
+  gating during development.
 
 ## Running locally
 

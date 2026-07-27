@@ -19,6 +19,10 @@ Future<void> main() async {
   final token = env['DISCORD_BOT_TOKEN'];
   final ollamaBaseUrl = env['OLLAMA_API_BASE_URL'] ?? 'http://127.0.0.1:11434';
   final ollamaModel = env['OLLAMA_MODEL'] ?? 'gpt-oss:20b';
+  // CPU-only fallback model used while the GPU is busy (ARCHITECTURE.md §5.1).
+  // Set to an empty string to disable the utility tier.
+  final rawUtilityModel = env['OLLAMA_UTILITY_MODEL'] ?? 'llama3.2:3b';
+  final utilityModel = rawUtilityModel.isEmpty ? null : rawUtilityModel;
   final windowsMonitorBaseUrl = env['WINDOWS_MONITOR_API_BASE_URL'];
 
   if (token == null || token.isEmpty) {
@@ -46,7 +50,12 @@ Future<void> main() async {
     );
   }
 
-  await _runBotSupervisor(token: token, ollama: ollama, monitor: monitor);
+  await _runBotSupervisor(
+    token: token,
+    ollama: ollama,
+    monitor: monitor,
+    utilityModel: utilityModel,
+  );
 }
 
 /// Keeps the bot connected forever. If the gateway connection drops or the
@@ -56,6 +65,7 @@ Future<void> _runBotSupervisor({
   required String token,
   required OllamaClient ollama,
   required WindowsMonitorClient? monitor,
+  required String? utilityModel,
 }) async {
   var allowEarlyRetry = false;
 
@@ -74,7 +84,12 @@ Future<void> _runBotSupervisor({
       // If this connection dies later, first retry should be a bit earlier.
       allowEarlyRetry = true;
 
-      await runMessageLoop(client: client, ollama: ollama, monitor: monitor);
+      await runMessageLoop(
+        client: client,
+        ollama: ollama,
+        monitor: monitor,
+        utilityModel: utilityModel,
+      );
 
       stderr.writeln('Discord event stream ended unexpectedly.');
     } catch (error, stackTrace) {
