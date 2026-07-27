@@ -73,10 +73,10 @@ Future<void> _runBotSupervisor({
     try {
       final client = await Nyxx.connectGateway(
         token,
-        // NOTE: add GatewayIntents.messageContent once the privileged
-        // "Message Content Intent" is enabled in the Discord developer portal.
-        // DMs and direct mentions already deliver content without it.
-        GatewayIntents.allUnprivileged,
+        // messageContent is privileged and enabled in the developer portal;
+        // it delivers the content of guild messages that don't mention us,
+        // which the conversation context needs.
+        GatewayIntents.allUnprivileged | GatewayIntents.messageContent,
         options: GatewayClientOptions(plugins: [logging, cliIntegration]),
       );
       stdout.writeln('Discord bot connected as user ${client.user.id}.');

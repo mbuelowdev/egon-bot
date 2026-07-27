@@ -18,10 +18,11 @@ below describes the target design.
 | R5 | List its own tools | §6 Tool system (`list_tools`) |
 | R6 | Web search | §9 Web tools |
 | R7 | Google Calendar integration | §10 Google Calendar |
-| R8 | Edit Obsidian notes | §11 Obsidian |
+| R8 | Edit Obsidian notes — vault synced into the container via Obsidian credentials; every change shown as a diff and applied only after owner approval | §11 Obsidian, §6.5 Approvals |
 | R9 | Implement its own tools in Dart + restart with new code | §6.4 Self-extension |
 | R10 | Query local Ollama for LLM tasks | §5 LLM layer |
 | R11 | GPU is shared (16 GB VRAM, gaming PC) — queue big-model calls until the Windows monitor reports the GPU as free | §5.1 GPU gate |
+| R12 | Whitelisted users get non-personal features only; dangerous actions by non-owners need owner approval in the same chat | §13 Security, §6.5 Approvals |
 
 ## 2. High-level overview
 
@@ -83,8 +84,11 @@ The container's entrypoint is not the bot itself but a small supervisor loop
 1. Sync self-written tools from `/data/tools/*.dart` into `lib/src/tools/generated/`.
 2. Run `dart run tool/generate_tool_registry.dart` (see §6.3).
 3. `dart pub get` (offline-first, falls back to network).
-4. Start the bot: `dart run bin/main.dart`.
-5. React to the exit code:
+4. Start the **Obsidian sync sidecar**: `ob sync --continuous` in `/data/vault`
+   (background process, §11). If it dies, the supervisor restarts it independently of
+   the bot; the bot keeps running either way.
+5. Start the bot: `dart run bin/main.dart`.
+6. React to the exit code:
 
 | Exit code | Meaning | Supervisor action |
 |-----------|---------|-------------------|
@@ -92,7 +96,7 @@ The container's entrypoint is not the bot itself but a small supervisor loop
 | `42` | **Restart requested** (new tool installed, self-update) | Restart immediately, reset backoff |
 | anything else | Crash | Restart with exponential backoff (5s → 10s → … → max 300s) |
 
-6. **Crash-loop quarantine**: if the bot crashes ≥3 times within 10 minutes *and* a
+7. **Crash-loop quarantine**: if the bot crashes ≥3 times within 10 minutes *and* a
    generated tool was added/changed since the last healthy run, the supervisor moves the
    newest file from `/data/tools/` to `/data/tools/quarantine/` and restarts. On the next
    successful boot the bot posts a notice to the owner ("Tool X was quarantined after
@@ -110,10 +114,12 @@ The container's entrypoint is not the bot itself but a small supervisor loop
 
 ### Consequence for the Docker image
 Because the bot must be able to load *new Dart source* after a self-restart (R9), the
-runtime image can no longer be a compiled-AOT `debian-slim` image. The runtime is the
-`dart:stable` image itself and the bot runs JIT via `dart run`. Trade-off: image grows to
-roughly 1 GB and startup takes a few seconds longer — acceptable for a single long-running
-bot on a home server.
+runtime image is not a compiled-AOT `debian-slim` image. **There is no compile step at
+all** (decided): the image is based on `dart:stable`, the bot runs JIT via `dart run`,
+and the seed's Dockerfile already works this way. The image additionally contains
+Node.js 22 and the `obsidian-headless` npm package for vault sync (§11). Trade-off:
+image grows to roughly 1.2 GB and startup takes a few seconds longer — acceptable for a
+single long-running bot on a home server.
 
 ## 4. Repository layout (target)
 
@@ -130,6 +136,7 @@ lib/src/
     agent.dart                  # one "turn": context -> LLM -> tool loop -> reply
     context_builder.dart        # system prompt, history window, relevant memories
     tool_loop.dart              # bounded model<->tool conversation
+    approval_service.dart       # diff previews + owner approval buttons (§6.5)
     prompts.dart                # persona + operating instructions
   llm/
     ollama_client.dart          # /api/chat (+ /api/embed later)
@@ -157,7 +164,10 @@ lib/src/
       obsidian_read_note_tool.dart
       obsidian_write_note_tool.dart
       obsidian_append_note_tool.dart
+      obsidian_delete_note_tool.dart
       obsidian_search_notes_tool.dart
+      whitelist_user_tool.dart
+      unwhitelist_user_tool.dart
       create_tool_tool.dart     # the self-extension tool
       restart_self_tool.dart
       defer_to_big_model_tool.dart  # registered in degraded mode only (§5.1)
@@ -196,7 +206,8 @@ Persistent volume layout (`/data`, mounted via `deployment.json`):
   tools/                 # self-written tool sources (*.dart)
   tools/quarantine/      # tools removed after causing crash loops
   google/token.json      # OAuth refresh token for Calendar
-  vault/                 # Obsidian vault (if synced onto the host, see §11)
+  vault/                 # Obsidian vault, synced by obsidian-headless (§11)
+  obsidian/              # headless client login state + sync config
   state/                 # supervisor bookkeeping (crash counters, last-good marker)
 ```
 
@@ -317,6 +328,19 @@ agent.
 Every capability — built-in or self-written — implements one abstract class:
 
 ```dart
+/// Who may trigger a tool, and what it takes (§13 for the full matrix).
+enum ToolAccess {
+  /// Any whitelisted user: web search, list_tools, reminders in shared chats.
+  standard,
+
+  /// Owner only — personal data: calendar, Obsidian, memory listing.
+  personal,
+
+  /// Owner runs it directly; a whitelisted user's request pauses and asks
+  /// the owner for approval in the same channel: create_tool, restart_self.
+  dangerous,
+}
+
 abstract class Tool {
   /// Unique snake_case identifier, e.g. `web_search`.
   String get name;
@@ -328,9 +352,15 @@ abstract class Tool {
   /// JSON Schema (draft-07 subset Ollama understands) for the arguments.
   Map<String, Object?> get parametersJsonSchema;
 
-  /// Tools that mutate external state (notes, calendar, code) are restricted
-  /// to the owner (§13). Defaults to false.
-  bool get ownerOnly => false;
+  ToolAccess get access => ToolAccess.standard;
+
+  /// Non-null = this tool's effect must be previewed and approved by the
+  /// owner before [execute] runs (§6.5). Obsidian writes return a unified
+  /// diff here; calendar mutations a human-readable summary.
+  Future<String?> previewChange(
+    ToolContext context,
+    Map<String, Object?> args,
+  ) async => null;
 
   /// Execute the call. Must not throw for expected failures — return
   /// ToolResult.error() instead so the LLM can react.
@@ -354,8 +384,8 @@ class ToolResult {
 ### 6.2 Registry and `list_tools` (R5)
 
 `ToolRegistry` holds all instances, exports their schemas for the Ollama call, dispatches
-tool calls by name, enforces `ownerOnly`, and writes every invocation (name, args, caller,
-duration, success) to the `tool_audit_log` table. The built-in `list_tools` tool renders
+tool calls by name, enforces `ToolAccess` and the approval flow (§6.5), and writes every
+invocation (name, args, caller, duration, success) to the `tool_audit_log` table. The built-in `list_tools` tool renders
 name + description + origin (`builtin` / `self-written`) as the tool result, so the model
 can answer "what can you do?" accurately.
 
@@ -412,7 +442,8 @@ sequenceDiagram
 ```
 
 Safety rails:
-- `create_tool` is `ownerOnly`.
+- `create_tool` is `ToolAccess.dangerous`: the owner triggers it directly; a whitelisted
+  user's request pauses and asks the owner for approval in the same channel (§6.5).
 - Static validation before install: `dart analyze` must be clean; the file must contain
   exactly one class extending `Tool`; the tool name must not collide with an existing one.
 - The generated source may only import `dart:*` core libraries, `package:http`, and the
@@ -421,8 +452,52 @@ Safety rails:
 - "Back online" notice: the bot writes a `pending_notice` row before exiting and posts it
   to the originating channel after boot, so restarts are visible in chat.
 
-`restart_self` is a trivial `ownerOnly` tool that just exits with code 42 — useful after
+`restart_self` is a trivial `dangerous` tool that just exits with code 42 — useful after
 manual edits on the host.
+
+### 6.5 Approval flow
+
+One `ApprovalService` covers both confirmation cases:
+
+1. **Change previews** — a tool with a non-null `previewChange` (every Obsidian write,
+   calendar mutations) must be approved by the owner before it executes, *no matter who
+   asked* — including the owner himself. R8: the bot shows the diff first.
+2. **Dangerous escalation** — a whitelisted user triggers a `dangerous` tool; the owner
+   must allow it in the same channel.
+
+Mechanics:
+
+- The registry pauses the tool call and posts an approval request **to the channel the
+  request came from**: a short header (who wants what), the preview rendered in a
+  code block (unified diff for notes, truncated to Discord's 2 000-char limit with a
+  full version attached as a file when longer), and two message-component buttons —
+  **Approve** / **Reject** — plus the requester's mention.
+- Only the owner's button clicks count; anyone else's are answered ephemerally with
+  "only Michael can approve this".
+- Approvals are persisted in SQLite so a restart doesn't orphan them:
+
+```sql
+CREATE TABLE pending_approvals (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL,
+  channel_id    TEXT NOT NULL,
+  message_id    TEXT,                 -- the approval-request message
+  requested_by  TEXT NOT NULL,
+  tool_name     TEXT NOT NULL,
+  args_json     TEXT NOT NULL,
+  preview       TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending'  -- pending|approved|rejected|expired
+);
+```
+
+- On **Approve** the stored call executes and the result flows back into the paused tool
+  loop (or, if the loop already ended, is posted as a fresh message: "Applied ✔ — …").
+  On **Reject** the tool returns `ToolResult.error('rejected by owner')` so the model
+  can tell the user. Requests expire after 24 hours (buttons disabled, status
+  `expired`).
+- While a turn has a pending approval, the tool loop finishes with a natural
+  interim reply ("I've prepared the edit — waiting for Michael's OK"), because approval
+  latency is human-scale and the LLM turn must not block for hours.
 
 ## 7. Memory (R3)
 
@@ -565,25 +640,49 @@ registry, not the prompt).
 
 ## 11. Obsidian integration (R8)
 
-An Obsidian vault is a folder of Markdown files, so the integration is file-based. The
-bot needs the vault on its own filesystem; how it gets there is the one genuinely open
-infrastructure decision (see §15). Options:
+**Decided: the vault is synced into the container with Obsidian account credentials**,
+using the official **Obsidian Headless** client
+([`obsidian-headless`](https://github.com/obsidianmd/obsidian-headless), open beta,
+npm, Node.js ≥ 22) — released 2026, made exactly for this ("give agentic tools access
+to a vault without access to your full computer"). Requires an active Obsidian Sync
+subscription.
 
-| Option | How | Trade-off |
-|--------|-----|-----------|
-| **A. Synced folder (recommended)** | Sync the vault to the server with Syncthing, mount it read-write into the container at `/data/vault` | Robust, works offline, no Obsidian plugin needed; needs Syncthing on both ends |
-| B. Git-backed vault | Use the `obsidian-git` plugin; the bot clones the repo, pulls before every operation, commits + pushes after every write | Full history for free; sync conflicts if you edit while offline |
-| C. Obsidian Local REST API plugin | Bot calls your desktop over HTTPS | Only works while your desktop + Obsidian are running — conflicts with a 24/7 assistant |
+Setup, performed by the supervisor at boot (idempotent):
+
+```bash
+ob login --email "$OBSIDIAN_EMAIL" --password "$OBSIDIAN_PASSWORD"   # skipped if already logged in
+cd /data/vault
+ob sync-setup --vault "$OBSIDIAN_VAULT_NAME" [--password "$OBSIDIAN_E2EE_PASSWORD"]
+ob sync --continuous &        # sidecar, restarted independently if it dies
+```
+
+Notes on the sync sidecar:
+- `ob sync --continuous` watches the folder, so the bot's file writes are uploaded
+  within seconds and your edits from desktop/phone arrive the same way. E2E encryption
+  is preserved end to end; the E2EE password is only needed for e2ee-encrypted vaults.
+- Login state and vault config live under `/data` so they survive container rebuilds.
+- Headless is in open beta: the boot sequence treats a failed `ob` invocation as
+  non-fatal (bot starts anyway, note tools return "vault sync unavailable"), and the
+  Obsidian help docs warn against running desktop Sync and Headless Sync *on the same
+  device* — different devices, as here, are the intended use.
 
 The `ObsidianVault` service wraps all access with sandboxing: every path is resolved
-against the vault root, must stay inside it after symlink/`..` resolution, and must end in
-`.md`. Writes are atomic (temp file + rename). `.obsidian/` config is never touched.
+against the vault root and must stay inside it after symlink/`..` resolution. **The bot
+has full write access to the entire vault** (decided) — any file type, including
+`.obsidian/` if explicitly asked. Writes are atomic (temp file + rename).
 
-Tools (write operations `ownerOnly`):
+The real safety net is the **diff approval** (§6.5): every mutating note tool
+implements `previewChange`, producing a unified diff (or "new file" preview) that is
+posted to the chat with Approve/Reject buttons. Nothing is written until the owner
+approves — including edits the owner requested himself.
+
+Tools (all mutating ones are `ToolAccess.personal` + preview-approved):
 - `obsidian_list_notes(folder?)` — relative paths, recursive.
 - `obsidian_read_note(path)`
-- `obsidian_write_note(path, content)` — create or overwrite.
-- `obsidian_append_note(path, content)` — the safe default for journals/inbox notes.
+- `obsidian_write_note(path, content)` — create or overwrite; preview = diff vs current
+  content.
+- `obsidian_append_note(path, content)` — preview = the appended block in diff form.
+- `obsidian_delete_note(path)` — preview = "deletes N lines" summary.
 - `obsidian_search_notes(query)` — case-insensitive content grep, returns path + matching
   lines.
 
@@ -595,7 +694,7 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
 | `DISCORD_BOT_TOKEN` | yes | — | Gateway auth |
-| `OWNER_USER_ID` | yes | — | Discord user id allowed to use `ownerOnly` tools |
+| `OWNER_USER_ID` | yes | — | Discord user id of the owner (`personal`/`dangerous` tools, approvals) |
 | `ALLOWED_CHANNEL_IDS` | no | *(empty = DMs only)* | Comma-separated guild channel whitelist |
 | `OLLAMA_API_BASE_URL` | no | `http://127.0.0.1:11434` | Ollama endpoint |
 | `OLLAMA_MODEL` | no | `gpt-oss:20b` | Big model (GPU, gated); must support tool calling |
@@ -605,19 +704,32 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `GPU_POLL_INTERVAL_SECONDS` | no | `60` | Re-poll interval while jobs are queued |
 | `DATA_DIR` | no | `/data` | Volume root |
 | `BOT_TIMEZONE` | no | `Europe/Berlin` | Scheduler + prompt timestamps |
-| `OBSIDIAN_VAULT_DIR` | no | `/data/vault` | Vault root (Option A/B) |
+| `OBSIDIAN_EMAIL` | for notes | — | Obsidian account email (headless sync login, §11) |
+| `OBSIDIAN_PASSWORD` | for notes | — | Obsidian account password |
+| `OBSIDIAN_VAULT_NAME` | for notes | — | Remote vault name to sync |
+| `OBSIDIAN_E2EE_PASSWORD` | no | — | Only for end-to-end-encrypted vaults |
+| `OBSIDIAN_VAULT_DIR` | no | `/data/vault` | Local sync target |
 | `GOOGLE_CALENDAR_ID` | no | `primary` | Target calendar |
 
-Discord developer-portal prerequisite: enable the privileged **Message Content Intent**
-so the bot can read guild messages that don't mention it (needed for conversation
-context). DMs and direct mentions work without it, which is why the current seed connects
-with unprivileged intents only.
+The privileged **Message Content Intent** is enabled in the developer portal (decided),
+so the bot reads guild messages that don't mention it and can build conversation
+context. The seed connects with `allUnprivileged | messageContent`.
 
 ## 13. Security model
 
-- **Owner gate**: `ownerOnly` tools (`create_tool`, `restart_self`, all writes to notes
-  and calendar, memory listing) execute only when the requesting Discord user id equals
-  `OWNER_USER_ID`. Enforced in `ToolRegistry.dispatch`, not in the prompt.
+Three actor roles and three tool tiers (decided):
+
+| | `standard` tools (search, list_tools, reminders…) | `personal` tools (calendar, notes, memory listing) | `dangerous` tools (create_tool, restart_self) |
+|---|---|---|---|
+| **Owner** (`OWNER_USER_ID`) | runs | runs (note/calendar writes still show a diff/preview first, §6.5) | runs |
+| **Whitelisted user** | runs | refused — personal features are never available to others | paused → owner is asked in the same channel, runs only on Approve |
+| **Everyone else** | ignored | ignored | ignored |
+
+- **User whitelist**: stored in SQLite (`whitelisted_users` table), managed by the owner
+  via `whitelist_user(user_id)` / `unwhitelist_user(user_id)` tools — no redeploy needed
+  to add a friend. The owner is implicitly whitelisted.
+- **Enforcement location**: all of the above lives in `ToolRegistry.dispatch` and the
+  message router, never in the prompt.
 - **Channel whitelist**: guild messages outside `ALLOWED_CHANNEL_IDS` are ignored.
 - **Vault sandbox**: §11.
 - **Generated-code limits**: import whitelist + `dart analyze` gate + quarantine (§6.4).
@@ -642,48 +754,51 @@ with unprivileged intents only.
 | Windows monitor unreachable | gate poll fails | treat GPU as busy; notify owner once after 15 min with queued-job count |
 | Reminders due during downtime | boot scan | ≤6h late: fire with "(delayed)"; older: mark `missed`, notify owner |
 | Google token revoked | 401 on refresh | calendar tools return setup instructions |
+| Obsidian sync sidecar dies / login fails | supervisor process watch | restart sidecar with backoff; note tools return "vault sync unavailable" instead of writing stale files |
 | SQLite corruption | open/migrate failure | supervisor keeps last-known-good backup `/data/state/egon.db.bak` (rotated daily), restores and notifies |
 
 ## 15. Open questions
 
-Answers to these change details above; defaults chosen so work can start regardless.
+Still open:
 
-1. **Obsidian sync (§11)** — Option A (Syncthing folder), B (git-backed vault), or C
-   (REST plugin)? Where does your vault currently live relative to `home.mbuelow.dev`?
-   *Default assumed: A.*
-2. **Audience** — assistant features for you only (`OWNER_USER_ID`), with the bot staying
-   a casual chat participant for everyone else in whitelisted channels? Or full assistant
-   for everyone? Should the German "Egon" persona survive in group channels?
-   *Default assumed: owner-only assistant, persona question deferred.*
-3. **Web search provider** — keep the keyless DuckDuckGo-lite scraping (works today, can
-   silently degrade if DDG changes markup), or run a SearxNG container / use an API key
-   (Brave)? *Default assumed: DDG lite, same as before.*
-4. **Runtime image size** — running from source requires shipping the Dart SDK (~1 GB
-   image instead of ~120 MB). Acceptable for your deployment? *Default assumed: yes.*
-5. **Message Content Intent** — OK to enable in the developer portal? Without it the bot
-   only "hears" DMs and direct mentions. *Default assumed: yes.*
-6. **Google Cloud project** — you need to create one OAuth desktop-app client (free) for
-   the Calendar consent flow. Any objection? *Default assumed: no.*
+1. **Google Calendar** — creating a free Google Cloud OAuth desktop-app client is
+   required for the consent flow. And: should the bot write to your **primary** calendar
+   or to a dedicated "Egon" calendar it fully owns (recommended — mistakes can't damage
+   real appointments, and both overlay in the Google Calendar UI)?
+   *Default assumed: dedicated calendar, read access to primary.*
+2. **Persona** — should the German "Egon" persona survive in group channels while the
+   DM assistant stays neutral? *Default assumed: yes, persona in group channels only.*
 
-*Decided: two-tier model setup (§5.1). Big model `gpt-oss:20b` on the GPU, gated;
-utility model `llama3.2:3b` CPU-only, always available, handles degraded-mode turns and
-all structured-extraction calls. Pull it once with `ollama pull llama3.2:3b`.*
+Decided so far:
+
+- **Models (§5.1)**: two tiers — `gpt-oss:20b` on the GPU (gated), `llama3.2:3b`
+  CPU-only, always available. Pull once with `ollama pull llama3.2:3b`.
+- **Obsidian (§11)**: vault synced into the container via the official
+  `obsidian-headless` client using account credentials; full write access to the whole
+  vault; every change diff-approved in chat before it is applied.
+- **Audience (§13)**: owner gets everything; whitelisted users get non-personal
+  features; their dangerous requests need owner approval in the same channel.
+- **Web search (§9)**: keyless DuckDuckGo-lite scraping.
+- **Runtime (§3)**: run from source, no compile step, `dart:stable` + Node 22 image.
+- **Message Content Intent (§12)**: enabled in the developer portal.
 
 ## 16. Implementation order
 
 Each phase leaves the bot deployable and useful on its own:
 
 1. **Core agent**: `Tool` interface, registry (hand-written list first), tool loop,
-   `list_tools`, SQLite storage, config, owner gate, and the **LLM gate + queue** (§5.1)
-   so the shared GPU is respected from day one. Port `web_search`/`fetch_url` from git
-   history as the first real tools.
-2. **Memory**: DM auto-capture, `remember`/`recall_memories`/`forget_memory`, automatic
-   memory injection into context.
+   `list_tools`, SQLite storage, config, access tiers + user whitelist, and the
+   **LLM gate + queue** (§5.1) so the shared GPU is respected from day one. Port
+   `web_search`/`fetch_url` from git history as the first real tools.
+2. **Approvals + memory**: `ApprovalService` with buttons and persistence (§6.5); DM
+   auto-capture, `remember`/`recall_memories`/`forget_memory`, automatic memory
+   injection into context.
 3. **Scheduler**: task table, tick loop, `schedule_task`/`list`/`cancel`, downtime
    policy. This delivers the "remind me in 3 days" flow end to end.
-4. **Self-extension runtime**: supervisor entrypoint, run-from-source Docker image,
-   registry codegen, `create_tool` with analyze gate + quarantine, exit-code-42 protocol.
-5. **Google Calendar**: setup script, client, four calendar tools.
-6. **Obsidian**: vault service + five note tools (pending answer to Q1).
+4. **Self-extension runtime**: supervisor entrypoint, registry codegen, `create_tool`
+   with analyze gate + quarantine, exit-code-42 protocol, dangerous-tool escalation.
+5. **Obsidian**: headless-sync sidecar in the supervisor, vault service, six note tools
+   with diff previews.
+6. **Google Calendar**: setup script, client, four calendar tools with previews.
 7. **Hardening**: watchdog, audit log review command, DB backup rotation, tests for
-   scheduler recurrence and vault sandboxing.
+   scheduler recurrence, vault sandboxing, and approval expiry.
