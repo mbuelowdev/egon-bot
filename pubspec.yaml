@@ -1,6 +1,6 @@
 name: egon_bot
 description: Personal assistant Discord bot powered by nyxx and a local Ollama instance.
-version: 0.2.0
+version: 0.3.0
 publish_to: none
 
 environment:
@@ -8,4 +8,10 @@ environment:
 
 dependencies:
   dotenv: ^4.2.0
+  html: ^0.15.6
   nyxx: ^6.9.0
+  sqlite3: ^2.4.0
+  timezone: ^0.10.1
+
+dev_dependencies:
+  test: ^1.25.0

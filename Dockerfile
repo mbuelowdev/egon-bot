@@ -3,6 +3,11 @@
 # compiled binary cannot do. See ARCHITECTURE.md §3.
 FROM dart:stable
 
+# sqlite3 native library for package:sqlite3 (state lives in /data/egon.db).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY pubspec.* ./

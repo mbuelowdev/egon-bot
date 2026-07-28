@@ -1,9 +1,21 @@
 import 'dart:io';
 
 import 'package:dotenv/dotenv.dart';
-import 'package:egon_bot/src/discord/message_loop.dart';
+import 'package:egon_bot/src/agent/agent.dart';
+import 'package:egon_bot/src/agent/context_builder.dart';
+import 'package:egon_bot/src/config.dart';
+import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
+import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
+import 'package:egon_bot/src/security/whitelist_service.dart';
+import 'package:egon_bot/src/services.dart';
+import 'package:egon_bot/src/storage/database.dart';
+import 'package:egon_bot/src/time/timestamps.dart';
+import 'package:egon_bot/src/tools/builtin_tools.dart';
+import 'package:egon_bot/src/tools/tool_registry.dart';
+import 'package:egon_bot/src/web/fetch_api.dart';
+import 'package:egon_bot/src/web/search_api.dart';
 import 'package:nyxx/nyxx.dart';
 
 const reconnectDelay = Duration(minutes: 5);
@@ -16,63 +28,79 @@ Future<void> main() async {
     stdout.writeln('No .env file found, using process environment variables.');
   }
 
-  final token = env['DISCORD_BOT_TOKEN'];
-  final ollamaBaseUrl = env['OLLAMA_API_BASE_URL'] ?? 'http://127.0.0.1:11434';
-  final ollamaModel = env['OLLAMA_MODEL'] ?? 'gpt-oss:20b';
-  // CPU-only fallback model used while the GPU is busy (ARCHITECTURE.md §5.1).
-  // Set to an empty string to disable the utility tier.
-  final rawUtilityModel = env['OLLAMA_UTILITY_MODEL'] ?? 'llama3.2:3b';
-  final utilityModel = rawUtilityModel.isEmpty ? null : rawUtilityModel;
-  final windowsMonitorBaseUrl = env['WINDOWS_MONITOR_API_BASE_URL'];
-
-  if (token == null || token.isEmpty) {
-    stderr.writeln(
-      'Missing DISCORD_BOT_TOKEN. Provide it via environment variables or .env.',
-    );
+  final Config config;
+  try {
+    config = Config.fromEnv((key) => env[key]);
+  } on ConfigError catch (error) {
+    stderr.writeln('$error Provide it via environment variables or .env.');
     exitCode = 64;
     return;
   }
+  stdout.writeln('Starting with $config');
 
+  final database = AppDatabase.open(config.dataDir);
   final ollama = OllamaClient(
-    baseUrl: Uri.parse(ollamaBaseUrl),
-    model: ollamaModel,
+    baseUrl: config.ollamaBaseUrl,
+    model: config.ollamaModel,
   );
-
-  // The GPU that Ollama uses is shared with the Windows machine's primary
-  // user. When the monitor sidecar is configured, big-model calls only run
-  // while the GPU is free. Unset = gating disabled (local development).
-  final monitor = windowsMonitorBaseUrl == null || windowsMonitorBaseUrl.isEmpty
+  final monitor = config.windowsMonitorBaseUrl == null
       ? null
-      : WindowsMonitorClient(baseUrl: Uri.parse(windowsMonitorBaseUrl));
+      : WindowsMonitorClient(baseUrl: config.windowsMonitorBaseUrl!);
   if (monitor == null) {
     stdout.writeln(
       'WINDOWS_MONITOR_API_BASE_URL not set — GPU gating disabled.',
     );
   }
 
-  await _runBotSupervisor(
-    token: token,
+  final gate = LlmGate(
     ollama: ollama,
     monitor: monitor,
-    utilityModel: utilityModel,
+    utilityModel: config.ollamaUtilityModel,
+    busyThresholdPercent: config.gpuBusyThresholdPercent,
+    pollInterval: config.gpuPollInterval,
+  )..start();
+
+  final services = Services(
+    config: config,
+    database: database,
+    whitelist: WhitelistService(
+      database: database,
+      ownerUserId: config.ownerUserId,
+    ),
+    llmGate: gate,
+    timestamps: Timestamps(config.botTimezone),
+    searchApi: SearchApi(),
+    fetchApi: FetchApi(),
   );
+  services.registry = ToolRegistry(
+    tools: buildBuiltinTools(),
+    services: services,
+  );
+
+  final history = ChannelHistoryStore();
+  final agent = Agent(services: services, history: history);
+  final router = MessageRouter(
+    services: services,
+    agent: agent,
+    history: history,
+  );
+
+  await _runBotSupervisor(config: config, router: router);
 }
 
 /// Keeps the bot connected forever. If the gateway connection drops or the
 /// event loop throws, we reconnect: first retry after 60s, subsequent
 /// retries every [reconnectDelay].
 Future<void> _runBotSupervisor({
-  required String token,
-  required OllamaClient ollama,
-  required WindowsMonitorClient? monitor,
-  required String? utilityModel,
+  required Config config,
+  required MessageRouter router,
 }) async {
   var allowEarlyRetry = false;
 
   while (true) {
     try {
       final client = await Nyxx.connectGateway(
-        token,
+        config.discordBotToken,
         // messageContent is privileged and enabled in the developer portal;
         // it delivers the content of guild messages that don't mention us,
         // which the conversation context needs.
@@ -84,12 +112,7 @@ Future<void> _runBotSupervisor({
       // If this connection dies later, first retry should be a bit earlier.
       allowEarlyRetry = true;
 
-      await runMessageLoop(
-        client: client,
-        ollama: ollama,
-        monitor: monitor,
-        utilityModel: utilityModel,
-      );
+      await router.run(client);
 
       stderr.writeln('Discord event stream ended unexpectedly.');
     } catch (error, stackTrace) {
@@ -105,7 +128,8 @@ Future<void> _runBotSupervisor({
     }
 
     stderr.writeln(
-      'Reconnect failed again. Retrying in ${reconnectDelay.inMinutes} minutes...',
+      'Reconnect failed again. Retrying in ${reconnectDelay.inMinutes} '
+      'minutes...',
     );
     await Future<void>.delayed(reconnectDelay);
     allowEarlyRetry = true;

@@ -5,11 +5,18 @@ import 'ollama_models.dart';
 
 /// Thin HTTP client for a local Ollama instance.
 class OllamaClient {
-  OllamaClient({required this.baseUrl, required this.model});
+  OllamaClient({
+    required this.baseUrl,
+    required this.model,
+    Duration? chatTimeout,
+  }) : _chatTimeout = chatTimeout ?? const Duration(seconds: 120);
 
   final Uri baseUrl;
   final String model;
+  final Duration _chatTimeout;
   final HttpClient _httpClient = HttpClient();
+
+  static const _controlTimeout = Duration(seconds: 10);
 
   /// Sends a chat-style request to Ollama, optionally declaring [tools] the
   /// model is allowed to invoke. Returns the assistant message, including any
@@ -36,7 +43,11 @@ class OllamaClient {
       body['options'] = options;
     }
 
-    final json = await _postJson(baseUrl.resolve('/api/chat'), body);
+    final json = await _postJson(
+      baseUrl.resolve('/api/chat'),
+      body,
+      timeout: _chatTimeout,
+    );
 
     final raw = json['message'];
     if (raw is Map) {
@@ -45,16 +56,62 @@ class OllamaClient {
     throw StateError('Ollama chat response did not contain a message.');
   }
 
+  /// Names of models currently loaded into memory (`/api/ps`).
+  Future<List<String>> loadedModels() async {
+    final json = await _getJson(
+      baseUrl.resolve('/api/ps'),
+      timeout: _controlTimeout,
+    );
+    final models = json['models'];
+    if (models is! List) return const [];
+    return [
+      for (final m in models)
+        if (m is Map && m['name'] is String) m['name'] as String,
+    ];
+  }
+
+  /// Asks Ollama to evict [modelName] from memory immediately. Only call
+  /// when the model is actually loaded — an unload request for an unloaded
+  /// model would load it first.
+  Future<void> requestUnload(String modelName) async {
+    await _postJson(
+        baseUrl.resolve('/api/generate'),
+        {
+          'model': modelName,
+          'prompt': '',
+          'keep_alive': 0,
+          'stream': false,
+        },
+        timeout: _controlTimeout);
+  }
+
+  Future<Map<String, Object?>> _getJson(
+    Uri uri, {
+    required Duration timeout,
+  }) async {
+    final request = await _httpClient.getUrl(uri).timeout(timeout);
+    final response = await request.close().timeout(timeout);
+    return _readJsonResponse(response, uri, timeout: timeout);
+  }
+
   Future<Map<String, Object?>> _postJson(
     Uri uri,
-    Map<String, Object?> body,
-  ) async {
-    final request = await _httpClient.postUrl(uri);
+    Map<String, Object?> body, {
+    required Duration timeout,
+  }) async {
+    final request = await _httpClient.postUrl(uri).timeout(timeout);
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
-    final response = await request.close();
+    final response = await request.close().timeout(timeout);
+    return _readJsonResponse(response, uri, timeout: timeout);
+  }
 
-    final payload = await utf8.decodeStream(response);
+  Future<Map<String, Object?>> _readJsonResponse(
+    HttpClientResponse response,
+    Uri uri, {
+    required Duration timeout,
+  }) async {
+    final payload = await utf8.decodeStream(response).timeout(timeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
         'Request to $uri failed with ${response.statusCode}: $payload',

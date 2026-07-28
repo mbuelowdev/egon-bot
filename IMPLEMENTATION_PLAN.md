@@ -13,7 +13,7 @@ Conventions for every phase:
 
 ---
 
-## Phase 1 — Core agent
+## Phase 1 — Core agent ✅ implemented
 
 **Goal:** mention/DM → context → Ollama tool loop → reply, with access control and the
 GPU respected. Replaces the seed's proof-of-life loop.
