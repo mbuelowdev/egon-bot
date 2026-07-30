@@ -76,4 +76,24 @@ const List<String> migrations = [
   CREATE INDEX conversation_log_channel_id
     ON conversation_log(channel_id, id);
   ''',
+
+  // 3: scheduler (§8)
+  '''
+  CREATE TABLE scheduled_tasks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at    TEXT NOT NULL,
+    created_by    TEXT NOT NULL,
+    channel_id    TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    payload       TEXT NOT NULL,
+    state_json    TEXT,
+    due_at        TEXT,
+    recurrence    TEXT,
+    timezone      TEXT NOT NULL DEFAULT 'Europe/Berlin',
+    status        TEXT NOT NULL DEFAULT 'pending',
+    last_run_at   TEXT,
+    next_run_at   TEXT NOT NULL
+  );
+  CREATE INDEX idx_tasks_due ON scheduled_tasks(status, next_run_at);
+  ''',
 ];

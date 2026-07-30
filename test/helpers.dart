@@ -1,10 +1,14 @@
 import 'package:egon_bot/src/agent/approval_service.dart';
+import 'package:egon_bot/src/agent/context_builder.dart';
+import 'package:egon_bot/src/agent/agent.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
+import 'package:egon_bot/src/scheduler/scheduler.dart';
+import 'package:egon_bot/src/scheduler/task_store.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
@@ -112,6 +116,7 @@ Services testServices({
   FakeOllama? ollama,
   FakeMonitor? monitor,
   Duration approvalTtl = const Duration(hours: 24),
+  DateTime Function()? clock,
 }) {
   final config = testConfig();
   final database = AppDatabase.inMemory();
@@ -128,6 +133,7 @@ Services testServices({
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
     memory: MemoryService(database),
+    tasks: TaskStore(database),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(
@@ -135,6 +141,15 @@ Services testServices({
     config: config,
     services: () => services,
     ttl: approvalTtl,
+  );
+  final history = ChannelHistoryStore(database);
+  final agent = Agent(services: services, history: history);
+  services.scheduler = Scheduler(
+    services: services,
+    agent: agent,
+    history: history,
+    store: services.tasks,
+    clock: clock,
   );
   return services;
 }

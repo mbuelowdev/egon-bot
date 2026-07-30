@@ -2,6 +2,8 @@ import 'agent/approval_service.dart';
 import 'config.dart';
 import 'llm/llm_gate.dart';
 import 'memory/memory_service.dart';
+import 'scheduler/scheduler.dart';
+import 'scheduler/task_store.dart';
 import 'security/whitelist_service.dart';
 import 'storage/database.dart';
 import 'time/timestamps.dart';
@@ -20,6 +22,7 @@ class Services {
     required this.searchApi,
     required this.fetchApi,
     required this.memory,
+    required this.tasks,
   });
 
   final Config config;
@@ -30,6 +33,7 @@ class Services {
   final SearchApi searchApi;
   final FetchApi fetchApi;
   final MemoryService memory;
+  final TaskStore tasks;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).
@@ -37,4 +41,7 @@ class Services {
 
   /// Set once after construction — needs [registry] for approved execution.
   late final ApprovalService approvals;
+
+  /// Set once after Agent/history exist — started when Discord connects.
+  late final Scheduler scheduler;
 }

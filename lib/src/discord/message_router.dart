@@ -31,6 +31,7 @@ class MessageRouter {
   Future<void> run(NyxxGateway client) async {
     final botUserId = client.user.id.toString();
     services.approvals.attachClient(client);
+    await services.scheduler.start(client);
 
     try {
       await for (final event in client.onMessageCreate) {
@@ -41,6 +42,7 @@ class MessageRouter {
         }
       }
     } finally {
+      services.scheduler.stop();
       services.approvals.detachClient();
     }
   }

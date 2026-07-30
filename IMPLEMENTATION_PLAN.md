@@ -83,7 +83,7 @@ Steps:
 approval buttons survive a bot restart; a non-owner clicking Approve is rejected
 ephemerally.
 
-## Phase 3 — Scheduler (reminders)
+## Phase 3 — Scheduler (reminders) ✅ implemented
 
 **Goal:** "remind me next Thursday 8 am to tie my shoes" works end to end.
 
