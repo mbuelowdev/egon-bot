@@ -20,4 +20,60 @@ const List<String> migrations = [
     duration_ms  INTEGER NOT NULL
   );
   ''',
+
+  // 2: approvals (§6.5) + memories / conversation log (§7)
+  '''
+  CREATE TABLE pending_approvals (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at    TEXT NOT NULL,
+    channel_id    TEXT NOT NULL,
+    message_id    TEXT,
+    requested_by  TEXT NOT NULL,
+    tool_name     TEXT NOT NULL,
+    args_json     TEXT NOT NULL,
+    preview       TEXT,
+    status        TEXT NOT NULL DEFAULT 'pending'
+  );
+
+  CREATE TABLE memories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    channel_id  TEXT,
+    content     TEXT NOT NULL,
+    source      TEXT NOT NULL,
+    tags        TEXT
+  );
+  CREATE VIRTUAL TABLE memories_fts USING fts5(
+    content,
+    tags,
+    content='memories',
+    content_rowid='id'
+  );
+  CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+    INSERT INTO memories_fts(rowid, content, tags)
+    VALUES (new.id, new.content, coalesce(new.tags, ''));
+  END;
+  CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+    INSERT INTO memories_fts(memories_fts, rowid, content, tags)
+    VALUES ('delete', old.id, old.content, coalesce(old.tags, ''));
+  END;
+  CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN
+    INSERT INTO memories_fts(memories_fts, rowid, content, tags)
+    VALUES ('delete', old.id, old.content, coalesce(old.tags, ''));
+    INSERT INTO memories_fts(rowid, content, tags)
+    VALUES (new.id, new.content, coalesce(new.tags, ''));
+  END;
+
+  CREATE TABLE conversation_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id  TEXT NOT NULL,
+    author_id   TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    content     TEXT NOT NULL
+  );
+  CREATE INDEX conversation_log_channel_id
+    ON conversation_log(channel_id, id);
+  ''',
 ];

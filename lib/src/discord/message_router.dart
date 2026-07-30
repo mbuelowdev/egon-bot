@@ -12,11 +12,11 @@ import 'discord_actions.dart';
 /// Name used in prompts when replacing `<@botId>` mentions.
 const botPromptDisplayName = 'Egon';
 
-/// Routes gateway messages (ARCHITECTURE.md §16):
+/// Routes gateway messages (ARCHITECTURE.md §7, §16):
 /// - guild messages only in whitelisted channels; respond on mention
-/// - DMs respond directly
+/// - DMs respond directly and are auto-captured as memories
 /// - only the owner and whitelisted users can trigger the bot
-/// - everything in scope lands in the rolling channel history
+/// - everything in scope lands in the persistent conversation log
 class MessageRouter {
   MessageRouter({
     required this.services,
@@ -30,13 +30,18 @@ class MessageRouter {
 
   Future<void> run(NyxxGateway client) async {
     final botUserId = client.user.id.toString();
+    services.approvals.attachClient(client);
 
-    await for (final event in client.onMessageCreate) {
-      try {
-        await _handleEvent(event, botUserId);
-      } catch (error, stackTrace) {
-        stderr.writeln('Message handling failed: $error\n$stackTrace');
+    try {
+      await for (final event in client.onMessageCreate) {
+        try {
+          await _handleEvent(event, botUserId);
+        } catch (error, stackTrace) {
+          stderr.writeln('Message handling failed: $error\n$stackTrace');
+        }
       }
+    } finally {
+      services.approvals.detachClient();
     }
   }
 
@@ -82,6 +87,19 @@ class MessageRouter {
         '$authorId ($authorName).',
       );
       return;
+    }
+
+    // R3: every accepted DM is memorized as well as handled as a turn.
+    if (isDm) {
+      try {
+        services.memory.captureDm(
+          userId: authorId,
+          channelId: channelId,
+          content: scrubbedContent,
+        );
+      } catch (error) {
+        stderr.writeln('DM memory capture failed: $error');
+      }
     }
 
     stdout.writeln(

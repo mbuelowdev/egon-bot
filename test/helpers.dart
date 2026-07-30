@@ -1,8 +1,10 @@
+import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
+import 'package:egon_bot/src/memory/memory_service.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
@@ -109,6 +111,7 @@ Services testServices({
   required List<Tool> tools,
   FakeOllama? ollama,
   FakeMonitor? monitor,
+  Duration approvalTtl = const Duration(hours: 24),
 }) {
   final config = testConfig();
   final database = AppDatabase.inMemory();
@@ -124,22 +127,39 @@ Services testServices({
     timestamps: Timestamps(config.botTimezone),
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
+    memory: MemoryService(database),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
+  services.approvals = ApprovalService(
+    database: database,
+    config: config,
+    services: () => services,
+    ttl: approvalTtl,
+  );
   return services;
 }
 
-ToolContext contextFor(Services services, {required bool owner}) => ToolContext(
+ToolContext contextFor(
+  Services services, {
+  required bool owner,
+  bool isDm = false,
+}) =>
+    ToolContext(
       channelId: '42',
       userId: owner ? ownerId : strangerId,
       isOwner: owner,
+      isDm: isDm,
       services: services,
     );
 
 class StubTool extends Tool {
-  StubTool({this.toolAccess = ToolAccess.standard});
+  StubTool({
+    this.toolAccess = ToolAccess.standard,
+    this.preview,
+  });
 
   final ToolAccess toolAccess;
+  final String? preview;
   int executions = 0;
 
   @override
@@ -156,6 +176,13 @@ class StubTool extends Tool {
 
   @override
   ToolAccess get access => toolAccess;
+
+  @override
+  Future<String?> previewChange(
+    ToolContext context,
+    Map<String, Object?> args,
+  ) async =>
+      preview;
 
   @override
   Future<ToolResult> execute(

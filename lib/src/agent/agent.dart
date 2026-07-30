@@ -29,7 +29,7 @@ class IncomingMessage {
 }
 
 /// One conversational turn: context -> tier decision -> tool loop -> reply
-/// (ARCHITECTURE.md §5.1, §6).
+/// (ARCHITECTURE.md §5.1, §6, §7).
 class Agent {
   Agent({required this.services, required this.history});
 
@@ -45,13 +45,15 @@ class Agent {
       channelId: message.channelId,
       userId: message.authorId,
       isOwner: message.authorId == services.config.ownerUserId,
+      isDm: message.isDm,
       services: services,
     );
 
     final gpuFree = await gate.isGpuFree();
     if (!gpuFree && !gate.hasUtilityTier) {
-      await send('Die GPU ist gerade in Benutzung — versuch es später '
-          'nochmal.');
+      await send(
+        'Die GPU ist gerade in Benutzung — versuch es später nochmal.',
+      );
       return;
     }
     final degraded = !gpuFree;
@@ -85,12 +87,16 @@ class Agent {
         await send(outcome.reply);
       }
     } on GateQueueFullException {
-      await send('Bei mir stapeln sich gerade die Anfragen — versuch es '
-          'gleich nochmal.');
+      await send(
+        'Bei mir stapeln sich gerade die Anfragen — versuch es gleich '
+        'nochmal.',
+      );
     } catch (error, stackTrace) {
       stderr.writeln('Agent turn failed: $error\n$stackTrace');
-      await send('Ich komme gerade nicht an mein Gehirn (Ollama). Versuch es '
-          'später nochmal.');
+      await send(
+        'Ich komme gerade nicht an mein Gehirn (Ollama). Versuch es später '
+        'nochmal.',
+      );
     }
   }
 
@@ -138,6 +144,9 @@ class Agent {
       history.recent(message.channelId),
       timestamps: timestamps,
     );
+    final memoryLines = renderMemoryLines(
+      services.memory.search(message.content, limit: 5),
+    );
     final localNow = timestamps.now();
 
     final systemPrompt = message.isDm
@@ -145,11 +154,13 @@ class Agent {
             authorName: message.authorName,
             isOwner: context.isOwner,
             historyLines: historyLines,
+            memoryLines: memoryLines,
             localNow: localNow,
             degraded: degraded,
           )
         : buildGroupSystemPrompt(
             historyLines: historyLines,
+            memoryLines: memoryLines,
             localNow: localNow,
             degraded: degraded,
           );

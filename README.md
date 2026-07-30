@@ -7,32 +7,29 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 1 — core agent)
+## Current state (Phase 2 — approvals + memory)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
 - `bin/main.dart` — loads `Config`, wires up all services, connects to the Discord
   gateway, and keeps the bot online with a reconnect loop.
-- `lib/src/agent/` — the conversational turn: persona prompts (German Egon in group
-  channels, neutral assistant in DMs), rolling channel history as context, and a bounded
-  model↔tool loop.
-- `lib/src/llm/` — Ollama `/api/chat` client plus the `LlmGate`: every big-model call
-  goes through a FIFO queue that only dispatches while the shared GPU is free (Windows
-  monitor sidecar). While it's busy, interactive turns run on the small CPU-only utility
-  model (`num_gpu: 0`), which can hand hard requests back via `defer_to_big_model` —
-  they're queued and answered when the GPU frees up. On user activity the big model is
-  evicted from VRAM. Leave `WINDOWS_MONITOR_API_BASE_URL` unset to disable gating during
-  development.
-- `lib/src/tools/` — the `Tool` interface with access tiers (`standard` / `personal` /
-  `dangerous`), a registry with per-caller enforcement and an SQLite audit log, and the
-  first five tools: `list_tools`, `web_search`, `fetch_url`, `whitelist_user`,
-  `unwhitelist_user`.
-- `lib/src/storage/` — SQLite at `$DATA_DIR/egon.db` with versioned migrations
-  (whitelist + tool audit log so far).
+- `lib/src/agent/` — conversational turn with persona prompts, FTS memory injection
+  (`## Things you remember`), and a bounded model↔tool loop. `ApprovalService` posts
+  Approve/Reject buttons for preview/dangerous calls, persists them across restarts,
+  and runs the tool with an "Applied ✔" follow-up once Michael clicks.
+- `lib/src/memory/` — long-term memories with FTS5 recall; every accepted DM is
+  auto-captured. Guild history lives in `conversation_log` (pruned to 200/channel).
+- `lib/src/llm/` — Ollama `/api/chat` client plus the `LlmGate` (GPU-gated big-model
+  queue, CPU-only utility tier, VRAM eviction). Leave `WINDOWS_MONITOR_API_BASE_URL`
+  unset to disable gating during development.
+- `lib/src/tools/` — access tiers + approval wiring; tools include `list_tools`,
+  `web_search`, `fetch_url`, whitelist helpers, and memory tools (`remember`,
+  `recall_memories`, `forget_memory`, `list_memories`).
+- `lib/src/storage/` — SQLite at `$DATA_DIR/egon.db` with versioned migrations.
 - `lib/src/integrations/windows_monitor_client.dart` + `tools/windows_monitor_api.dart` —
-  the GPU monitor sidecar (runs on the Windows machine hosting Ollama) and its client.
+  the GPU monitor sidecar and its client.
 
-Next up: Phase 2 (memory, persistent conversation log, and the approval flow).
+Next up: Phase 3 (scheduler / reminders).
 
 ## Running locally
 

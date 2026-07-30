@@ -10,7 +10,7 @@ enum ToolAccess {
   personal,
 
   /// Owner runs it directly; a whitelisted user's request pauses and asks
-  /// the owner for approval in the same channel (Phase 2): create_tool,
+  /// the owner for approval in the same channel (§6.5): create_tool,
   /// restart_self.
   dangerous,
 }
@@ -21,12 +21,14 @@ class ToolContext {
     required this.channelId,
     required this.userId,
     required this.isOwner,
+    required this.isDm,
     required this.services,
   });
 
   final String channelId;
   final String userId;
   final bool isOwner;
+  final bool isDm;
   final Services services;
 }
 
@@ -58,8 +60,8 @@ abstract class Tool {
   String get origin => 'builtin';
 
   /// Non-null = this tool's effect must be previewed and approved by the
-  /// owner before [execute] runs (§6.5, arrives in Phase 2). Obsidian writes
-  /// return a unified diff here; calendar mutations a human-readable summary.
+  /// owner before [execute] runs (§6.5). Obsidian writes return a unified
+  /// diff here; calendar mutations a human-readable summary.
   Future<String?> previewChange(
     ToolContext context,
     Map<String, Object?> args,

@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:dotenv/dotenv.dart';
 import 'package:egon_bot/src/agent/agent.dart';
+import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
+import 'package:egon_bot/src/memory/memory_service.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
@@ -71,13 +73,19 @@ Future<void> main() async {
     timestamps: Timestamps(config.botTimezone),
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
+    memory: MemoryService(database),
   );
   services.registry = ToolRegistry(
     tools: buildBuiltinTools(),
     services: services,
   );
+  services.approvals = ApprovalService(
+    database: database,
+    config: config,
+    services: () => services,
+  );
 
-  final history = ChannelHistoryStore();
+  final history = ChannelHistoryStore(database);
   final agent = Agent(services: services, history: history);
   final router = MessageRouter(
     services: services,

@@ -1,5 +1,9 @@
 import 'builtin/fetch_url_tool.dart';
+import 'builtin/forget_memory_tool.dart';
+import 'builtin/list_memories_tool.dart';
 import 'builtin/list_tools_tool.dart';
+import 'builtin/recall_memories_tool.dart';
+import 'builtin/remember_tool.dart';
 import 'builtin/unwhitelist_user_tool.dart';
 import 'builtin/web_search_tool.dart';
 import 'builtin/whitelist_user_tool.dart';
@@ -13,4 +17,8 @@ List<Tool> buildBuiltinTools() => [
       FetchUrlTool(),
       WhitelistUserTool(),
       UnwhitelistUserTool(),
+      RememberTool(),
+      RecallMemoriesTool(),
+      ForgetMemoryTool(),
+      ListMemoriesTool(),
     ];

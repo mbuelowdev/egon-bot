@@ -58,7 +58,7 @@ Steps:
 works); a non-whitelisted user is ignored; with the monitor faked "busy" the reply comes
 from the utility model; `list_tools` names every registered tool.
 
-## Phase 2 — Approvals + memory
+## Phase 2 — Approvals + memory ✅ implemented
 
 **Goal:** the approval machinery every later phase leans on, plus persistent memory.
 

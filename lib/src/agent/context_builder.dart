@@ -1,3 +1,5 @@
+import '../memory/memory_service.dart';
+import '../storage/database.dart';
 import '../time/timestamps.dart';
 
 /// One remembered message in a channel's rolling history.
@@ -15,25 +17,55 @@ class ChannelMessage {
   final String content;
 }
 
-/// In-memory rolling per-channel history (persistent `conversation_log`
-/// arrives in Phase 2).
+/// Persistent rolling per-channel history backed by `conversation_log` (§7).
 class ChannelHistoryStore {
+  ChannelHistoryStore(this._db);
+
+  final AppDatabase _db;
+
   static const maxMessagesPerChannel = 200;
 
-  final Map<String, List<ChannelMessage>> _byChannel = {};
-
   void add(String channelId, ChannelMessage message) {
-    final list = _byChannel.putIfAbsent(channelId, () => []);
-    list.add(message);
-    if (list.length > maxMessagesPerChannel) {
-      list.removeRange(0, list.length - maxMessagesPerChannel);
-    }
+    _db.db.execute(
+      'INSERT INTO conversation_log (channel_id, author_id, author_name, '
+      'created_at, content) VALUES (?, ?, ?, ?, ?)',
+      [
+        channelId,
+        message.authorId,
+        message.authorName,
+        message.timestamp.toUtc().toIso8601String(),
+        message.content,
+      ],
+    );
+    _prune(channelId);
   }
 
   List<ChannelMessage> recent(String channelId, {int limit = 25}) {
-    final list = _byChannel[channelId] ?? const [];
-    final start = list.length > limit ? list.length - limit : 0;
-    return List.unmodifiable(list.sublist(start));
+    final rows = _db.db.select(
+      'SELECT author_id, author_name, created_at, content '
+      'FROM conversation_log WHERE channel_id = ? '
+      'ORDER BY id DESC LIMIT ?',
+      [channelId, limit],
+    );
+    return [
+      for (final row in rows.reversed)
+        ChannelMessage(
+          timestamp: DateTime.parse(row['created_at'] as String),
+          authorId: row['author_id'] as String,
+          authorName: row['author_name'] as String,
+          content: row['content'] as String,
+        ),
+    ];
+  }
+
+  void _prune(String channelId) {
+    _db.db.execute(
+      'DELETE FROM conversation_log WHERE channel_id = ? AND id NOT IN ('
+      '  SELECT id FROM conversation_log WHERE channel_id = ? '
+      '  ORDER BY id DESC LIMIT ?'
+      ')',
+      [channelId, channelId, maxMessagesPerChannel],
+    );
   }
 }
 
@@ -59,6 +91,17 @@ String renderHistoryLines(
       .map(
         (m) => '- [${timestamps.format(m.timestamp)}] "${m.authorName}" said: '
             '${_truncate(m.content, maxMessageChars)}',
+      )
+      .join('\n');
+}
+
+/// Renders automatic FTS hits for the system prompt (§7).
+String renderMemoryLines(List<Memory> memories) {
+  if (memories.isEmpty) return '(nothing relevant)';
+  return memories
+      .map(
+        (m) => '- [#${m.id}, ${m.createdAt.toUtc().toIso8601String()}, '
+            '${m.source}] ${_truncate(m.content, 300)}',
       )
       .join('\n');
 }

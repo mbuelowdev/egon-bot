@@ -11,9 +11,10 @@ String replaceBotMentions(String content, String botUserId, String label) {
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt (News, Preise, Termine, Wetter, Releases usw.) — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, oder wenn etwas gemerkt/vergessen werden soll — sonst antworte direkt.
 - Erwähne die Tools niemals gegenüber den Leuten. Nutz einfach, was du gefunden hast, und antworte natürlich.
-- Erfinde keine Fakten. Wenn du etwas nicht herausfinden kannst, sag das ehrlich.''';
+- Erfinde keine Fakten. Wenn du etwas nicht herausfinden kannst, sag das ehrlich.
+- Wenn ein Tool `pending_approval` zurückgibt: sag dem Nutzer, dass du auf Michaels Freigabe wartest. Behaupte nicht, die Änderung sei schon durch.''';
 
 const degradedModeNote = '''
 
@@ -23,6 +24,7 @@ Du läufst gerade als kleines CPU-Modell, weil die GPU belegt ist. Einfache Anfr
 /// System prompt for whitelisted guild channels: the casual Egon persona.
 String buildGroupSystemPrompt({
   required String historyLines,
+  required String memoryLines,
   required String localNow,
   bool degraded = false,
 }) {
@@ -48,6 +50,9 @@ $_sharedToolRules${degraded ? degradedModeNote : ''}
 ## Aktuelle Zeit
 $localNow
 
+## Things you remember
+$memoryLines
+
 ## Bisheriger Chatverlauf als Kontext
 $historyLines
 
@@ -60,6 +65,7 @@ String buildDmSystemPrompt({
   required String authorName,
   required bool isOwner,
   required String historyLines,
+  required String memoryLines,
   required String localNow,
   bool degraded = false,
 }) {
@@ -84,6 +90,9 @@ $_sharedToolRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow
+
+## Things you remember
+$memoryLines
 
 ## Bisheriger Verlauf
 $historyLines
