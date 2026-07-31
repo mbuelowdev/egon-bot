@@ -135,7 +135,7 @@ digest; "stop researching about X" cancels mid-job with partial findings; killin
 container mid-job resumes at the same step after restart; `status_overview` reflects all
 of it.
 
-## Phase 5 — Self-extension runtime
+## Phase 5 — Self-extension runtime ✅ implemented
 
 **Goal:** the bot writes its own tools and restarts into them safely.
 

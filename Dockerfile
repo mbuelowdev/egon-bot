@@ -15,4 +15,8 @@ RUN dart pub get
 
 COPY . .
 
-CMD ["dart", "run", "bin/main.dart"]
+RUN chmod +x supervisor/entrypoint.sh \
+    && dart run tool/generate_tool_registry.dart
+
+# Layer-2 supervisor: sync /data/tools, regenerate registry, restart protocol.
+ENTRYPOINT ["supervisor/entrypoint.sh"]

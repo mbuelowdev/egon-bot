@@ -12,14 +12,15 @@ import 'package:egon_bot/src/jobs/job_store.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
+import 'package:egon_bot/src/notices/notice_service.dart';
 import 'package:egon_bot/src/scheduler/scheduler.dart';
 import 'package:egon_bot/src/scheduler/task_store.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
 import 'package:egon_bot/src/time/timestamps.dart';
-import 'package:egon_bot/src/tools/builtin_tools.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
+import 'package:egon_bot/src/tools/tool_registry.g.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
 import 'package:nyxx/nyxx.dart';
@@ -80,9 +81,10 @@ Future<void> main() async {
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),
+    notices: NoticeService(database: database, config: config),
   );
   services.registry = ToolRegistry(
-    tools: buildBuiltinTools(),
+    tools: buildAllTools(),
     services: services,
   );
   services.approvals = ApprovalService(

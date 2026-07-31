@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'agent/approval_service.dart';
 import 'config.dart';
 import 'jobs/job_runner.dart';
 import 'jobs/job_store.dart';
 import 'llm/llm_gate.dart';
 import 'memory/memory_service.dart';
+import 'notices/notice_service.dart';
+import 'process_exit.dart';
 import 'scheduler/scheduler.dart';
 import 'scheduler/task_store.dart';
 import 'security/whitelist_service.dart';
@@ -26,6 +30,7 @@ class Services {
     required this.memory,
     required this.tasks,
     required this.jobs,
+    required this.notices,
   });
 
   final Config config;
@@ -38,6 +43,7 @@ class Services {
   final MemoryService memory;
   final TaskStore tasks;
   final JobStore jobs;
+  final NoticeService notices;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).
@@ -51,4 +57,21 @@ class Services {
 
   /// Set once after history exists — recovered/started when Discord connects.
   late final JobRunner jobRunner;
+
+  /// When true, the process should exit with [ProcessExit.restart] after the
+  /// current Discord reply is sent (§6.4).
+  bool restartRequested = false;
+
+  void requestRestart() {
+    restartRequested = true;
+  }
+
+  /// Exits with code 42 when [requestRestart] was called. Safe to call after
+  /// a turn or approval follow-up has finished posting.
+  void exitIfRestartRequested() {
+    if (!restartRequested) return;
+    stdout.writeln(
+        'Restart requested — exiting with code ${ProcessExit.restart}.');
+    exit(ProcessExit.restart);
+  }
 }

@@ -11,6 +11,7 @@ import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
+import 'package:egon_bot/src/notices/notice_service.dart';
 import 'package:egon_bot/src/scheduler/scheduler.dart';
 import 'package:egon_bot/src/scheduler/task_store.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
@@ -142,6 +143,7 @@ Services testServices({
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),
+    notices: NoticeService(database: database, config: config),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(

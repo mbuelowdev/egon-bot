@@ -117,4 +117,15 @@ const List<String> migrations = [
   );
   CREATE INDEX idx_jobs_status ON jobs(status, priority DESC, id ASC);
   ''',
+
+  // 5: post-boot notices for self-extension restarts (§6.4)
+  '''
+  CREATE TABLE pending_notices (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,
+    channel_id  TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    posted      INTEGER NOT NULL DEFAULT 0
+  );
+  ''',
 ];

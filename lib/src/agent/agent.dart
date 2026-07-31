@@ -124,6 +124,7 @@ class Agent {
       if (outcome.reply.isNotEmpty) {
         await send('${message.authorName}: ${outcome.reply}');
       }
+      services.exitIfRestartRequested();
     } on GateTimeoutException {
       await send(
         'Sorry ${message.authorName} — die GPU war zu lange belegt, deine '

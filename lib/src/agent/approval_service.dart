@@ -282,6 +282,7 @@ class ApprovalService {
       pending.channelId,
       'Applied ✔ — `${pending.toolName}`: $clipped',
     );
+    services.exitIfRestartRequested();
     return ApprovalDecisionResult.handled;
   }
 

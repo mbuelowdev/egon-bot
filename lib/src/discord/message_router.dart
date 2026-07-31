@@ -6,6 +6,7 @@ import 'package:nyxx/nyxx.dart';
 import '../agent/agent.dart';
 import '../agent/context_builder.dart';
 import '../agent/prompts.dart';
+import '../boot_health.dart';
 import '../services.dart';
 import 'discord_actions.dart';
 
@@ -34,6 +35,8 @@ class MessageRouter {
     services.jobRunner.attachClient(client);
     await services.scheduler.start(client);
     await services.jobRunner.recover();
+    markHealthyBoot(services.config);
+    await services.notices.flush(client);
 
     try {
       await for (final event in client.onMessageCreate) {
@@ -172,8 +175,12 @@ class MessageRouter {
 
     // Deliberately not awaited: turns in other channels shouldn't stall
     // behind this one. LLM access is serialized by the gate anyway, and
-    // handleMessage catches its own errors.
-    unawaited(agent.handleMessage(incoming, send));
+    // handleMessage catches its own errors. Restart (exit 42) runs after
+    // the reply is posted so chat sees "restarting now" first (§6.4).
+    unawaited(() async {
+      await agent.handleMessage(incoming, send);
+      services.exitIfRestartRequested();
+    }());
   }
 
   bool _isMentioned(String content, String botUserId) {
