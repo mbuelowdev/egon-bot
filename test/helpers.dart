@@ -2,6 +2,9 @@ import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/agent/agent.dart';
 import 'package:egon_bot/src/config.dart';
+import 'dart:io';
+
+import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/jobs/job_models.dart';
 import 'package:egon_bot/src/jobs/job_runner.dart';
@@ -86,19 +89,27 @@ class FakeMonitor extends WindowsMonitorClient {
   }
 }
 
-Config testConfig() => Config(
-      discordBotToken: 'token',
-      ownerUserId: ownerId,
-      allowedChannelIds: const {'42'},
-      ollamaBaseUrl: Uri.parse('http://localhost:1'),
-      ollamaModel: 'big-model',
-      ollamaUtilityModel: 'small-model',
-      windowsMonitorBaseUrl: null,
-      gpuBusyThresholdPercent: 40,
-      gpuPollInterval: const Duration(milliseconds: 30),
-      dataDir: '/tmp/egon-test',
-      botTimezone: 'Europe/Berlin',
-    );
+Config testConfig({String? vaultDir}) {
+  final dataDir = Directory.systemTemp.createTempSync('egon-test-').path;
+  return Config(
+    discordBotToken: 'token',
+    ownerUserId: ownerId,
+    allowedChannelIds: const {'42'},
+    ollamaBaseUrl: Uri.parse('http://localhost:1'),
+    ollamaModel: 'big-model',
+    ollamaUtilityModel: 'small-model',
+    windowsMonitorBaseUrl: null,
+    gpuBusyThresholdPercent: 40,
+    gpuPollInterval: const Duration(milliseconds: 30),
+    dataDir: dataDir,
+    botTimezone: 'Europe/Berlin',
+    obsidianEmail: null,
+    obsidianPassword: null,
+    obsidianVaultName: null,
+    obsidianE2eePassword: null,
+    obsidianVaultDir: vaultDir ?? '$dataDir/vault',
+  );
+}
 
 LlmGate testGate({
   required FakeOllama ollama,
@@ -127,6 +138,8 @@ Services testServices({
   JobPlanner? planner,
 }) {
   final config = testConfig();
+  final vaultRoot = Directory(config.obsidianVaultDir)
+    ..createSync(recursive: true);
   final database = AppDatabase.inMemory();
   final fakeOllama = ollama ?? FakeOllama();
   final services = Services(
@@ -144,6 +157,7 @@ Services testServices({
     tasks: TaskStore(database),
     jobs: JobStore(database),
     notices: NoticeService(database: database, config: config),
+    vault: ObsidianVault(root: vaultRoot.path, available: true),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(

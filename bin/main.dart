@@ -6,6 +6,8 @@ import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
+import 'package:egon_bot/src/integrations/obsidian_vault.dart';
+import 'package:egon_bot/src/integrations/vault_availability.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/jobs/job_runner.dart';
 import 'package:egon_bot/src/jobs/job_store.dart';
@@ -67,6 +69,16 @@ Future<void> main() async {
     pollInterval: config.gpuPollInterval,
   )..start();
 
+  final vaultAvailable = resolveVaultAvailable(config);
+  if (!vaultAvailable) {
+    stdout.writeln(
+      'Obsidian vault unavailable — note tools will report '
+      '"${ObsidianVault.unavailableMessage}".',
+    );
+  } else {
+    stdout.writeln('Obsidian vault ready at ${config.obsidianVaultDir}');
+  }
+
   final services = Services(
     config: config,
     database: database,
@@ -82,6 +94,10 @@ Future<void> main() async {
     tasks: TaskStore(database),
     jobs: JobStore(database),
     notices: NoticeService(database: database, config: config),
+    vault: ObsidianVault(
+      root: config.obsidianVaultDir,
+      available: vaultAvailable,
+    ),
   );
   services.registry = ToolRegistry(
     tools: buildAllTools(),

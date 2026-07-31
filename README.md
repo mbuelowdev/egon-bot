@@ -7,25 +7,18 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 5 — self-extension)
+## Current state (Phase 6 — Obsidian)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- `supervisor/entrypoint.sh` — syncs `/data/tools` → `generated/`, regenerates the
-  registry, runs the bot, honours exit `0` / `42` / crash backoff, quarantines
-  crash-looping self-written tools.
-- `tool/generate_tool_registry.dart` — discovers `builtin/` + `generated/` tools and
-  emits `tool_registry.g.dart`.
-- `create_tool` / `restart_self` — dangerous tools; codegen via the big model with
-  import whitelist + `dart analyze` (≤3 repair rounds), then exit 42 + post-boot notice.
-- `lib/src/jobs/` — long-running planned work with cancel/resume.
-- `lib/src/scheduler/` — reminders/cron with downtime recovery and GPU deferral.
-- `lib/src/agent/` — conversational turn + `ApprovalService` (preview/dangerous buttons).
-- `lib/src/memory/` — FTS5 memories; DM auto-capture; `conversation_log`.
-- `lib/src/llm/` — Ollama client + `LlmGate` (GPU queue / CPU utility tier).
-- `lib/src/storage/` — SQLite at `$DATA_DIR/egon.db` with versioned migrations.
+- Obsidian vault via `obsidian-headless` sidecar — sandboxed `ObsidianVault`, six
+  personal note tools with unified-diff approval, idea capture to `Inbox/Ideas.md`,
+  research jobs plan a vault report under `Inbox/Research/`.
+- `supervisor/entrypoint.sh` — tool sync, Obsidian login/sync-setup/continuous sidecar,
+  registry codegen, exit `0` / `42` / crash backoff + quarantine.
+- Jobs, scheduler, approvals, memory, GPU-gated LLM queue, self-extension (`create_tool`).
 
-Next up: Phase 6 (Obsidian vault sync + diff-approved note tools).
+Next up: Phase 7 (media + contacts — voice, attachments, address book).
 
 ## Running locally
 
@@ -36,18 +29,13 @@ dart run tool/generate_tool_registry.dart   # after adding/removing builtin tool
 dart run bin/main.dart
 ```
 
-For the full supervisor loop (tool sync + restart protocol), run
-`supervisor/entrypoint.sh` with `DATA_DIR` pointing at a writable directory
-(default `/data`).
+Local runs use `$DATA_DIR/vault` as a plain directory (no Sync required). In Docker,
+set `OBSIDIAN_EMAIL`, `OBSIDIAN_PASSWORD`, and `OBSIDIAN_VAULT_NAME` for Headless Sync.
 
 Run the tests with `dart test`.
 
-Requires a reachable Ollama instance (`OLLAMA_API_BASE_URL`, default
-`http://127.0.0.1:11434`) with a tool-calling-capable model pulled
-(`OLLAMA_MODEL`, default `gpt-oss:20b`).
-
 ## Deployment
 
-Docker image built from `Dockerfile` (ENTRYPOINT is the supervisor); deployed via the
-GitHub Actions workflow, which triggers on changes to `deployment.json` (bump `version`
-to deploy).
+Docker image built from `Dockerfile` (ENTRYPOINT is the supervisor; includes Node 22 +
+`obsidian-headless`); deployed via the GitHub Actions workflow on `deployment.json`
+version bumps.

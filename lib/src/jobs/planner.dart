@@ -49,10 +49,13 @@ class JobPlanner {
               'You are a planning assistant for a Discord bot. Break the user\'s '
               'request into 2–10 concrete sequential steps. Each step should be '
               'something the bot can do with tools (web_search, fetch_url, '
-              'memory, scheduling, etc.) or by writing a digest. Do not invent '
-              'steps that need unavailable capabilities. Obsidian writes may be '
-              'planned but note that they need owner approval. Respond only with '
-              'JSON matching the schema.',
+              'memory, scheduling, obsidian_*, etc.) or by writing a channel '
+              'digest. Do not invent steps that need unavailable capabilities. '
+              'For research / deep-dive jobs, include a late step that writes '
+              'the full structured report via obsidian_write_note to a path '
+              'under Inbox/Research/ (owner must approve the diff), and keep '
+              'the final step as a short channel digest of key findings. '
+              'Respond only with JSON matching the schema.',
         ),
         OllamaChatMessage(role: 'user', content: instructions),
       ],

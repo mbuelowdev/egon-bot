@@ -162,7 +162,7 @@ Steps:
 restart → tool appears in `list_tools` and works; a deliberately broken file dropped
 into `/data/tools/` gets quarantined and reported instead of crash-looping.
 
-## Phase 6 — Obsidian
+## Phase 6 — Obsidian ✅ implemented
 
 **Goal:** vault synced into the container; diff-approved note edits; research reports
 and idea capture complete.

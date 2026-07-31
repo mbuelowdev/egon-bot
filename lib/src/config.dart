@@ -12,6 +12,11 @@ class Config {
     required this.gpuPollInterval,
     required this.dataDir,
     required this.botTimezone,
+    required this.obsidianEmail,
+    required this.obsidianPassword,
+    required this.obsidianVaultName,
+    required this.obsidianE2eePassword,
+    required this.obsidianVaultDir,
   });
 
   final String discordBotToken;
@@ -33,6 +38,21 @@ class Config {
   final String dataDir;
   final String botTimezone;
 
+  /// Obsidian Headless credentials (§13). All three required for sync.
+  final String? obsidianEmail;
+  final String? obsidianPassword;
+  final String? obsidianVaultName;
+  final String? obsidianE2eePassword;
+
+  /// Local vault sync target (default `$DATA_DIR/vault`).
+  final String obsidianVaultDir;
+
+  /// True when email, password, and vault name are all set.
+  bool get obsidianSyncConfigured =>
+      obsidianEmail != null &&
+      obsidianPassword != null &&
+      obsidianVaultName != null;
+
   /// Builds a config from an env lookup. Throws [ConfigError] when a
   /// required variable is missing.
   factory Config.fromEnv(String? Function(String key) env) {
@@ -53,6 +73,13 @@ class Config {
 
     final rawUtility = env('OLLAMA_UTILITY_MODEL') ?? 'llama3.2:3b';
     final rawMonitor = env('WINDOWS_MONITOR_API_BASE_URL');
+    final dataDir = env('DATA_DIR') ?? '/data';
+
+    String? optional(String key) {
+      final v = env(key)?.trim();
+      if (v == null || v.isEmpty) return null;
+      return v;
+    }
 
     return Config(
       discordBotToken: token,
@@ -71,8 +98,13 @@ class Config {
       gpuPollInterval: Duration(
         seconds: int.tryParse(env('GPU_POLL_INTERVAL_SECONDS') ?? '') ?? 60,
       ),
-      dataDir: env('DATA_DIR') ?? '/data',
+      dataDir: dataDir,
       botTimezone: env('BOT_TIMEZONE') ?? 'Europe/Berlin',
+      obsidianEmail: optional('OBSIDIAN_EMAIL'),
+      obsidianPassword: optional('OBSIDIAN_PASSWORD'),
+      obsidianVaultName: optional('OBSIDIAN_VAULT_NAME'),
+      obsidianE2eePassword: optional('OBSIDIAN_E2EE_PASSWORD'),
+      obsidianVaultDir: optional('OBSIDIAN_VAULT_DIR') ?? '$dataDir/vault',
     );
   }
 
@@ -81,7 +113,9 @@ class Config {
       'Config(owner: $ownerUserId, channels: ${allowedChannelIds.length}, '
       'ollama: $ollamaBaseUrl model: $ollamaModel utility: '
       '${ollamaUtilityModel ?? '-'}, monitor: ${windowsMonitorBaseUrl ?? '-'}, '
-      'dataDir: $dataDir, tz: $botTimezone, token: <redacted>)';
+      'dataDir: $dataDir, tz: $botTimezone, vault: $obsidianVaultDir, '
+      'obsidianSync: ${obsidianSyncConfigured ? 'configured' : 'off'}, '
+      'token: <redacted>, obsidianPassword: <redacted>)';
 }
 
 class ConfigError implements Exception {
