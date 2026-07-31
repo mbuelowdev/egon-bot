@@ -96,4 +96,25 @@ const List<String> migrations = [
   );
   CREATE INDEX idx_tasks_due ON scheduled_tasks(status, next_run_at);
   ''',
+
+  // 4: long-running jobs (§9)
+  '''
+  CREATE TABLE jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at      TEXT NOT NULL,
+    created_by      TEXT NOT NULL,
+    channel_id      TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    instructions    TEXT NOT NULL,
+    plan_json       TEXT,
+    current_step    INTEGER,
+    status          TEXT NOT NULL DEFAULT 'queued',
+    question        TEXT,
+    progress_log    TEXT,
+    result          TEXT,
+    priority        INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL
+  );
+  CREATE INDEX idx_jobs_status ON jobs(status, priority DESC, id ASC);
+  ''',
 ];

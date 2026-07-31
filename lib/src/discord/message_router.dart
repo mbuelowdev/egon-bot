@@ -12,11 +12,11 @@ import 'discord_actions.dart';
 /// Name used in prompts when replacing `<@botId>` mentions.
 const botPromptDisplayName = 'Egon';
 
-/// Routes gateway messages (ARCHITECTURE.md §7, §16):
+/// Routes gateway messages (ARCHITECTURE.md §7, §9, §16):
 /// - guild messages only in whitelisted channels; respond on mention
 /// - DMs respond directly and are auto-captured as memories
+/// - owner replies resume `waiting_user` jobs; cancel intents stop active jobs
 /// - only the owner and whitelisted users can trigger the bot
-/// - everything in scope lands in the persistent conversation log
 class MessageRouter {
   MessageRouter({
     required this.services,
@@ -31,7 +31,9 @@ class MessageRouter {
   Future<void> run(NyxxGateway client) async {
     final botUserId = client.user.id.toString();
     services.approvals.attachClient(client);
+    services.jobRunner.attachClient(client);
     await services.scheduler.start(client);
+    await services.jobRunner.recover();
 
     try {
       await for (final event in client.onMessageCreate) {
@@ -43,6 +45,7 @@ class MessageRouter {
       }
     } finally {
       services.scheduler.stop();
+      services.jobRunner.detachClient();
       services.approvals.detachClient();
     }
   }
@@ -80,6 +83,41 @@ class MessageRouter {
     if (authorId == botUserId) {
       return;
     }
+
+    final isOwner = authorId == services.config.ownerUserId;
+
+    // Job orchestration for the owner happens even without a mention when
+    // there is an active/waiting job in this channel (§9).
+    if (isOwner) {
+      final waiting = services.jobs.waitingInChannel(channelId);
+      if (waiting != null) {
+        stdout.writeln(
+          'Resuming waiting job #${waiting.id} with owner reply in $channelId',
+        );
+        services.jobRunner.answerWaitingJob(waiting.id, scrubbedContent);
+        return;
+      }
+
+      final active = services.jobs.activeInChannel(channelId);
+      if (active != null) {
+        final cancel = await services.jobRunner.classifyCancelIntent(
+          active,
+          scrubbedContent,
+        );
+        if (cancel) {
+          stdout.writeln(
+            'Cancel intent for job #${active.id} ("${active.title}")',
+          );
+          services.jobRunner.requestCancel(active.id);
+          await sendLongMessage(
+            message.channel,
+            'Stopping **${active.title}** — wrapping up the current step.',
+          );
+          return;
+        }
+      }
+    }
+
     if (!isDm && !_isMentioned(message.content, botUserId)) {
       return;
     }

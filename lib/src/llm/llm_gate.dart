@@ -26,10 +26,16 @@ class GateTimeoutException implements Exception {
 }
 
 class _BigJob {
-  _BigJob({required this.messages, required this.tools, required this.ttl});
+  _BigJob({
+    required this.messages,
+    required this.tools,
+    required this.ttl,
+    this.format,
+  });
 
   final List<OllamaChatMessage> messages;
   final List<OllamaTool> tools;
+  final Object? format;
   final Duration ttl;
   final DateTime enqueuedAt = DateTime.now();
   final Completer<OllamaChatMessage> completer = Completer();
@@ -100,12 +106,13 @@ class LlmGate {
     required ModelTier tier,
     required List<OllamaChatMessage> messages,
     List<OllamaTool> tools = const [],
+    Object? format,
   }) {
     switch (tier) {
       case ModelTier.small:
-        return _chatSmall(messages: messages, tools: tools);
+        return _chatSmall(messages: messages, tools: tools, format: format);
       case ModelTier.big:
-        return _enqueueBig(messages: messages, tools: tools);
+        return _enqueueBig(messages: messages, tools: tools, format: format);
     }
   }
 
@@ -121,6 +128,7 @@ class LlmGate {
   Future<OllamaChatMessage> _chatSmall({
     required List<OllamaChatMessage> messages,
     required List<OllamaTool> tools,
+    Object? format,
   }) async {
     final model = _utilityModel;
     if (model == null) {
@@ -133,6 +141,7 @@ class LlmGate {
         modelOverride: model,
         // Never let the utility model claim VRAM (§5.1).
         options: const {'num_gpu': 0},
+        format: format,
       ),
     );
   }
@@ -140,11 +149,17 @@ class LlmGate {
   Future<OllamaChatMessage> _enqueueBig({
     required List<OllamaChatMessage> messages,
     required List<OllamaTool> tools,
+    Object? format,
   }) {
     if (_queue.length >= _queueCap) {
       throw GateQueueFullException();
     }
-    final job = _BigJob(messages: messages, tools: tools, ttl: _interactiveTtl);
+    final job = _BigJob(
+      messages: messages,
+      tools: tools,
+      ttl: _interactiveTtl,
+      format: format,
+    );
     _queue.add(job);
     if (!_workerRunning) {
       _workerRunning = true;
@@ -176,6 +191,7 @@ class LlmGate {
             () => _ollama.chatCompletion(
               messages: job.messages,
               tools: job.tools,
+              format: job.format,
             ),
           );
           job.completer.complete(reply);

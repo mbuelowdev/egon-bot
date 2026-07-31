@@ -15,7 +15,7 @@ void main() {
     test('returns the reply once the model stops calling tools', () async {
       var rounds = 0;
       final ollama = FakeOllama(
-        onChat: (messages, tools, modelOverride) async {
+        onChat: (messages, tools, modelOverride, format) async {
           rounds++;
           if (rounds == 1) {
             return OllamaChatMessage(
@@ -46,7 +46,7 @@ void main() {
 
     test('forces a final answer after maxRounds tool rounds', () async {
       final ollama = FakeOllama(
-        onChat: (messages, tools, modelOverride) async {
+        onChat: (messages, tools, modelOverride, format) async {
           if (tools.isEmpty) {
             // The forced final round declares no tools.
             return OllamaChatMessage(role: 'assistant', content: 'forced');
@@ -79,7 +79,7 @@ void main() {
 
     test('degraded turns can defer to the big model', () async {
       final ollama = FakeOllama(
-        onChat: (messages, tools, modelOverride) async {
+        onChat: (messages, tools, modelOverride, format) async {
           expect(
             tools.map((t) => t.name),
             contains('defer_to_big_model'),
@@ -115,7 +115,7 @@ void main() {
 
     test('non-degraded turns do not offer the defer tool', () async {
       final ollama = FakeOllama(
-        onChat: (messages, tools, modelOverride) async {
+        onChat: (messages, tools, modelOverride, format) async {
           expect(
               tools.map((t) => t.name), isNot(contains('defer_to_big_model')));
           return OllamaChatMessage(role: 'assistant', content: 'done');

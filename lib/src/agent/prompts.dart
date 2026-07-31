@@ -11,8 +11,9 @@ String replaceBotMentions(String content, String botUserId, String label) {
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, oder wenn etwas später/regelmäßig passieren soll — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
+- Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - Erwähne die Tools niemals gegenüber den Leuten. Nutz einfach, was du gefunden hast, und antworte natürlich.
 - Erfinde keine Fakten. Wenn du etwas nicht herausfinden kannst, sag das ehrlich.
 - Wenn ein Tool `pending_approval` zurückgibt: sag dem Nutzer, dass du auf Michaels Freigabe wartest. Behaupte nicht, die Änderung sei schon durch.''';

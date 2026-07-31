@@ -105,7 +105,7 @@ Steps:
 **Acceptance:** "remind me in 2 minutes …" fires in-channel; a reminder scheduled, then
 bot restarted before it's due, still fires; a recurring task fires and reschedules.
 
-## Phase 4 — Jobs (deep research, cancellation, resume)
+## Phase 4 — Jobs (deep research, cancellation, resume) ✅ implemented
 
 **Goal:** long-running planned work — the wood-sealing scenario minus the Obsidian
 report (that arrives in Phase 6).

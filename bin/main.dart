@@ -7,6 +7,8 @@ import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
+import 'package:egon_bot/src/jobs/job_runner.dart';
+import 'package:egon_bot/src/jobs/job_store.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
@@ -77,6 +79,7 @@ Future<void> main() async {
     fetchApi: FetchApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),
+    jobs: JobStore(database),
   );
   services.registry = ToolRegistry(
     tools: buildBuiltinTools(),
@@ -95,6 +98,11 @@ Future<void> main() async {
     agent: agent,
     history: history,
     store: services.tasks,
+  );
+  services.jobRunner = JobRunner(
+    services: services,
+    store: services.jobs,
+    history: history,
   );
   final router = MessageRouter(
     services: services,

@@ -1,5 +1,7 @@
 import 'agent/approval_service.dart';
 import 'config.dart';
+import 'jobs/job_runner.dart';
+import 'jobs/job_store.dart';
 import 'llm/llm_gate.dart';
 import 'memory/memory_service.dart';
 import 'scheduler/scheduler.dart';
@@ -23,6 +25,7 @@ class Services {
     required this.fetchApi,
     required this.memory,
     required this.tasks,
+    required this.jobs,
   });
 
   final Config config;
@@ -34,6 +37,7 @@ class Services {
   final FetchApi fetchApi;
   final MemoryService memory;
   final TaskStore tasks;
+  final JobStore jobs;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).
@@ -44,4 +48,7 @@ class Services {
 
   /// Set once after Agent/history exist — started when Discord connects.
   late final Scheduler scheduler;
+
+  /// Set once after history exists — recovered/started when Discord connects.
+  late final JobRunner jobRunner;
 }

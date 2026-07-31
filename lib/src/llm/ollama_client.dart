@@ -30,6 +30,9 @@ class OllamaClient {
     List<OllamaTool> tools = const [],
     String? modelOverride,
     Map<String, Object?>? options,
+
+    /// Ollama `format`: `"json"` or a JSON-Schema object for structured output.
+    Object? format,
   }) async {
     final body = <String, Object?>{
       'model': modelOverride ?? model,
@@ -41,6 +44,9 @@ class OllamaClient {
     }
     if (options != null && options.isNotEmpty) {
       body['options'] = options;
+    }
+    if (format != null) {
+      body['format'] = format;
     }
 
     final json = await _postJson(

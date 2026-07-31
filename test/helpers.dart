@@ -3,6 +3,10 @@ import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/agent/agent.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
+import 'package:egon_bot/src/jobs/job_models.dart';
+import 'package:egon_bot/src/jobs/job_runner.dart';
+import 'package:egon_bot/src/jobs/job_store.dart';
+import 'package:egon_bot/src/jobs/planner.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
@@ -29,6 +33,7 @@ class FakeOllama extends OllamaClient {
     List<OllamaChatMessage> messages,
     List<OllamaTool> tools,
     String? modelOverride,
+    Object? format,
   )? onChat;
 
   int chatCalls = 0;
@@ -40,6 +45,7 @@ class FakeOllama extends OllamaClient {
     List<OllamaTool> tools = const [],
     String? modelOverride,
     Map<String, Object?>? options,
+    Object? format,
   }) async {
     chatCalls++;
     modelOverrides.add(modelOverride);
@@ -47,7 +53,7 @@ class FakeOllama extends OllamaClient {
     if (handler == null) {
       return OllamaChatMessage(role: 'assistant', content: 'ok');
     }
-    return handler(messages, tools, modelOverride);
+    return handler(messages, tools, modelOverride, format);
   }
 
   @override
@@ -117,6 +123,7 @@ Services testServices({
   FakeMonitor? monitor,
   Duration approvalTtl = const Duration(hours: 24),
   DateTime Function()? clock,
+  JobPlanner? planner,
 }) {
   final config = testConfig();
   final database = AppDatabase.inMemory();
@@ -134,6 +141,7 @@ Services testServices({
     fetchApi: FetchApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),
+    jobs: JobStore(database),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(
@@ -151,7 +159,32 @@ Services testServices({
     store: services.tasks,
     clock: clock,
   );
+  services.jobRunner = JobRunner(
+    services: services,
+    store: services.jobs,
+    history: history,
+    planner: planner ?? JobPlanner(services.llmGate),
+  );
   return services;
+}
+
+/// Planner that returns a fixed plan without calling the model.
+class FixedPlanner extends JobPlanner {
+  FixedPlanner(this._title, this._descriptions) : super(_unusedGate());
+
+  final String _title;
+  final List<String> _descriptions;
+
+  static LlmGate _unusedGate() => testGate(ollama: FakeOllama());
+
+  @override
+  Future<PlannedJob> plan(String instructions) async => PlannedJob(
+        title: _title,
+        steps: [
+          for (var i = 0; i < _descriptions.length; i++)
+            JobStep(index: i + 1, description: _descriptions[i]),
+        ],
+      );
 }
 
 ToolContext contextFor(

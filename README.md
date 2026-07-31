@@ -7,26 +7,24 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 3 — scheduler / reminders)
+## Current state (Phase 4 — jobs)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- `bin/main.dart` — loads `Config`, wires up all services, connects to the Discord
-  gateway, and keeps the bot online with a reconnect loop.
-- `lib/src/scheduler/` — 30s tick over `scheduled_tasks`; `message` posts verbatim,
-  `agent` runs a full turn; GPU-busy agent tasks defer +5 min; boot recovery fires
-  one-shots ≤6h late with "(delayed)", marks older ones `missed`, and skips recurring
-  to the next cron occurrence. 5-field cron is evaluated in `BOT_TIMEZONE` (DST-aware).
+- `lib/src/jobs/` — long-running planned work: big-model JSON planner (2–10 steps),
+  singleton sequential `JobRunner`, progress posts, `waiting_user` clarifying questions,
+  cancel between tool calls/steps (tool + natural-language via utility model), and
+  resume-on-boot from the current step.
+- `lib/src/scheduler/` — reminders/cron with downtime recovery and GPU deferral.
 - `lib/src/agent/` — conversational turn + `ApprovalService` (preview/dangerous buttons).
 - `lib/src/memory/` — FTS5 memories; DM auto-capture; `conversation_log` (200/channel).
-- `lib/src/llm/` — Ollama client + `LlmGate` (GPU queue / CPU utility tier).
-- `lib/src/tools/` — includes scheduler tools (`schedule_task`, `list_scheduled_tasks`,
-  `cancel_scheduled_task`) plus web, whitelist, and memory tools.
+- `lib/src/llm/` — Ollama client + `LlmGate` (GPU queue / CPU utility tier; `format` for
+  structured plans).
+- `lib/src/tools/` — `start_job`, `cancel_job`, `status_overview`, plus scheduler, web,
+  whitelist, and memory tools.
 - `lib/src/storage/` — SQLite at `$DATA_DIR/egon.db` with versioned migrations.
-- `lib/src/integrations/windows_monitor_client.dart` + `tools/windows_monitor_api.dart` —
-  the GPU monitor sidecar and its client.
 
-Next up: Phase 4 (jobs — deep research, cancellation, resume).
+Next up: Phase 5 (self-extension runtime — generate tools and restart safely).
 
 ## Running locally
 
