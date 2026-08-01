@@ -20,6 +20,7 @@ import 'storage/database.dart';
 import 'time/timestamps.dart';
 import 'tools/tool_registry.dart';
 import 'web/fetch_api.dart';
+import 'web/http_request_api.dart';
 import 'web/search_api.dart';
 
 /// Shared dependencies handed to every tool via [ToolContext].
@@ -32,6 +33,7 @@ class Services {
     required this.timestamps,
     required this.searchApi,
     required this.fetchApi,
+    required this.httpRequest,
     required this.memory,
     required this.tasks,
     required this.jobs,
@@ -50,6 +52,7 @@ class Services {
   final Timestamps timestamps;
   final SearchApi searchApi;
   final FetchApi fetchApi;
+  final HttpRequestApi httpRequest;
   final MemoryService memory;
   final TaskStore tasks;
   final JobStore jobs;

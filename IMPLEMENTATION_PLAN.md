@@ -234,7 +234,7 @@ Steps:
 Friday 10:00" → preview → Approve → event in the Egon calendar, visible in the Google
 Calendar UI.
 
-## Phase 9 — Watchers + API usage
+## Phase 9 — Watchers + API usage ✅ implemented
 
 **Goal:** scheduled scrapers and ad-hoc API calls.
 

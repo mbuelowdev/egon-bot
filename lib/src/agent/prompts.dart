@@ -11,9 +11,10 @@ String replaceBotMentions(String content, String botUserId, String label) {
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, HTTP/APIs, Watcher, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn eine Seite auf eine Bedingung beobachtet werden soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
 - Kalender: `calendar_list_events` liest alle sichtbaren Kalender; Anlegen/Ändern/Löschen geht nur auf den Egon-Kalender und braucht Freigabe. Zeiten lokal (BOT_TIMEZONE) angeben.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
+- Watcher: wenn jemand eine Seite beobachten will bis etwas passiert (`watch_url` mit url, condition, interval ≥15m). Default stoppt nach dem ersten Treffer.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter.
 - Angehängte Dateien stehen unter "Recent files"; Inhalt mit `read_stored_file` lesen.
@@ -21,6 +22,14 @@ const _sharedToolRules = '''
 - Erwähne die Tools niemals gegenüber den Leuten. Nutz einfach, was du gefunden hast, und antworte natürlich.
 - Erfinde keine Fakten. Wenn du etwas nicht herausfinden kannst, sag das ehrlich.
 - Wenn ein Tool `pending_approval` zurückgibt: sag dem Nutzer, dass du auf Michaels Freigabe wartest. Behaupte nicht, die Änderung sei schon durch.''';
+
+const _apiPlaybookRules = '''
+
+## APIs analysieren
+- Wenn Michael eine Website/API verstehen oder etwas daraus holen will: zuerst Doku-Einstiege mit `fetch_url` prüfen — `/openapi.json`, `/swagger.json`, `/swagger/v1/swagger.json`, `/docs`, `/api`, `/api/docs`, Links zu "API"/"Developer".
+- Endpunkte, Auth (API-Key, Bearer, Cookie) und wichtige Parameter kurz zusammenfassen.
+- Konkrete Calls mit `http_request` (GET/HEAD sofort; POST/PUT/PATCH/DELETE brauchen Freigabe mit exaktem Request). `fetch_url` nur für normale HTML-Seiten.
+- Wenn derselbe Call öfter gebraucht wird: `create_tool` vorschlagen statt immer ad-hoc `http_request`.''';
 
 const _ideaCaptureRules = '''
 
@@ -96,6 +105,7 @@ String buildDmSystemPrompt({
           'Michael (Kalender, Notizen, Erinnerungen an ihn) sind tabu.';
 
   final ideaRules = isOwner ? _ideaCaptureRules : '';
+  final apiRules = isOwner ? _apiPlaybookRules : '';
 
   return '''
 Du bist Egon, ein persönlicher Assistenz-Bot auf Discord. $role
@@ -106,7 +116,7 @@ Du bist Egon, ein persönlicher Assistenz-Bot auf Discord. $role
 - Antworte in der Sprache des Nutzers
 - Wenn eine Anfrage unklar ist, stell genau eine gezielte Rückfrage
 
-$_sharedToolRules$ideaRules${degraded ? degradedModeNote : ''}
+$_sharedToolRules$ideaRules$apiRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow

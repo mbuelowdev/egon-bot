@@ -28,6 +28,7 @@ import 'package:egon_bot/src/time/timestamps.dart';
 import 'package:egon_bot/src/tools/tool.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
+import 'package:egon_bot/src/web/http_request_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
 
 const ownerId = '1000';
@@ -143,6 +144,8 @@ Services testServices({
   Duration approvalTtl = const Duration(hours: 24),
   DateTime Function()? clock,
   JobPlanner? planner,
+  FetchApi? fetchApi,
+  HttpRequestApi? httpRequest,
 }) {
   final config = testConfig();
   final vaultRoot = Directory(config.obsidianVaultDir)
@@ -162,7 +165,8 @@ Services testServices({
     llmGate: testGate(ollama: fakeOllama, monitor: monitor),
     timestamps: timestamps,
     searchApi: SearchApi(),
-    fetchApi: FetchApi(),
+    fetchApi: fetchApi ?? FetchApi(),
+    httpRequest: httpRequest ?? HttpRequestApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),

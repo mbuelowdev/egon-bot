@@ -7,17 +7,16 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 8 — Google Calendar)
+## Current state (Phase 9 — Watchers + API usage)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- Google Calendar via OAuth desktop setup (`tool/google_calendar_setup.dart`) — reads
-  all visible calendars; writes/updates/deletes only on the dedicated **Egon** calendar
-  with preview approval.
-- Media + contacts, Obsidian, self-extension, jobs, scheduler, approvals, memory,
-  GPU-gated LLM.
+- `watch_url` scheduled scrapers (snapshot diff + utility condition check) and
+  owner-only `http_request` with SSRF blocking / mutation previews.
+- Google Calendar, media + contacts, Obsidian, self-extension, jobs, scheduler,
+  approvals, memory, GPU-gated LLM.
 
-Next up: Phase 9 (watchers + `http_request`).
+Next up: Phase 10 (hardening).
 
 ## Running locally
 

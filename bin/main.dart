@@ -28,6 +28,7 @@ import 'package:egon_bot/src/time/timestamps.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
 import 'package:egon_bot/src/tools/tool_registry.g.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
+import 'package:egon_bot/src/web/http_request_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
 import 'package:nyxx/nyxx.dart';
 
@@ -113,6 +114,7 @@ Future<void> main() async {
     timestamps: timestamps,
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
+    httpRequest: HttpRequestApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),

@@ -12,6 +12,7 @@ import 'builtin/cancel_scheduled_task_tool.dart';
 import 'builtin/create_tool_tool.dart';
 import 'builtin/fetch_url_tool.dart';
 import 'builtin/forget_memory_tool.dart';
+import 'builtin/http_request_tool.dart';
 import 'builtin/list_contacts_tool.dart';
 import 'builtin/list_memories_tool.dart';
 import 'builtin/list_scheduled_tasks_tool.dart';
@@ -32,6 +33,7 @@ import 'builtin/start_job_tool.dart';
 import 'builtin/status_overview_tool.dart';
 import 'builtin/unwhitelist_user_tool.dart';
 import 'builtin/update_contact_tool.dart';
+import 'builtin/watch_url_tool.dart';
 import 'builtin/web_search_tool.dart';
 import 'builtin/whitelist_user_tool.dart';
 
@@ -47,6 +49,7 @@ List<Tool> buildAllTools() => [
       CreateToolTool(),
       FetchUrlTool(),
       ForgetMemoryTool(),
+      HttpRequestTool(),
       ListContactsTool(),
       ListMemoriesTool(),
       ListScheduledTasksTool(),
@@ -67,6 +70,7 @@ List<Tool> buildAllTools() => [
       StatusOverviewTool(),
       UnwhitelistUserTool(),
       UpdateContactTool(),
+      WatchUrlTool(),
       WebSearchTool(),
       WhitelistUserTool(),
     ];

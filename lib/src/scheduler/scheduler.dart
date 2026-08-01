@@ -9,6 +9,7 @@ import '../discord/discord_actions.dart';
 import '../services.dart';
 import 'recurrence.dart';
 import 'task_store.dart';
+import 'watcher.dart';
 
 /// Periodic runner for `scheduled_tasks` (ARCHITECTURE.md §8).
 ///
@@ -143,12 +144,7 @@ class Scheduler {
       case TaskKind.agent:
         await _fireAgent(current, delayed: delayed, now: now);
       case TaskKind.watch:
-        // Watchers arrive in a later phase; keep the row pending but nudge
-        // it forward so we don't spin every tick.
-        store.deferNextRun(current.id, now.add(const Duration(hours: 1)));
-        stderr.writeln(
-          'Scheduler: watch task #${current.id} not implemented yet — deferred',
-        );
+        await _fireWatch(current, now: now);
       default:
         stderr.writeln(
           'Scheduler: unknown kind "${current.kind}" on #${current.id}',
@@ -214,6 +210,51 @@ class Scheduler {
     await _completeOrReschedule(task, now: now);
   }
 
+  Future<void> _fireWatch(
+    ScheduledTask task, {
+    required DateTime now,
+  }) async {
+    final result = await Watcher(services).run(task);
+    if (result.alert != null) {
+      await _post(task.channelId, result.alert!);
+    }
+    if (result.ownerWarning != null) {
+      await _notifyOwnerText(result.ownerWarning!);
+    }
+
+    if (result.done) {
+      // Persist final snapshot then close.
+      store.updateAfterRun(
+        id: task.id,
+        ranAt: now,
+        nextRunAt: now,
+        stateJson: result.state.encode(),
+      );
+      store.markDone(task.id, ranAt: now);
+      stdout.writeln('Scheduler: watch #${task.id} triggered → done');
+      return;
+    }
+
+    if (task.isRecurring) {
+      final cron = CronExpression.parse(task.recurrence!);
+      final next = nextOccurrence(
+        cron: cron,
+        timezoneName: task.timezone,
+        after: now,
+      );
+      store.updateAfterRun(
+        id: task.id,
+        ranAt: now,
+        nextRunAt: next,
+        stateJson: result.state.encode(),
+      );
+      stdout.writeln('Scheduler: watch #${task.id} checked → next $next');
+    } else {
+      // Should not happen for watch_url (always recurring), but be safe.
+      store.markDone(task.id, ranAt: now);
+    }
+  }
+
   Future<void> _completeOrReschedule(
     ScheduledTask task, {
     required DateTime now,
@@ -230,6 +271,22 @@ class Scheduler {
     } else {
       store.markDone(task.id, ranAt: now);
       stdout.writeln('Scheduler: one-shot #${task.id} done');
+    }
+  }
+
+  Future<void> _notifyOwnerText(String text) async {
+    final client = _client;
+    if (client == null) {
+      stdout.writeln('Scheduler owner notice (no client): $text');
+      return;
+    }
+    try {
+      final dm = await client.users.createDm(
+        Snowflake.parse(services.config.ownerUserId),
+      );
+      await sendLongMessage(dm, text);
+    } catch (error) {
+      stderr.writeln('Could not DM owner: $error');
     }
   }
 

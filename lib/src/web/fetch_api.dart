@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html_parser;
 
+import 'ssrf_guard.dart';
+
 /// Result of a single [FetchApi.fetch] call.
 class FetchedPage {
   FetchedPage({
@@ -76,6 +78,7 @@ class FetchApi {
   /// model-friendly error message.
   Future<FetchedPage> fetch(String url) async {
     final parsed = _parseAllowedUri(url);
+    await assertPublicHttpUri(parsed);
 
     final request = await _httpClient.getUrl(parsed).timeout(_timeout);
     request.headers
