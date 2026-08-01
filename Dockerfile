@@ -1,43 +1,51 @@
 # Runs from source (JIT) on purpose — no compile step. Self-written tools in
 # /data/tools must be loadable as new Dart source after a restart, which a
 # compiled binary cannot do. See ARCHITECTURE.md §3 / §10.
-FROM dart:stable AS whisper-build
+#
+# Dart SDK and the whisper weights are NOT baked into the image: mount them
+# from the host (see deployment.json):
+#   /opt/dart-sdk          → /usr/lib/dart
+#   /opt/whisper/ggml-*.bin → /models/ggml-*.bin
+FROM debian:bookworm-slim AS whisper-build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
         git \
-        curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 RUN git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git \
     && cmake -S whisper.cpp -B whisper.cpp/build \
-    && cmake --build whisper.cpp/build -j"$(nproc)" --target whisper-cli \
-    && curl -L --fail \
-         -o /src/ggml-small.bin \
-         https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+    && cmake --build whisper.cpp/build -j"$(nproc)" --target whisper-cli
 
-FROM dart:stable
+FROM debian:bookworm-slim
 
-# sqlite3, ffmpeg, poppler (pdftotext), Node 22 + obsidian-headless.
+# Host-mounted Dart SDK (deployment.json).
+ENV PATH="/usr/lib/dart/bin:${PATH}"
+
+# sqlite3 (dev package provides the libsqlite3.so symlink Dart FFI needs;
+# runtime-only libsqlite3-0 only ships libsqlite3.so.0), ffmpeg, poppler
+# (pdftotext), Node 22 + obsidian-headless, whisper-cli runtime deps.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libsqlite3-0 \
+        libsqlite3-dev \
         ca-certificates \
         curl \
         gnupg \
         ffmpeg \
         poppler-utils \
+        libgomp1 \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g obsidian-headless \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=whisper-build /src/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
-COPY --from=whisper-build /src/ggml-small.bin /models/ggml-small.bin
+
+RUN mkdir -p /models
 
 ENV WHISPER_MODEL=small \
     WHISPER_MODEL_PATH=/models/ggml-small.bin \
@@ -45,13 +53,9 @@ ENV WHISPER_MODEL=small \
 
 WORKDIR /app
 
-COPY pubspec.* ./
-RUN dart pub get
-
 COPY . .
 
-RUN chmod +x supervisor/entrypoint.sh \
-    && dart run tool/generate_tool_registry.dart
+# Registry + pub get run at container start (supervisor), using the mounted SDK.
+RUN chmod +x supervisor/entrypoint.sh
 
-# Layer-2 supervisor: tool sync, Obsidian sidecar, registry, restart protocol.
 ENTRYPOINT ["supervisor/entrypoint.sh"]
