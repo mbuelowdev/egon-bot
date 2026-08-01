@@ -7,6 +7,7 @@ import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/discord/boot_presence.dart';
+import 'package:egon_bot/src/discord/discord_search_api.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
@@ -131,6 +132,7 @@ Future<void> main() async {
     llmGate: gate,
     timestamps: timestamps,
     searchApi: SearchApi(),
+    discordSearch: DiscordSearchApi(),
     fetchApi: FetchApi(),
     browserApi: BrowserApi(
       baseUrl: config.browserApiBaseUrl,

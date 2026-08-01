@@ -5,6 +5,7 @@ import 'package:egon_bot/src/config.dart';
 import 'dart:io';
 
 import 'package:egon_bot/src/contacts/contacts_service.dart';
+import 'package:egon_bot/src/discord/discord_search_api.dart';
 import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
@@ -162,6 +163,7 @@ Services testServices({
   FetchApi? fetchApi,
   BrowserApi? browserApi,
   HttpRequestApi? httpRequest,
+  DiscordSearchApi? discordSearch,
   DateTime? startedAt,
 }) {
   final config = testConfig();
@@ -182,6 +184,7 @@ Services testServices({
     llmGate: testGate(ollama: fakeOllama, monitor: monitor),
     timestamps: timestamps,
     searchApi: SearchApi(),
+    discordSearch: discordSearch ?? DiscordSearchApi(),
     fetchApi: fetchApi ?? FetchApi(),
     browserApi: browserApi ??
         BrowserApi(userAgent: config.browserUserAgent),

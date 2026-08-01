@@ -3,6 +3,7 @@ import 'dart:io';
 import 'agent/approval_service.dart';
 import 'config.dart';
 import 'contacts/contacts_service.dart';
+import 'discord/discord_search_api.dart';
 import 'integrations/google_calendar_client.dart';
 import 'integrations/obsidian_vault.dart';
 import 'jobs/job_runner.dart';
@@ -33,6 +34,7 @@ class Services {
     required this.llmGate,
     required this.timestamps,
     required this.searchApi,
+    required this.discordSearch,
     required this.fetchApi,
     required this.browserApi,
     required this.httpRequest,
@@ -57,6 +59,7 @@ class Services {
   final LlmGate llmGate;
   final Timestamps timestamps;
   final SearchApi searchApi;
+  final DiscordSearchApi discordSearch;
   final FetchApi fetchApi;
   final BrowserApi browserApi;
   final HttpRequestApi httpRequest;

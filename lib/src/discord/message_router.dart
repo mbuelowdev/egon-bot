@@ -40,6 +40,7 @@ class MessageRouter {
     services.approvals.attachClient(client);
     services.jobRunner.attachClient(client);
     services.contacts.attachClient(client);
+    services.discordSearch.attachClient(client);
     await services.scheduler.start(client);
     await services.jobRunner.recover();
     markHealthyBoot(services.config);
@@ -71,6 +72,7 @@ class MessageRouter {
       services.jobRunner.detachClient();
       services.approvals.detachClient();
       services.contacts.detachClient();
+      services.discordSearch.detachClient();
     }
   }
 

@@ -93,7 +93,8 @@ String renderHistoryLines(
   if (history.isEmpty) return '(no messages yet)';
   return history
       .map(
-        (m) => '- [${timestamps.format(m.timestamp)}] "${m.authorName}" said: '
+        (m) => '- [${timestamps.format(m.timestamp)}] "${m.authorName}" '
+            '(id=${m.authorId}) said: '
             '${_truncate(m.content, maxMessageChars)}',
       )
       .join('\n');
