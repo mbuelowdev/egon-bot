@@ -7,6 +7,7 @@ import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
+import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/vault_availability.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
@@ -87,6 +88,20 @@ Future<void> main() async {
     available: vaultAvailable,
   );
   final attachments = AttachmentStore(database: database, config: config);
+  final timestamps = Timestamps(config.botTimezone);
+  final calendar = GoogleCalendarClient.open(
+    config: config,
+    timestamps: timestamps,
+  );
+  if (!calendar.isConfigured) {
+    stdout.writeln(
+      'Google Calendar not configured — run '
+      'dart run tool/google_calendar_setup.dart',
+    );
+  } else {
+    stdout.writeln(
+        'Google Calendar credentials found under ${config.dataDir}/google');
+  }
   final services = Services(
     config: config,
     database: database,
@@ -95,7 +110,7 @@ Future<void> main() async {
       ownerUserId: config.ownerUserId,
     ),
     llmGate: gate,
-    timestamps: Timestamps(config.botTimezone),
+    timestamps: timestamps,
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
     memory: MemoryService(database),
@@ -110,6 +125,7 @@ Future<void> main() async {
       attachments: attachments,
       vault: vault,
     ),
+    calendar: calendar,
   );
   services.registry = ToolRegistry(
     tools: buildAllTools(),

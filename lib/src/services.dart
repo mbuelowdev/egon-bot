@@ -3,6 +3,7 @@ import 'dart:io';
 import 'agent/approval_service.dart';
 import 'config.dart';
 import 'contacts/contacts_service.dart';
+import 'integrations/google_calendar_client.dart';
 import 'integrations/obsidian_vault.dart';
 import 'jobs/job_runner.dart';
 import 'jobs/job_store.dart';
@@ -39,6 +40,7 @@ class Services {
     required this.attachments,
     required this.transcription,
     required this.contacts,
+    required this.calendar,
   });
 
   final Config config;
@@ -56,6 +58,7 @@ class Services {
   final AttachmentStore attachments;
   final TranscriptionService transcription;
   final ContactsService contacts;
+  final GoogleCalendarClient calendar;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).

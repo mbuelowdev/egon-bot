@@ -213,7 +213,7 @@ Steps:
 Jan" with two Jans in the book triggers the "Which Jan?" question, then delivers after
 approval.
 
-## Phase 8 — Google Calendar
+## Phase 8 — Google Calendar ✅ implemented
 
 **Goal:** calendar read everywhere, writes to the dedicated "Egon" calendar.
 

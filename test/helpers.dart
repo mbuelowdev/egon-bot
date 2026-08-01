@@ -5,6 +5,7 @@ import 'package:egon_bot/src/config.dart';
 import 'dart:io';
 
 import 'package:egon_bot/src/contacts/contacts_service.dart';
+import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/jobs/job_models.dart';
@@ -113,6 +114,7 @@ Config testConfig({String? vaultDir}) {
     obsidianVaultDir: vaultDir ?? '$dataDir/vault',
     whisperModel: 'tiny',
     maxAttachmentMb: 1,
+    googleCalendarId: null,
   );
 }
 
@@ -149,6 +151,7 @@ Services testServices({
   final fakeOllama = ollama ?? FakeOllama();
   final vault = ObsidianVault(root: vaultRoot.path, available: true);
   final attachments = AttachmentStore(database: database, config: config);
+  final timestamps = Timestamps(config.botTimezone);
   final services = Services(
     config: config,
     database: database,
@@ -157,7 +160,7 @@ Services testServices({
       ownerUserId: config.ownerUserId,
     ),
     llmGate: testGate(ollama: fakeOllama, monitor: monitor),
-    timestamps: Timestamps(config.botTimezone),
+    timestamps: timestamps,
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
     memory: MemoryService(database),
@@ -171,6 +174,10 @@ Services testServices({
       database: database,
       attachments: attachments,
       vault: vault,
+    ),
+    calendar: GoogleCalendarClient.forTesting(
+      config: config,
+      timestamps: timestamps,
     ),
   );
   services.registry = ToolRegistry(tools: tools, services: services);

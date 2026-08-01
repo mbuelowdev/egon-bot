@@ -11,7 +11,8 @@ String replaceBotMentions(String content, String botUserId, String label) {
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn Notizen gelesen/geschrieben werden sollen, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Kalender: `calendar_list_events` liest alle sichtbaren Kalender; Anlegen/Ändern/Löschen geht nur auf den Egon-Kalender und braucht Freigabe. Zeiten lokal (BOT_TIMEZONE) angeben.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter.

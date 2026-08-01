@@ -7,18 +7,17 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 7 — media + contacts)
+## Current state (Phase 8 — Google Calendar)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- Attachments downloaded to `$DATA_DIR/files/` (size-capped); voice messages transcribed
-  with ffmpeg + whisper.cpp; recent files injected into context; `read_stored_file`.
-- Address book: `add_contact` / `update_contact` / `list_contacts` / `send_to_contact`
-  with name resolution, ambiguity ask-back, document resolution, diff-style delivery
-  preview, DM with channel fallback.
-- Obsidian vault, self-extension, jobs, scheduler, approvals, memory, GPU-gated LLM.
+- Google Calendar via OAuth desktop setup (`tool/google_calendar_setup.dart`) — reads
+  all visible calendars; writes/updates/deletes only on the dedicated **Egon** calendar
+  with preview approval.
+- Media + contacts, Obsidian, self-extension, jobs, scheduler, approvals, memory,
+  GPU-gated LLM.
 
-Next up: Phase 8 (Google Calendar).
+Next up: Phase 9 (watchers + `http_request`).
 
 ## Running locally
 
@@ -29,14 +28,16 @@ dart run tool/generate_tool_registry.dart   # after adding/removing builtin tool
 dart run bin/main.dart
 ```
 
-Voice transcription needs `ffmpeg` and `whisper-cli` on `PATH` plus a ggml model
-(`WHISPER_MODEL_PATH`, default `/models/ggml-small.bin`). The Docker image includes
-these; local runs without them still handle text + attachments.
+### Google Calendar setup (one-time)
+
+1. Google Cloud Console → enable Calendar API → OAuth **Desktop** client.
+2. Export `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (and `DATA_DIR` if needed).
+3. `dart run tool/google_calendar_setup.dart` — open the URL, paste the code.
+4. Credentials land in `$DATA_DIR/google/token.json` + `config.json` (Egon calendar id).
 
 Run the tests with `dart test`.
 
 ## Deployment
 
-Docker image built from `Dockerfile` (supervisor ENTRYPOINT; Node 22 + Obsidian
-Headless; ffmpeg + whisper.cpp `small` model + poppler). Deploy via GitHub Actions on
-`deployment.json` version bumps.
+Docker image built from `Dockerfile` (supervisor ENTRYPOINT). Deploy via GitHub Actions
+on `deployment.json` version bumps. Mount `/data` so Google tokens and the vault persist.

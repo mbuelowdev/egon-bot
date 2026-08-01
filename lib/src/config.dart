@@ -19,6 +19,7 @@ class Config {
     required this.obsidianVaultDir,
     required this.whisperModel,
     required this.maxAttachmentMb,
+    required this.googleCalendarId,
   });
 
   final String discordBotToken;
@@ -54,6 +55,9 @@ class Config {
 
   /// Max attachment download size in megabytes (§10).
   final int maxAttachmentMb;
+
+  /// Optional override for the Egon write calendar id (§12).
+  final String? googleCalendarId;
 
   /// True when email, password, and vault name are all set.
   bool get obsidianSyncConfigured =>
@@ -115,6 +119,7 @@ class Config {
       obsidianVaultDir: optional('OBSIDIAN_VAULT_DIR') ?? '$dataDir/vault',
       whisperModel: optional('WHISPER_MODEL') ?? 'small',
       maxAttachmentMb: int.tryParse(env('MAX_ATTACHMENT_MB') ?? '') ?? 25,
+      googleCalendarId: optional('GOOGLE_CALENDAR_ID'),
     );
   }
 
@@ -126,6 +131,7 @@ class Config {
       'dataDir: $dataDir, tz: $botTimezone, vault: $obsidianVaultDir, '
       'obsidianSync: ${obsidianSyncConfigured ? 'configured' : 'off'}, '
       'whisper: $whisperModel, maxAttachMb: $maxAttachmentMb, '
+      'googleCal: ${googleCalendarId ?? 'auto'}, '
       'token: <redacted>, obsidianPassword: <redacted>)';
 }
 
