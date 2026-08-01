@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:nyxx/nyxx.dart';
 
 import '../agent/agent.dart';
+import '../agent/busy_intent.dart';
 import '../agent/context_builder.dart';
 import '../agent/prompts.dart';
 import '../boot_health.dart';
@@ -11,6 +12,7 @@ import '../media/attachments.dart';
 import '../media/stored_file.dart';
 import '../media/transcription.dart';
 import '../services.dart';
+import 'channel_turn_queue.dart';
 import 'discord_actions.dart';
 import 'gateway_watchdog.dart';
 
@@ -19,18 +21,24 @@ import 'gateway_watchdog.dart';
 /// - all allowed-channel messages logged to `conversation_log` (text + media URLs)
 /// - DMs respond directly and are auto-captured as memories
 /// - attachments downloaded only when addressed; voice messages transcribed
-/// - owner replies resume `waiting_user` jobs; cancel intents stop active jobs
+/// - owner replies resume `waiting_user` jobs; cancel/status intents short-circuit
+/// - chat turns are serialized per channel to avoid duplicate tool execution
 /// - only the owner and whitelisted users can trigger the bot
 class MessageRouter {
   MessageRouter({
     required this.services,
     required this.agent,
     required this.history,
-  });
+    ChannelTurnQueue? turnQueue,
+    BusyIntentClassifier? busyIntent,
+  })  : turnQueue = turnQueue ?? ChannelTurnQueue(),
+        busyIntent = busyIntent ?? BusyIntentClassifier(services);
 
   final Services services;
   final Agent agent;
   final ChannelHistoryStore history;
+  final ChannelTurnQueue turnQueue;
+  final BusyIntentClassifier busyIntent;
 
   Future<void> run(NyxxGateway client) async {
     final botUserId = client.user.id.toString();
@@ -236,24 +244,70 @@ class MessageRouter {
         services.jobRunner.answerWaitingJob(waiting.id, content);
         return;
       }
+    }
 
-      final active = services.jobs.activeInChannel(channelId);
-      if (active != null) {
-        final cancel = await services.jobRunner.classifyCancelIntent(
-          active,
-          content,
-        );
-        if (cancel) {
-          stdout.writeln(
-            'Cancel intent for job #${active.id} ("${active.title}")',
-          );
-          services.jobRunner.requestCancel(active.id);
-          await sendLongMessage(
-            message.channel,
-            'Stopping **${active.title}** — wrapping up the current step.',
+    final active = services.jobs.activeInChannel(channelId);
+    final chatBusy = turnQueue.isBusy(channelId);
+    if (active != null || chatBusy) {
+      final intent = await busyIntent.classify(
+        message: content,
+        activeJob: active,
+        chatTurnInFlight: chatBusy,
+      );
+      switch (intent) {
+        case BusyFollowUpIntent.cancel:
+          late final String reply;
+          if (isOwner && active != null) {
+            stdout.writeln(
+              'Cancel intent for job #${active.id} ("${active.title}")',
+            );
+            services.jobRunner.requestCancel(active.id);
+            reply =
+                'Stopping **${active.title}** — wrapping up the current step.';
+          } else if (active != null && !isOwner) {
+            reply =
+                'Nur Michael kann den laufenden Job **${active.title}** '
+                'abbrechen.';
+          } else if (chatBusy) {
+            reply =
+                'Die aktuelle Antwort läuft noch — ich starte nichts Neues '
+                'dazu. Abbruch mitten im Tool-Schritt geht noch nicht.';
+          } else {
+            reply = 'Gerade läuft hier kein Job, den ich stoppen könnte.';
+          }
+          await sendLongMessage(message.channel, reply);
+          history.add(
+            channelId,
+            ChannelMessage(
+              timestamp: DateTime.now(),
+              authorId: botUserId,
+              authorName: botPromptDisplayName,
+              content: reply,
+            ),
           );
           return;
-        }
+        case BusyFollowUpIntent.status:
+          stdout.writeln(
+            'Status intent in $channelId '
+            '(job=${active?.id}, chatBusy=$chatBusy)',
+          );
+          final reply = formatBusyStatusReply(
+            activeJob: active,
+            chatTurnInFlight: chatBusy,
+          );
+          await sendLongMessage(message.channel, reply);
+          history.add(
+            channelId,
+            ChannelMessage(
+              timestamp: DateTime.now(),
+              authorId: botUserId,
+              authorName: botPromptDisplayName,
+              content: reply,
+            ),
+          );
+          return;
+        case BusyFollowUpIntent.proceed:
+          break;
       }
     }
 
@@ -293,10 +347,12 @@ class MessageRouter {
       );
     }
 
-    unawaited(() async {
-      await agent.handleMessage(incoming, send);
-      services.exitIfRestartRequested();
-    }());
+    unawaited(
+      turnQueue.enqueue(channelId, () async {
+        await agent.handleMessage(incoming, send);
+        services.exitIfRestartRequested();
+      }),
+    );
   }
 
   Future<List<StoredFile>> _downloadAttachments({

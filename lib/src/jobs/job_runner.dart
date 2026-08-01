@@ -111,39 +111,6 @@ class JobRunner {
     kick();
   }
 
-  /// Utility-model classification: is [message] a cancel request for [job]?
-  Future<bool> classifyCancelIntent(Job job, String message) async {
-    if (!services.llmGate.hasUtilityTier) {
-      // Fall back to a cheap keyword heuristic when no utility model.
-      final lower = message.toLowerCase();
-      return RegExp(
-            r'\b(stop|cancel|abort|halt|abbrechen|stopp|aufhören)\b',
-          ).hasMatch(lower) &&
-          (lower.contains(job.title.toLowerCase()) ||
-              lower.contains('job') ||
-              lower.contains('research') ||
-              lower.contains('recherch'));
-    }
-    try {
-      final reply = await services.llmGate.chat(
-        tier: ModelTier.small,
-        messages: [
-          OllamaChatMessage(
-            role: 'system',
-            content:
-                'Reply with exactly YES or NO. Is the user asking to cancel, '
-                'stop, or abort the running job titled "${job.title}"?',
-          ),
-          OllamaChatMessage(role: 'user', content: message),
-        ],
-      );
-      return reply.content.trim().toUpperCase().startsWith('YES');
-    } catch (error) {
-      stderr.writeln('Cancel classification failed: $error');
-      return false;
-    }
-  }
-
   Future<void> _pump() async {
     if (_pumping) return;
     _pumping = true;

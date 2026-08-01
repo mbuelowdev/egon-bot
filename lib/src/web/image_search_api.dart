@@ -186,11 +186,22 @@ class ImageSearchApi {
       if (results.length >= limit) break;
       if (item is! Map) continue;
       final map = Map<String, Object?>.from(item);
-      final imageUrl = _httpUrl(map['image']);
+      var imageUrl = _httpUrl(map['image']);
       if (imageUrl == null) continue;
-      if (!seen.add(imageUrl)) continue;
+      // Discord cannot display WebP attachments; prefer other formats.
+      // download_and_send still converts WebP if a CDN hides the extension.
+      if (_looksLikeWebp(imageUrl)) continue;
       final title = _asString(map['title']) ?? '';
-      final thumbnail = _httpUrl(map['thumbnail']) ?? imageUrl;
+      final rawThumbnail = _httpUrl(map['thumbnail']);
+      // LinkedIn CDN blocks hotlinking; DDG's proxied thumbnail is fetchable.
+      if (_isLinkedInHosted(imageUrl)) {
+        if (rawThumbnail == null || _isLinkedInHosted(rawThumbnail)) {
+          continue;
+        }
+        imageUrl = rawThumbnail;
+      }
+      if (!seen.add(imageUrl)) continue;
+      final thumbnail = rawThumbnail ?? imageUrl;
       final sourcePage = _httpUrl(map['url']) ?? '';
       results.add(
         ImageSearchResult(
@@ -204,6 +215,47 @@ class ImageSearchApi {
       );
     }
     return results;
+  }
+
+  /// LinkedIn media hosts reject anonymous downloads (auth / hotlink guards).
+  static bool _isLinkedInHosted(String url) {
+    Uri uri;
+    try {
+      uri = Uri.parse(url);
+    } catch (_) {
+      return false;
+    }
+    final host = uri.host.toLowerCase();
+    return host == 'linkedin.com' ||
+        host.endsWith('.linkedin.com') ||
+        host == 'licdn.com' ||
+        host.endsWith('.licdn.com');
+  }
+
+  /// True when the URL path/query clearly indicates a WebP asset.
+  static bool _looksLikeWebp(String url) {
+    Uri uri;
+    try {
+      uri = Uri.parse(url);
+    } catch (_) {
+      return false;
+    }
+    final path = uri.path.toLowerCase();
+    if (path.endsWith('.webp')) return true;
+    for (final entry in uri.queryParameters.entries) {
+      final key = entry.key.toLowerCase();
+      final value = entry.value.toLowerCase();
+      if (value != 'webp') continue;
+      if (key == 'format' ||
+          key == 'fm' ||
+          key == 'f' ||
+          key == 'ext' ||
+          key == 'type' ||
+          key == 'output') {
+        return true;
+      }
+    }
+    return false;
   }
 
   static String? _httpUrl(Object? value) {

@@ -167,6 +167,7 @@ Services testServices({
   DiscordSearchApi? discordSearch,
   ImageSearchApi? imageSearchApi,
   DateTime? startedAt,
+  String? utilityModel = 'small-model',
 }) {
   final config = testConfig();
   final vaultRoot = Directory(config.obsidianVaultDir)
@@ -183,7 +184,11 @@ Services testServices({
       database: database,
       ownerUserId: config.ownerUserId,
     ),
-    llmGate: testGate(ollama: fakeOllama, monitor: monitor),
+    llmGate: testGate(
+      ollama: fakeOllama,
+      monitor: monitor,
+      utilityModel: utilityModel,
+    ),
     timestamps: timestamps,
     searchApi: SearchApi(),
     imageSearchApi: imageSearchApi ?? ImageSearchApi(),

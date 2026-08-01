@@ -53,7 +53,9 @@ const _conversationContextRules = '''
 ## Gesprächskontext
 - Vorherige Nachrichten stehen als Chatverlauf vor der aktuellen User-Nachricht — lies sie mit und nutze sie.
 - Bezüge wie "dann", "das", "es", "er/sie", "stattdessen", "das erste Foto", "nochmal" aus dem Verlauf auflösen. Frag nicht nach, was der Verlauf schon klärt.
-- Wenn ein vorheriger Versuch scheiterte und der Nutzer einen Fallback nennt, setze denselben Auftrag mit dem Fallback fort — nicht von vorne nachfragen.''';
+- Wenn ein vorheriger Versuch scheiterte und der Nutzer einen Fallback nennt, setze denselben Auftrag mit dem Fallback fort — nicht von vorne nachfragen.
+- Statusfragen ("noch dran?", "fertig?", "was machst du?") nur mit dem Stand beantworten — denselben Auftrag nicht erneut mit Tools oder `start_job` anstoßen, wenn unter "Currently working on" schon etwas läuft.
+- Laufende Arbeit nicht parallel nochmal starten; neue Aufträge klar vom offenen Job unterscheiden.''';
 
 const _sharedToolRules = '''
 ## Tools
@@ -101,6 +103,7 @@ String buildGroupSystemPrompt({
   required String memoryLines,
   required String localNow,
   String recentFilesLines = '(no recent attachments)',
+  String activeWorkLines = '(nothing currently running)',
   bool degraded = false,
 }) {
   return '''
@@ -125,6 +128,9 @@ $_sharedToolRules$_ownerIdentityRules$_conversationContextRules${degraded ? degr
 ## Aktuelle Zeit
 $localNow
 
+## Currently working on
+$activeWorkLines
+
 ## Things you remember
 $memoryLines
 
@@ -142,6 +148,7 @@ String buildDmSystemPrompt({
   required String memoryLines,
   required String localNow,
   String recentFilesLines = '(no recent attachments)',
+  String activeWorkLines = '(nothing currently running)',
   bool degraded = false,
 }) {
   final role = isOwner
@@ -168,6 +175,9 @@ $_sharedToolRules$_ownerIdentityRules$_conversationContextRules$ideaRules$apiRul
 
 ## Aktuelle Zeit
 $localNow
+
+## Currently working on
+$activeWorkLines
 
 ## Things you remember
 $memoryLines

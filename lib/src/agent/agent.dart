@@ -5,6 +5,7 @@ import '../llm/llm_gate.dart';
 import '../llm/ollama_models.dart';
 import '../services.dart';
 import '../tools/tool.dart';
+import 'busy_intent.dart';
 import 'context_builder.dart';
 import 'prompts.dart';
 import 'tool_loop.dart';
@@ -173,6 +174,11 @@ class Agent {
         ),
     ]);
     final localNow = timestamps.now();
+    final activeWorkLines = renderActiveWorkLines(
+      activeJob: services.jobs.activeJob(),
+      channelId: message.channelId,
+      chatTurnInFlight: false,
+    );
 
     final systemPrompt = message.isDm
         ? buildDmSystemPrompt(
@@ -180,12 +186,14 @@ class Agent {
             isOwner: context.isOwner,
             memoryLines: memoryLines,
             recentFilesLines: recentFilesLines,
+            activeWorkLines: activeWorkLines,
             localNow: localNow,
             degraded: degraded,
           )
         : buildGroupSystemPrompt(
             memoryLines: memoryLines,
             recentFilesLines: recentFilesLines,
+            activeWorkLines: activeWorkLines,
             localNow: localNow,
             degraded: degraded,
           );

@@ -1,5 +1,8 @@
+import 'dart:typed_data';
+
 import '../../contacts/contacts_service.dart';
 import '../../media/attachments.dart';
+import '../../media/discord_image.dart';
 import '../../web/fetch_api.dart';
 import '../tool.dart';
 
@@ -59,14 +62,30 @@ class DownloadAndSendTool extends Tool {
       return ToolResult.error('Could not download: $error');
     }
 
+    String name = file.name;
+    String mime = file.mime;
+    Uint8List bytes = file.bytes;
+    try {
+      final converted = await DiscordImage().ensurePngCompatible(
+        name: name,
+        mime: mime,
+        bytes: bytes,
+      );
+      name = converted.name;
+      mime = converted.mime;
+      bytes = converted.bytes;
+    } catch (error) {
+      return ToolResult.error('Could not convert image for Discord: $error');
+    }
+
     try {
       final stored = attachments.storeBytes(
         channelId: context.channelId,
         messageId: 'url-download',
         userId: context.userId,
-        name: file.name,
-        mime: file.mime,
-        bytes: file.bytes,
+        name: name,
+        mime: mime,
+        bytes: bytes,
       );
       final doc = ResolvedDocument(
         name: stored.name,
@@ -85,7 +104,7 @@ class DownloadAndSendTool extends Tool {
         'url': file.url,
         'file': stored.name,
         'mime': stored.mime,
-        'bytes': file.sizeBytes,
+        'bytes': bytes.length,
         'file_id': stored.id,
         'message': result.message,
       });

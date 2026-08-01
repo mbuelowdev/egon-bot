@@ -76,6 +76,62 @@ void main() {
       expect(results.single.imageUrl, 'https://cdn.example.com/x.jpg');
     });
 
+    test('skips WebP urls Discord cannot display', () {
+      const body = '''
+{
+  "results": [
+    {"title": "w", "image": "https://cdn.example.com/a.webp", "url": "https://x"},
+    {"title": "q", "image": "https://cdn.example.com/b?fm=webp", "url": "https://x"},
+    {"title": "ok", "image": "https://cdn.example.com/c.jpg", "url": "https://x"}
+  ]
+}
+''';
+      final results = ImageSearchApi.parseResults(body, limit: 5);
+      expect(results, hasLength(1));
+      expect(results.single.imageUrl, 'https://cdn.example.com/c.jpg');
+    });
+
+    test('replaces LinkedIn image_url with DDG thumbnail', () {
+      const body = '''
+{
+  "results": [
+    {
+      "title": "Profile",
+      "image": "https://media.licdn.com/dms/image/v2/abc/profile.jpg",
+      "thumbnail": "https://external-content.duckduckgo.com/iu/?u=li-thumb",
+      "url": "https://www.linkedin.com/in/someone",
+      "width": 400,
+      "height": 400
+    },
+    {
+      "title": "Blocked only",
+      "image": "https://media.licdn.com/dms/image/v2/xyz/photo.jpg",
+      "thumbnail": "https://media.licdn.com/dms/image/v2/xyz/thumb.jpg",
+      "url": "https://www.linkedin.com/in/other"
+    },
+    {
+      "title": "Normal",
+      "image": "https://cdn.example.com/ok.jpg",
+      "thumbnail": "https://t.example.com/ok.jpg",
+      "url": "https://example.com/ok"
+    }
+  ]
+}
+''';
+      final results = ImageSearchApi.parseResults(body, limit: 5);
+      expect(results, hasLength(2));
+      expect(
+        results[0].imageUrl,
+        'https://external-content.duckduckgo.com/iu/?u=li-thumb',
+      );
+      expect(
+        results[0].thumbnailUrl,
+        'https://external-content.duckduckgo.com/iu/?u=li-thumb',
+      );
+      expect(results[0].sourcePage, 'https://www.linkedin.com/in/someone');
+      expect(results[1].imageUrl, 'https://cdn.example.com/ok.jpg');
+    });
+
     test('returns empty on invalid JSON', () {
       expect(ImageSearchApi.parseResults('not-json', limit: 5), isEmpty);
       expect(ImageSearchApi.parseResults('[]', limit: 5), isEmpty);

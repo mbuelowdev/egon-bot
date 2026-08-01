@@ -13,10 +13,12 @@ class ImageSearchTool extends Tool {
       'user wants a picture/photo/meme of something and has no URL yet. '
       'Returns up to 5 {title, image_url, thumbnail_url, source_page, width, '
       'height}. Post one with download_and_send(image_url) — prefer image_url '
-      'over thumbnail_url. SafeSearch is on by default; set safe_search=false '
-      'only when the user explicitly asks for unsafe/NSFW/unfiltered images. '
-      'Not for text facts (web_search), concrete page URLs (fetch_url), or '
-      'direct image URLs (download_and_send). Never invent image URLs.';
+      'over thumbnail_url. LinkedIn CDN originals are already replaced with '
+      'the DuckDuckGo thumbnail in image_url (hotlink-blocked). SafeSearch is '
+      'on by default; set safe_search=false only when the user explicitly asks '
+      'for unsafe/NSFW/unfiltered images. Not for text facts (web_search), '
+      'concrete page URLs (fetch_url), or direct image URLs '
+      '(download_and_send). Never invent image URLs.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

@@ -733,18 +733,28 @@ inside the job go through §6.5 as usual (e.g. writing the Obsidian document).
   the progress log notes "waiting for GPU". No VRAM is ever stolen from a game by a
   background job.
 
-### Cancellation (R17)
+### Cancellation and status (R17, R20)
 
-Two paths, same effect:
+Three paths for interrupting or checking work:
 
-- Explicit: the `cancel_job` tool.
-- Natural language: while a job is running, every new owner message in that channel is
-  first classified by the **utility model** (CPU, instant): *"is this a cancel/change
-  request for the running job ⟨title⟩?"*. "Stop researching about wood" → yes.
+- Explicit: the `cancel_job` / `status_overview` tools.
+- Natural language while a job is active **or** a chat turn is still in flight
+  in that channel: every addressed follow-up is classified by the **utility
+  model** (CPU, instant) as `CANCEL`, `STATUS`, or `PROCEED`.
+  - `CANCEL` — owner stops the active job ("Stop researching about wood"); a
+    busy chat turn acknowledges that mid-tool abort is not available yet and
+    does not start a duplicate turn.
+  - `STATUS` — reply with a short snapshot (job step / "still on your last
+    request"); **no** new tool loop, so "noch dran?" cannot re-execute work.
+  - `PROCEED` — new or amended work; the agent turn is **serialized per
+    channel** so tools never overlap with an in-flight reply.
 
 Cancellation sets a flag that the runner checks between tool calls and between steps —
 a long tool call finishes, but nothing new starts. The job posts what it had so far
 ("Cancelled. Partial findings: …") and is marked `cancelled`.
+
+The system prompt also injects a `Currently working on` block (active job +
+in-flight chat turn) so proceed-turns do not restart open work from history alone.
 
 ### Clarifying questions
 
