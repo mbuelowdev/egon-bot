@@ -3,3 +3,8 @@
 build/
 .env
 *.exe
+data/
+
+# Synced from /data/tools at boot — never commit installed self-written tools.
+lib/src/tools/generated/*
+!lib/src/tools/generated/.gitkeep

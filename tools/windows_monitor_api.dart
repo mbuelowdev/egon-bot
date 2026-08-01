@@ -27,7 +27,8 @@ Future<void> main(List<String> args) async {
   }
 }
 
-Future<void> _handleRequest(HttpRequest request, ResourceMonitor monitor) async {
+Future<void> _handleRequest(
+    HttpRequest request, ResourceMonitor monitor) async {
   final path = request.uri.path;
   if (request.method != 'GET') {
     _writeJson(
@@ -57,7 +58,8 @@ Future<void> _handleRequest(HttpRequest request, ResourceMonitor monitor) async 
   );
 }
 
-void _writeJson(HttpResponse response, int statusCode, Map<String, Object?> body) {
+void _writeJson(
+    HttpResponse response, int statusCode, Map<String, Object?> body) {
   response.statusCode = statusCode;
   response.headers.contentType = ContentType.json;
   response.write(jsonEncode(body));
@@ -84,11 +86,10 @@ class ResourceMonitor {
 
   final List<_TimedSample> _cpuSamples = [];
   final List<_TimedSample> _gpuSamples = [];
-  Timer? _timer;
 
   Future<void> start() async {
     await _sampleOnce();
-    _timer = Timer.periodic(sampleInterval, (_) {
+    Timer.periodic(sampleInterval, (_) {
       _sampleOnce();
     });
   }
@@ -134,7 +135,8 @@ class ResourceMonitor {
     if (samples.isEmpty) {
       return 0.0;
     }
-    final total = samples.fold<double>(0.0, (sum, sample) => sum + sample.value);
+    final total =
+        samples.fold<double>(0.0, (sum, sample) => sum + sample.value);
     return total / samples.length;
   }
 
@@ -151,13 +153,15 @@ class _TimedSample {
 }
 
 Future<double> _getCpuUsagePercent() async {
-  final command = r'''(Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples[0].CookedValue''';
+  final command =
+      r'''(Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples[0].CookedValue''';
   final output = await _runPowerShell(command);
   return _parseFirstDouble(output);
 }
 
 Future<double> _getGpuUsagePercent() async {
-  final command = r'''$s=(Get-Counter "\GPU Engine(*)\Utilization Percentage").CounterSamples; ($s | Measure-Object -Property CookedValue -Sum).Sum''';
+  final command =
+      r'''$s=(Get-Counter "\GPU Engine(*)\Utilization Percentage").CounterSamples; ($s | Measure-Object -Property CookedValue -Sum).Sum''';
   final output = await _runPowerShell(command);
   final value = _parseFirstDouble(output);
   if (value < 0) {
