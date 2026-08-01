@@ -1,6 +1,8 @@
+import '../llm/ollama_models.dart';
 import '../memory/memory_service.dart';
 import '../storage/database.dart';
 import '../time/timestamps.dart';
+import 'prompts.dart';
 
 /// One remembered message in a channel's rolling history.
 class ChannelMessage {
@@ -82,6 +84,49 @@ String _truncate(String content, int maxChars) {
   }
   return content.substring(0, maxChars - _truncationMarker.length) +
       _truncationMarker;
+}
+
+/// Drops the just-logged current turn so it is only sent as the final user
+/// message, not duplicated in prior history.
+List<ChannelMessage> priorHistoryExcludingCurrent(
+  List<ChannelMessage> history, {
+  required String authorId,
+  required String content,
+}) {
+  if (history.isEmpty) return history;
+  final last = history.last;
+  if (last.authorId == authorId && last.content == content) {
+    return history.sublist(0, history.length - 1);
+  }
+  return history;
+}
+
+/// Turns rolling channel history into real chat turns (bot → assistant,
+/// everyone else → user) so follow-ups keep conversational continuity.
+List<OllamaChatMessage> historyAsChatMessages(
+  List<ChannelMessage> history, {
+  required Timestamps timestamps,
+  required String botAuthorName,
+  int maxMessageChars = 500,
+}) {
+  return [
+    for (final m in history)
+      if (m.authorName == botAuthorName)
+        OllamaChatMessage(
+          role: 'assistant',
+          content: _truncate(m.content, maxMessageChars),
+        )
+      else
+        OllamaChatMessage(
+          role: 'user',
+          content: buildUserMessage(
+            localTimestamp: timestamps.format(m.timestamp),
+            authorName: m.authorName,
+            authorId: m.authorId,
+            content: _truncate(m.content, maxMessageChars),
+          ),
+        ),
+  ];
 }
 
 /// Renders history entries as readable prompt lines, oldest first.

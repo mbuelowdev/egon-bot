@@ -152,9 +152,10 @@ class Agent {
     required bool degraded,
   }) {
     final timestamps = services.timestamps;
-    final historyLines = renderHistoryLines(
+    final prior = priorHistoryExcludingCurrent(
       history.recent(message.channelId),
-      timestamps: timestamps,
+      authorId: message.authorId,
+      content: message.content,
     );
     final memoryLines = renderMemoryLines(
       services.memory.search(message.content, limit: 5),
@@ -177,14 +178,12 @@ class Agent {
         ? buildDmSystemPrompt(
             authorName: message.authorName,
             isOwner: context.isOwner,
-            historyLines: historyLines,
             memoryLines: memoryLines,
             recentFilesLines: recentFilesLines,
             localNow: localNow,
             degraded: degraded,
           )
         : buildGroupSystemPrompt(
-            historyLines: historyLines,
             memoryLines: memoryLines,
             recentFilesLines: recentFilesLines,
             localNow: localNow,
@@ -194,11 +193,17 @@ class Agent {
     final userContent = buildUserMessage(
       localTimestamp: timestamps.format(message.timestamp),
       authorName: message.authorName,
+      authorId: message.authorId,
       content: message.content,
     );
 
     return [
       OllamaChatMessage(role: 'system', content: systemPrompt),
+      ...historyAsChatMessages(
+        prior,
+        timestamps: timestamps,
+        botAuthorName: botPromptDisplayName,
+      ),
       OllamaChatMessage(role: 'user', content: userContent),
     ];
   }
