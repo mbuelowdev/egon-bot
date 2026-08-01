@@ -3,6 +3,7 @@
 
 import 'tool.dart';
 import 'builtin/add_contact_tool.dart';
+import 'builtin/bot_info_tool.dart';
 import 'builtin/calendar_create_event_tool.dart';
 import 'builtin/calendar_delete_event_tool.dart';
 import 'builtin/calendar_list_events_tool.dart';
@@ -43,6 +44,7 @@ import 'builtin/whitelist_user_tool.dart';
 /// All tools discovered under builtin/ + generated/.
 List<Tool> buildAllTools() => [
   AddContactTool(),
+  BotInfoTool(),
   CalendarCreateEventTool(),
   CalendarDeleteEventTool(),
   CalendarListEventsTool(),

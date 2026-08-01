@@ -43,9 +43,13 @@ class Services {
     required this.transcription,
     required this.contacts,
     required this.calendar,
-  });
+    DateTime? startedAt,
+  }) : startedAt = startedAt ?? DateTime.now().toUtc();
 
   final Config config;
+
+  /// Process start time (UTC), used for uptime in `bot_info`.
+  final DateTime startedAt;
   final AppDatabase database;
   final WhitelistService whitelist;
   final LlmGate llmGate;

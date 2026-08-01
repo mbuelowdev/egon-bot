@@ -6,6 +6,7 @@ import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
 import 'package:egon_bot/src/contacts/contacts_service.dart';
+import 'package:egon_bot/src/discord/boot_presence.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
@@ -183,6 +184,7 @@ Future<void> _runBotSupervisor({
         options: GatewayClientOptions(plugins: [logging, cliIntegration]),
       );
       stdout.writeln('Discord bot connected as user ${client.user.id}.');
+      applyBootPresence(client);
 
       // If this connection dies later, first retry should be a bit earlier.
       allowEarlyRetry = true;
