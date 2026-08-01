@@ -335,7 +335,7 @@ class SearchDiscordMessagesTool extends Tool {
             'Requested limit/offset was reduced to the hard cap '
             '($_maxLimit / $_maxOffset). Mass dumps are blocked.',
       if (result.messages.isEmpty)
-        'note': 'No matching messages. Say so naturally in the chat language.',
+        'note': 'No matching messages. Say so naturally in English.',
       if (result.totalResults > result.messages.length)
         'note_more':
             'More matches exist (total_results). Ask the user to narrow '

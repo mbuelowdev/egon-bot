@@ -95,16 +95,16 @@ String formatBusyStatusReply({
     if (step != null && plan.isNotEmpty) {
       final idx = (step - 1).clamp(0, plan.length - 1);
       final desc = plan[idx].description;
-      return 'Ja, noch dran — **${activeJob.title}** läuft '
-          '(Schritt $step/${plan.length}: $desc).';
+      return 'Still on it — **${activeJob.title}** is running '
+          '(step $step/${plan.length}: $desc).';
     }
-    return 'Ja, noch dran — **${activeJob.title}** '
+    return 'Still on it — **${activeJob.title}** '
         '(${activeJob.status}).';
   }
   if (chatTurnInFlight) {
-    return 'Ja, ich bin noch an deiner letzten Anfrage dran.';
+    return 'Still working on your last request.';
   }
-  return 'Gerade läuft hier nichts Offenes.';
+  return 'Nothing open right now.';
 }
 
 /// Lines injected into the system prompt under "Currently working on".

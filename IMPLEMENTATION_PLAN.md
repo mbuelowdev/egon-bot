@@ -41,7 +41,7 @@ Steps:
    (`keep_alive: 0`) when the user becomes active.
 7. `lib/src/agent/` — `agent.dart` (one turn), `context_builder.dart` (history window;
    memory injection lands in Phase 2), `tool_loop.dart` (bounded rounds, forced final
-   answer, ported from git history `2bca07a`), `prompts.dart` (German Egon persona for
+   answer, ported from git history `2bca07a`), `prompts.dart` (English Egon persona for
    guild channels, neutral assistant voice for owner DMs — §18).
 8. Degraded mode (§5.1): GPU busy → turn runs on the utility model with full toolset +
    `defer_to_big_model` tool that queues the turn as a big job and posts the interim

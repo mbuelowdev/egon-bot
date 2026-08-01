@@ -266,14 +266,13 @@ class MessageRouter {
                 'Stopping **${active.title}** — wrapping up the current step.';
           } else if (active != null && !isOwner) {
             reply =
-                'Nur Michael kann den laufenden Job **${active.title}** '
-                'abbrechen.';
+                'Only Michael can cancel the running job **${active.title}**.';
           } else if (chatBusy) {
             reply =
-                'Die aktuelle Antwort läuft noch — ich starte nichts Neues '
-                'dazu. Abbruch mitten im Tool-Schritt geht noch nicht.';
+                'The current reply is still running — I am not starting '
+                'anything new for it. Cancel mid tool-step is not supported yet.';
           } else {
-            reply = 'Gerade läuft hier kein Job, den ich stoppen könnte.';
+            reply = 'No job here I can stop right now.';
           }
           await sendLongMessage(message.channel, reply);
           history.add(

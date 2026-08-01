@@ -1082,8 +1082,8 @@ All previously open questions are decided:
 - **Message Content Intent (§15)**: enabled in the developer portal.
 - **Google Calendar (§12)**: dedicated "Egon" calendar for writes, all visible
   calendars for reads. One-time OAuth desktop-app consent flow.
-- **Persona**: German "Egon" persona in whitelisted group channels; neutral, concise
-  assistant voice in owner DMs.
+- **Persona**: English "Egon" persona in whitelisted group channels; neutral, concise
+  assistant voice in owner DMs. Always answers in English.
 
 Proposed extras — not yet committed, say yes/no per item:
 

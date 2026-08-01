@@ -63,7 +63,7 @@ class ImageSearchTool extends Tool {
         'query': query,
         'safe_search': safeSearch,
         'results': <Object?>[],
-        'note': 'No images found. Say so naturally in the chat language.',
+        'note': 'No images found. Say so naturally in English.',
       });
     }
     return ToolResult.ok({

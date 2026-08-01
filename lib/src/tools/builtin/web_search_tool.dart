@@ -49,7 +49,7 @@ class WebSearchTool extends Tool {
       return ToolResult.ok({
         'query': query,
         'results': <Object?>[],
-        'note': 'No results. Say so naturally in the chat language.',
+        'note': 'No results. Say so naturally in English.',
       });
     }
     return ToolResult.ok({

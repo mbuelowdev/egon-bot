@@ -98,8 +98,9 @@ void main() {
         memoryLines: '(nothing relevant)',
         localNow: 'now',
       );
-      expect(prompt, contains('Chatverlauf sie nicht auflöst'));
-      expect(prompt, contains('Gesprächskontext'));
+      expect(prompt, contains('chat history does not resolve it'));
+      expect(prompt, contains('Conversation context'));
+      expect(prompt, contains('Always answer in English'));
       expect(prompt, isNot(contains('Bisheriger Verlauf')));
     });
 
@@ -108,7 +109,8 @@ void main() {
         memoryLines: '(nothing relevant)',
         localNow: 'now',
       );
-      expect(prompt, contains('Gesprächskontext'));
+      expect(prompt, contains('Conversation context'));
+      expect(prompt, contains('Always answer in English'));
       expect(prompt, isNot(contains('Bisheriger Chatverlauf')));
     });
   });

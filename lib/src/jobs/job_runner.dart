@@ -341,8 +341,8 @@ ${prior.isEmpty ? '(none yet)' : prior}
 Current step (${step.index}/${job.plan.length}): ${step.description}
 
 Do the work for this step using tools when needed. When finished, reply with a
-concise summary of what you found/did for this step (no meta chatter). If you
-truly cannot continue without the owner, call ask_job_question.
+concise English summary of what you found/did for this step (no meta chatter).
+If you truly cannot continue without the owner, call ask_job_question.
 $answerBlock
 ''';
 

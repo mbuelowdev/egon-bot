@@ -168,8 +168,7 @@ Future<ToolLoopOutcome> runToolLoop({
       role: 'system',
       content:
           'Tool budget for this turn is exhausted. Answer now with what you '
-          'already know, in the same language as the user, without meta '
-          'commentary.',
+          'already know, in English, without meta commentary.',
     ),
   );
   final finalAssistant = await gate.chat(

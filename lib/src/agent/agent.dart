@@ -54,7 +54,7 @@ class Agent {
     final gpuFree = await gate.isGpuFree();
     if (!gpuFree && !gate.hasUtilityTier) {
       await send(
-        'Die GPU ist gerade in Benutzung — versuch es später nochmal.',
+        'The GPU is busy right now — try again later.',
       );
       return;
     }
@@ -84,8 +84,8 @@ class Agent {
 
       if (outcome.deferredToBigModel) {
         await send(
-          'Die GPU ist gerade belegt — ich hab die Anfrage eingereiht und '
-          'melde mich hier, sobald sie durch ist.',
+          'The GPU is busy — I queued your request and will reply here '
+          'when it finishes.',
         );
         unawaited(_runDeferredBigTurn(message, context, send));
         return;
@@ -96,14 +96,12 @@ class Agent {
       }
     } on GateQueueFullException {
       await send(
-        'Bei mir stapeln sich gerade die Anfragen — versuch es gleich '
-        'nochmal.',
+        'I have a backlog of requests right now — try again in a moment.',
       );
     } catch (error, stackTrace) {
       stderr.writeln('Agent turn failed: $error\n$stackTrace');
       await send(
-        'Ich komme gerade nicht an mein Gehirn (Ollama). Versuch es später '
-        'nochmal.',
+        'I cannot reach my brain (Ollama) right now. Try again later.',
       );
     }
   }

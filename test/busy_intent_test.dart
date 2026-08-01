@@ -116,7 +116,7 @@ void main() {
     test('mentions in-flight chat turn', () {
       expect(
         formatBusyStatusReply(activeJob: null, chatTurnInFlight: true),
-        contains('letzten Anfrage'),
+        contains('last request'),
       );
     });
   });
@@ -141,7 +141,8 @@ void main() {
       );
       expect(prompt, contains('## Currently working on'));
       expect(prompt, contains('Active job #1'));
-      expect(prompt, contains('nicht erneut mit Tools'));
+      expect(prompt, contains('do not re-trigger the same task with tools'));
+      expect(prompt, contains('Always answer in English'));
     });
   });
 
