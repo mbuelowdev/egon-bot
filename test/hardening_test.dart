@@ -55,7 +55,7 @@ void main() {
   });
 
   group('LlmGate monitor-down notice', () {
-    test('notifies once after threshold when jobs are queued', () async {
+    test('notifies once after threshold when monitor stays down', () async {
       final notices = <String>[];
       var now = DateTime.utc(2026, 8, 1, 12);
       final ollama = FakeOllama();
@@ -71,29 +71,27 @@ void main() {
         clock: () => now,
       )..start();
 
-      final pending = gate.chat(
-        tier: ModelTier.big,
-        messages: _messages,
-        originChannelId: '42',
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      expect(gate.queuedBigJobs, 1);
+      // Unreachable → free: big chat runs immediately.
+      await gate
+          .chat(
+            tier: ModelTier.big,
+            messages: _messages,
+            originChannelId: '42',
+          )
+          .timeout(const Duration(seconds: 1));
+      expect(ollama.chatCalls, 1);
       expect(notices, isEmpty);
 
       now = now.add(const Duration(minutes: 16));
-      await Future<void>.delayed(const Duration(milliseconds: 60));
-      expect(notices, ['monitor down, 1 request waiting']);
+      await gate.isGpuFree();
+      expect(notices, ['monitor down, treating GPU as free']);
       expect(gate.monitorDownNotified, isTrue);
 
       // Still only once.
       now = now.add(const Duration(minutes: 20));
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+      await gate.isGpuFree();
       expect(notices, hasLength(1));
 
-      expect(gate.queuedOriginChannels(), {'42'});
-
-      monitor.unreachable = false;
-      await pending.timeout(const Duration(seconds: 1));
       gate.dispose();
     });
   });

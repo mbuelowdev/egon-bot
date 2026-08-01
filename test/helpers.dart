@@ -47,6 +47,7 @@ class FakeOllama extends OllamaClient {
 
   int chatCalls = 0;
   final List<String?> modelOverrides = [];
+  final List<Object?> thinkValues = [];
 
   @override
   Future<OllamaChatMessage> chatCompletion({
@@ -55,9 +56,11 @@ class FakeOllama extends OllamaClient {
     String? modelOverride,
     Map<String, Object?>? options,
     Object? format,
+    Object? think = 'high',
   }) async {
     chatCalls++;
     modelOverrides.add(modelOverride);
+    thinkValues.add(think);
     final handler = onChat;
     if (handler == null) {
       return OllamaChatMessage(role: 'assistant', content: 'ok');

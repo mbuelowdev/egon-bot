@@ -299,7 +299,7 @@ Gate policy, evaluated before dispatching each `big` job (and re-polled every
 |-----------|---------|
 | `isUserActive == true` | busy — someone is on the machine |
 | `gpuUsagePercent.avg5m > GPU_BUSY_THRESHOLD_PERCENT` (default 40) | busy — GPU loaded by something else |
-| monitor unreachable | busy — the PC (and with it *both* models) is most likely off |
+| monitor unreachable | **free** — prefer the big model; notify owner after 15 min |
 | otherwise | free — dispatch job |
 
 Tier routing:
@@ -337,9 +337,9 @@ Edge cases:
   is mid-flight, the gate immediately unloads the big model from VRAM
   (`/api/generate` with `"keep_alive": 0`) instead of letting Ollama's keep-alive hold
   ~13 GB for another 5 minutes while a game starts.
-- Monitor unreachable for >15 minutes while jobs are queued → notify the owner once
-  ("monitor down, N requests waiting"), keep waiting. No degraded mode either — the
-  utility model lives on the same machine.
+- Monitor unreachable for >15 minutes → notify the owner once
+  ("monitor down, treating GPU as free"). Interactive turns still use the big
+  model; only user-active / high GPU load force degraded mode.
 - Concurrency is 1 by design: one big model call at a time, so Ollama never holds more
   than one big model's VRAM plus context. Small jobs may run concurrently with a big
   job (different resource pools: CPU vs GPU).
@@ -1032,7 +1032,7 @@ Three actor roles and three tool tiers (decided):
 | Host reboot / OOM kill | docker | `--restart unless-stopped` |
 | Ollama down / timeout | HTTP error | reply "brain offline" to the user; scheduler retries `agent` tasks once after 5 min |
 | GPU busy (user gaming / high load) | LLM gate poll (§5.1) | interactive: answer immediately via CPU utility model (degraded mode), hard requests queued for the big model; scheduled `agent` tasks: defer +5 min in SQLite |
-| Windows monitor unreachable | gate poll fails | treat GPU as busy; notify owner once after 15 min with queued-job count |
+| Windows monitor unreachable | gate poll fails | treat GPU as free (big model); notify owner once after 15 min |
 | Reminders due during downtime | boot scan | ≤6h late: fire with "(delayed)"; older: mark `missed`, notify owner |
 | Job interrupted by crash/restart | boot scan of jobs table | resume at the current step, post "resuming ⟨job⟩ at step n/m" (§9) |
 | Watcher target site down/changed markup | fetch error / empty extraction | keep previous snapshot, retry at next interval; warn owner after 3 consecutive failures |

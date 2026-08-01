@@ -25,6 +25,10 @@ class OllamaClient {
   /// [modelOverride] selects a different model for this call (used for the
   /// CPU-only utility tier). [options] are passed through to Ollama, e.g.
   /// `{'num_gpu': 0}` to keep a model off the GPU entirely.
+  ///
+  /// [think] enables Ollama thinking / reasoning effort. Defaults to `"high"`
+  /// (required shape for gpt-oss: `low` / `medium` / `high`). Pass `null` to
+  /// omit the field.
   Future<OllamaChatMessage> chatCompletion({
     required List<OllamaChatMessage> messages,
     List<OllamaTool> tools = const [],
@@ -33,6 +37,7 @@ class OllamaClient {
 
     /// Ollama `format`: `"json"` or a JSON-Schema object for structured output.
     Object? format,
+    Object? think = 'high',
   }) async {
     final body = <String, Object?>{
       'model': modelOverride ?? model,
@@ -47,6 +52,9 @@ class OllamaClient {
     }
     if (format != null) {
       body['format'] = format;
+    }
+    if (think != null) {
+      body['think'] = think;
     }
 
     final json = await _postJson(

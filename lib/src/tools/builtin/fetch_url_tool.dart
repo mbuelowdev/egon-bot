@@ -6,10 +6,12 @@ class FetchUrlTool extends Tool {
 
   @override
   String get description =>
-      'Loads a public web page as plain text. Use after web_search to read a '
-      'result fully, or when a concrete http(s) URL is available. Returns '
-      '{url, title, text, content_type, truncated}; long pages are cut off. '
-      'Only http/https, no binary files.';
+      'Loads a public http(s) page as plain text plus discovered image URLs. '
+      'Use when the user gives a concrete URL, or to read a web_search result. '
+      'Returns {url, title, text, content_type, truncated, images[]} where '
+      'images entries are {url, alt, kind} (kind=og|twitter|link|img). Prefer '
+      'og images, then download_and_send that URL to post a picture. Not for '
+      'binary files or direct image URLs — use download_and_send.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

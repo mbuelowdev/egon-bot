@@ -65,17 +65,26 @@ void main() {
       await pending.timeout(const Duration(seconds: 1));
     });
 
-    test('unreachable monitor counts as busy', () async {
+    test('unreachable monitor counts as free (prefer big model)', () async {
       final ollama = FakeOllama();
       final monitor = FakeMonitor()..unreachable = true;
       final gate = testGate(ollama: ollama, monitor: monitor);
 
-      final pending = gate.chat(tier: ModelTier.big, messages: _messages);
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(ollama.chatCalls, 0);
+      await gate
+          .chat(tier: ModelTier.big, messages: _messages)
+          .timeout(const Duration(seconds: 1));
+      expect(ollama.chatCalls, 1);
+      expect(await gate.isGpuFree(), isTrue);
+    });
 
-      monitor.unreachable = false;
-      await pending.timeout(const Duration(seconds: 1));
+    test('chat requests enable think=high by default', () async {
+      final ollama = FakeOllama();
+      final gate = testGate(ollama: ollama, monitor: null);
+
+      await gate.chat(tier: ModelTier.big, messages: _messages);
+      await gate.chat(tier: ModelTier.small, messages: _messages);
+
+      expect(ollama.thinkValues, ['high', 'high']);
     });
 
     test('no monitor configured means always free', () async {

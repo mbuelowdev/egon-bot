@@ -251,11 +251,6 @@ class MessageRouter {
       }
     }
 
-    stdout.writeln(
-      'Responding to ${isDm ? 'DM' : 'mention'} in $channelId from '
-      '$authorName ($authorId).',
-    );
-
     final incoming = IncomingMessage(
       channelId: channelId,
       authorId: authorId,

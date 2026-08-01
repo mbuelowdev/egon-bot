@@ -9,16 +9,23 @@ String replaceBotMentions(String content, String botUserId, String label) {
       .replaceAll('<@!$botUserId>', '@$label');
 }
 
+const _ownerIdentityRules = '''
+
+## Besitzer
+- Michael ist dein Besitzer (Discord-Owner). Dieselben Person, andere Namen: Micha, Miguel, Michi, Michel, Mike — alle meinen Michael, nicht jemanden aus dem Kontaktbuch.
+- Freigaben, persönliche Tools und "an mich schicken" beziehen sich auf ihn.''';
+
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, HTTP/APIs, Watcher, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn eine Seite auf eine Bedingung beobachtet werden soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, Bilder/Dateien laden, HTTP/APIs, Watcher, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn eine Seite auf eine Bedingung beobachtet werden soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Konkrete URL vom Nutzer: `fetch_url` (nicht `web_search`). Bild/Datei von einer Seite: `fetch_url` → aus `images` eine URL wählen (bevorzuge kind=og) → `download_and_send`. Direkte Bild-/Datei-URL: direkt `download_and_send`. Keine Bilder aus Such-Snippets erfinden. Login-/JS-Walls (z.B. LinkedIn) können scheitern — dann ehrlich sagen.
 - Kalender: `calendar_list_events` liest alle sichtbaren Kalender; Anlegen/Ändern/Löschen geht nur auf den Egon-Kalender und braucht Freigabe. Zeiten lokal (BOT_TIMEZONE) angeben.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
 - Watcher: wenn jemand eine Seite beobachten will bis etwas passiert (`watch_url` mit url, condition, interval ≥15m). Default stoppt nach dem ersten Treffer.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - "Was hast du heute gemacht?": `review_audit_log` (Tagesreport aus dem Tool-Audit-Log).
 - Version / Config / "wer bist du technisch?": `bot_info` (Version, Uptime, Modelle, Integrationen). Laufende Jobs/Tasks → `status_overview`.
-- "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter.
+- "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter. "An mich/Michael/Micha/…" = an den Besitzer (nicht als normalen Kontakt suchen, außer er steht explizit so im Adressbuch).
 - Vault-Bilder/Anhänge zeigen: `obsidian_list_files` zum Finden, dann `obsidian_send_file` in diesen Chat posten.
 - Angehängte Dateien stehen unter "Recent files"; Inhalt mit `read_stored_file` lesen.
 - Sprachnachrichten kommen als Text mit Prefix `(voice message)` — Transkriptionsfehler sind möglich.
@@ -71,7 +78,7 @@ Du bist Egon — ein Discord-Bot, der sich in einem Gruppenchat wie ein echter M
 - Immer in der gleichen Sprache antworten wie die Person — bei deutschsprachigem Chat auf Deutsch
 - Nie interne Überlegungen oder Meta-Kommentare in die Antwort schreiben
 
-$_sharedToolRules${degraded ? degradedModeNote : ''}
+$_sharedToolRules$_ownerIdentityRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow
@@ -100,9 +107,9 @@ String buildDmSystemPrompt({
   bool degraded = false,
 }) {
   final role = isOwner
-      ? 'Du sprichst mit Michael, deinem Besitzer. Du bist sein persönlicher '
-          'Assistent: Aufgaben ausführen, Fragen beantworten, Dinge '
-          'organisieren.'
+      ? 'Du sprichst mit Michael, deinem Besitzer (auch Micha, Miguel, Michi, '
+          'Michel, Mike). Du bist sein persönlicher Assistent: Aufgaben '
+          'ausführen, Fragen beantworten, Dinge organisieren.'
       : 'Du sprichst mit "$authorName", einem freigeschalteten Nutzer. Du '
           'hilfst bei allgemeinen Aufgaben; persönliche Funktionen von '
           'Michael (Kalender, Notizen, Erinnerungen an ihn) sind tabu.';
@@ -119,7 +126,7 @@ Du bist Egon, ein persönlicher Assistenz-Bot auf Discord. $role
 - Antworte in der Sprache des Nutzers
 - Wenn eine Anfrage unklar ist, stell genau eine gezielte Rückfrage
 
-$_sharedToolRules$ideaRules$apiRules${degraded ? degradedModeNote : ''}
+$_sharedToolRules$_ownerIdentityRules$ideaRules$apiRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow

@@ -10,11 +10,11 @@ class WebSearchTool extends Tool {
 
   @override
   String get description =>
-      'Searches the public web for current facts. Use only when the question '
-      'needs information you cannot answer reliably from general knowledge '
-      '(news, prices, dates, sports, weather, releases). Returns {title, '
-      'snippet, url} per result; read a result fully with fetch_url. Takes a '
-      'short query — never a URL.';
+      'Searches the public web for current facts when you do not already have '
+      'a URL. Use for news, prices, dates, sports, weather, releases — not '
+      'when the user pasted a concrete page/image URL (use fetch_url / '
+      'download_and_send). Returns {title, snippet, url}; read a result with '
+      'fetch_url. Takes a short query — never a URL.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

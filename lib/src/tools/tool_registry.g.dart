@@ -11,6 +11,7 @@ import 'builtin/calendar_update_event_tool.dart';
 import 'builtin/cancel_job_tool.dart';
 import 'builtin/cancel_scheduled_task_tool.dart';
 import 'builtin/create_tool_tool.dart';
+import 'builtin/download_and_send_tool.dart';
 import 'builtin/fetch_url_tool.dart';
 import 'builtin/forget_memory_tool.dart';
 import 'builtin/http_request_tool.dart';
@@ -52,6 +53,7 @@ List<Tool> buildAllTools() => [
   CancelJobTool(),
   CancelScheduledTaskTool(),
   CreateToolTool(),
+  DownloadAndSendTool(),
   FetchUrlTool(),
   ForgetMemoryTool(),
   HttpRequestTool(),

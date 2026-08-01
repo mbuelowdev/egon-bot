@@ -103,6 +103,20 @@ class LlmGate {
 
   int get queuedBigJobs => _queue.length;
 
+  /// Concrete Ollama model name used for [tier] (for logs / bot_info).
+  String modelName(ModelTier tier) {
+    switch (tier) {
+      case ModelTier.small:
+        return _utilityModel ?? '(utility disabled)';
+      case ModelTier.big:
+        return _ollama.model;
+    }
+  }
+
+  /// Alias used in turn logs: `gpt-oss:20b (big)` / `llama3.2:3b (small)`.
+  String modelLabel(ModelTier tier) => '${modelName(tier)} (${tier.name})';
+
+
   /// True after an unreachable streak that already produced the one-shot notice.
   bool get monitorDownNotified => _monitorDownNotified;
 
@@ -267,8 +281,8 @@ class LlmGate {
   }
 
   /// Polls the monitor. Policy (§5.1): user active OR 5-min-avg GPU load
-  /// above threshold OR monitor unreachable → busy. No monitor configured →
-  /// always free (local development).
+  /// above threshold → busy. Monitor unreachable → treat as free (prefer the
+  /// big model). No monitor configured → always free (local development).
   Future<bool> _pollGpuFree({required bool force}) async {
     final monitor = _monitor;
     bool free;
@@ -288,8 +302,10 @@ class LlmGate {
           free = avg == null || avg <= _busyThresholdPercent;
         }
       } catch (error) {
-        stderr.writeln('GPU monitor unreachable, treating as busy: $error');
-        free = false;
+        stderr.writeln(
+          'GPU monitor unreachable, treating as free (big model): $error',
+        );
+        free = true;
         unreachable = true;
       }
     }
@@ -316,12 +332,10 @@ class LlmGate {
     }
     _monitorUnreachableSince ??= _clock();
     if (_monitorDownNotified) return;
-    if (_queue.isEmpty) return;
     final since = _monitorUnreachableSince!;
     if (_clock().difference(since) < _monitorDownNotifyAfter) return;
     _monitorDownNotified = true;
-    final n = _queue.length;
-    final message = 'monitor down, $n request${n == 1 ? '' : 's'} waiting';
+    final message = 'monitor down, treating GPU as free';
     stderr.writeln('GPU gate: $message');
     _onMonitorDownNotice?.call(message);
   }

@@ -1,0 +1,96 @@
+import '../../contacts/contacts_service.dart';
+import '../../media/attachments.dart';
+import '../../web/fetch_api.dart';
+import '../tool.dart';
+
+class DownloadAndSendTool extends Tool {
+  @override
+  String get name => 'download_and_send';
+
+  @override
+  String get description =>
+      'Downloads a public image or file URL and posts it as a Discord '
+      'attachment in the current channel. Use when the user wants a picture '
+      'or file from the web: after fetch_url, pick a URL from images[] (prefer '
+      'kind=og), or pass a direct image/CDN URL. Optional message is the '
+      'caption. Do not use for HTML pages (fetch_url first). Not for vault '
+      'files (obsidian_send_file) or sending to other people (send_to_contact).';
+
+  @override
+  Map<String, Object?> get parametersJsonSchema => const {
+        'type': 'object',
+        'properties': {
+          'url': {
+            'type': 'string',
+            'description':
+                'Direct http(s) URL of an image or downloadable file '
+                '(not an HTML page).',
+          },
+          'message': {
+            'type': 'string',
+            'description': 'Optional caption posted with the file.',
+          },
+        },
+        'required': ['url'],
+      };
+
+  @override
+  Future<ToolResult> execute(
+    ToolContext context,
+    Map<String, Object?> args,
+  ) async {
+    final url = (args['url'] as String?)?.trim() ?? '';
+    if (url.isEmpty) {
+      return ToolResult.error(
+        'download_and_send needs a non-empty http(s) file/image URL.',
+      );
+    }
+
+    final attachments = context.services.attachments;
+    DownloadedFile file;
+    try {
+      file = await context.services.fetchApi.download(
+        url,
+        maxBytes: attachments.maxBytes,
+      );
+    } catch (error) {
+      return ToolResult.error('Could not download: $error');
+    }
+
+    try {
+      final stored = attachments.storeBytes(
+        channelId: context.channelId,
+        messageId: 'url-download',
+        userId: context.userId,
+        name: file.name,
+        mime: file.mime,
+        bytes: file.bytes,
+      );
+      final doc = ResolvedDocument(
+        name: stored.name,
+        mime: stored.mime,
+        bytes: attachments.readBytes(stored),
+        source: 'file:#${stored.id}',
+        storedFileId: stored.id,
+      );
+      final result = await context.services.contacts.deliverToChannel(
+        channelId: context.channelId,
+        doc: doc,
+        message: args['message'] as String?,
+      );
+      return ToolResult.ok({
+        'status': 'sent',
+        'url': file.url,
+        'file': stored.name,
+        'mime': stored.mime,
+        'bytes': file.sizeBytes,
+        'file_id': stored.id,
+        'message': result.message,
+      });
+    } on AttachmentTooLargeException catch (error) {
+      return ToolResult.error(error.toString());
+    } catch (error) {
+      return ToolResult.error('Downloaded but could not post: $error');
+    }
+  }
+}

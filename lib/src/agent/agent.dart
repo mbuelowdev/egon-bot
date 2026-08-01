@@ -9,6 +9,7 @@ import 'context_builder.dart';
 import 'prompts.dart';
 import 'tool_loop.dart';
 
+
 /// A message the router decided the bot should respond to.
 class IncomingMessage {
   IncomingMessage({
@@ -57,6 +58,12 @@ class Agent {
       return;
     }
     final degraded = !gpuFree;
+    final tier = degraded ? ModelTier.small : ModelTier.big;
+    stdout.writeln(
+      'Responding to ${message.isDm ? 'DM' : 'mention'} in '
+      '${message.channelId} from ${message.authorName} (${message.authorId}) '
+      'via ${gate.modelLabel(tier)}.',
+    );
 
     final initialMessages = _buildTurnMessages(
       message,
@@ -67,7 +74,7 @@ class Agent {
     try {
       final outcome = await runToolLoop(
         gate: gate,
-        tier: degraded ? ModelTier.small : ModelTier.big,
+        tier: tier,
         registry: services.registry,
         context: context,
         initialMessages: initialMessages,
@@ -114,6 +121,10 @@ class Agent {
       degraded: false,
     );
     try {
+      stdout.writeln(
+        'Deferred big-model turn for ${message.channelId} via '
+        '${services.llmGate.modelLabel(ModelTier.big)}.',
+      );
       final outcome = await runToolLoop(
         gate: services.llmGate,
         tier: ModelTier.big,

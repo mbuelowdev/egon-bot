@@ -143,7 +143,7 @@ Future<ToolLoopOutcome> runToolLoop({
       }
 
       stdout.writeln(
-        'Tool call round ${round + 1}: '
+        'Tool call round ${round + 1} via ${gate.modelLabel(tier)}: '
         '${call.name}(${jsonEncode(call.arguments)})',
       );
       final result = await registry.dispatch(context, call);
