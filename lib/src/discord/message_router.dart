@@ -14,9 +14,6 @@ import '../services.dart';
 import 'discord_actions.dart';
 import 'gateway_watchdog.dart';
 
-/// Name used in prompts when replacing `<@botId>` mentions.
-const botPromptDisplayName = 'Egon';
-
 /// Routes gateway messages (ARCHITECTURE.md §7, §9, §10, §16):
 /// - guild messages only in whitelisted channels; respond on mention
 /// - all allowed-channel messages logged to `conversation_log` (text + media URLs)

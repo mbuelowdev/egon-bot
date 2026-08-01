@@ -2,6 +2,9 @@
 /// persona in group channels, neutral concise assistant voice in owner DMs).
 library;
 
+/// Display name used in prompts and conversation history for the bot itself.
+const botPromptDisplayName = 'Egon';
+
 /// Replaces Discord mention tokens for the bot with a readable `@Name`.
 String replaceBotMentions(String content, String botUserId, String label) {
   return content
@@ -14,6 +17,13 @@ const _ownerIdentityRules = '''
 ## Besitzer
 - Michael ist dein Besitzer (Discord-Owner). Dieselben Person, andere Namen: Micha, Miguel, Michi, Michel, Mike — alle meinen Michael, nicht jemanden aus dem Kontaktbuch.
 - Freigaben, persönliche Tools und "an mich schicken" beziehen sich auf ihn.''';
+
+const _conversationContextRules = '''
+
+## Gesprächskontext
+- Vorherige Nachrichten stehen als Chatverlauf vor der aktuellen User-Nachricht — lies sie mit und nutze sie.
+- Bezüge wie "dann", "das", "es", "er/sie", "stattdessen", "das erste Foto", "nochmal" aus dem Verlauf auflösen. Frag nicht nach, was der Verlauf schon klärt.
+- Wenn ein vorheriger Versuch scheiterte und der Nutzer einen Fallback nennt, setze denselben Auftrag mit dem Fallback fort — nicht von vorne nachfragen.''';
 
 const _sharedToolRules = '''
 ## Tools
@@ -57,7 +67,6 @@ Du läufst gerade als kleines CPU-Modell, weil die GPU belegt ist. Einfache Anfr
 
 /// System prompt for whitelisted guild channels: the casual Egon persona.
 String buildGroupSystemPrompt({
-  required String historyLines,
   required String memoryLines,
   required String localNow,
   String recentFilesLines = '(no recent attachments)',
@@ -80,7 +89,7 @@ Du bist Egon — ein Discord-Bot, der sich in einem Gruppenchat wie ein echter M
 - Immer in der gleichen Sprache antworten wie die Person — bei deutschsprachigem Chat auf Deutsch
 - Nie interne Überlegungen oder Meta-Kommentare in die Antwort schreiben
 
-$_sharedToolRules$_ownerIdentityRules${degraded ? degradedModeNote : ''}
+$_sharedToolRules$_ownerIdentityRules$_conversationContextRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow
@@ -91,9 +100,6 @@ $memoryLines
 ## Recent files
 $recentFilesLines
 
-## Bisheriger Chatverlauf als Kontext
-$historyLines
-
 Antworte als Egon.
 ''';
 }
@@ -102,7 +108,6 @@ Antworte als Egon.
 String buildDmSystemPrompt({
   required String authorName,
   required bool isOwner,
-  required String historyLines,
   required String memoryLines,
   required String localNow,
   String recentFilesLines = '(no recent attachments)',
@@ -126,9 +131,9 @@ Du bist Egon, ein persönlicher Assistenz-Bot auf Discord. $role
 - Präzise und direkt, keine Floskeln, kein Smalltalk-Auftakt
 - So kurz wie möglich, so lang wie nötig
 - Antworte in der Sprache des Nutzers
-- Wenn eine Anfrage unklar ist, stell genau eine gezielte Rückfrage
+- Wenn eine Anfrage unklar ist und der Chatverlauf sie nicht auflöst, stell genau eine gezielte Rückfrage
 
-$_sharedToolRules$_ownerIdentityRules$ideaRules$apiRules${degraded ? degradedModeNote : ''}
+$_sharedToolRules$_ownerIdentityRules$_conversationContextRules$ideaRules$apiRules${degraded ? degradedModeNote : ''}
 
 ## Aktuelle Zeit
 $localNow
@@ -139,9 +144,6 @@ $memoryLines
 ## Recent files
 $recentFilesLines
 
-## Bisheriger Verlauf
-$historyLines
-
 Antworte als Egon.
 ''';
 }
@@ -151,6 +153,10 @@ String buildUserMessage({
   required String localTimestamp,
   required String authorName,
   required String content,
+  String? authorId,
 }) {
-  return '[$localTimestamp] $authorName: $content';
+  final who = authorId == null
+      ? authorName
+      : '"$authorName" (id=$authorId)';
+  return '[$localTimestamp] $who: $content';
 }
