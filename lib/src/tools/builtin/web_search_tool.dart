@@ -12,9 +12,10 @@ class WebSearchTool extends Tool {
   String get description =>
       'Searches the public web for current facts when you do not already have '
       'a URL. Use for news, prices, dates, sports, weather, releases — not '
-      'when the user pasted a concrete page/image URL (use fetch_url / '
-      'download_and_send). Returns {title, snippet, url}; read a result with '
-      'fetch_url. Takes a short query — never a URL.';
+      'for finding pictures (image_search), and not when the user pasted a '
+      'concrete page/image URL (use fetch_url / download_and_send). Returns '
+      '{title, snippet, url}; read a result with fetch_url. Takes a short '
+      'query — never a URL.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

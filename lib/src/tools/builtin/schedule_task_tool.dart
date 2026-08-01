@@ -29,7 +29,9 @@ class ScheduleTaskTool extends Tool {
           'payload': {
             'type': 'string',
             'description':
-                'Reminder text to post, or instruction for an agent turn.',
+                'Reminder text to post, or instruction for an agent turn. '
+                'To ping someone in a kind=message payload, include their '
+                'Discord mention token verbatim (<@userId>).',
           },
           'due_at': {
             'type': 'string',

@@ -23,6 +23,7 @@ import 'tools/tool_registry.dart';
 import 'web/browser_api.dart';
 import 'web/fetch_api.dart';
 import 'web/http_request_api.dart';
+import 'web/image_search_api.dart';
 import 'web/search_api.dart';
 
 /// Shared dependencies handed to every tool via [ToolContext].
@@ -34,6 +35,7 @@ class Services {
     required this.llmGate,
     required this.timestamps,
     required this.searchApi,
+    required this.imageSearchApi,
     required this.discordSearch,
     required this.fetchApi,
     required this.browserApi,
@@ -59,6 +61,7 @@ class Services {
   final LlmGate llmGate;
   final Timestamps timestamps;
   final SearchApi searchApi;
+  final ImageSearchApi imageSearchApi;
   final DiscordSearchApi discordSearch;
   final FetchApi fetchApi;
   final BrowserApi browserApi;

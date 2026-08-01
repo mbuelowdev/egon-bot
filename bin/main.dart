@@ -33,6 +33,7 @@ import 'package:egon_bot/src/tools/tool_registry.g.dart';
 import 'package:egon_bot/src/web/browser_api.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
 import 'package:egon_bot/src/web/http_request_api.dart';
+import 'package:egon_bot/src/web/image_search_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
 import 'package:nyxx/nyxx.dart';
 
@@ -132,6 +133,7 @@ Future<void> main() async {
     llmGate: gate,
     timestamps: timestamps,
     searchApi: SearchApi(),
+    imageSearchApi: ImageSearchApi(),
     discordSearch: DiscordSearchApi(),
     fetchApi: FetchApi(),
     browserApi: BrowserApi(

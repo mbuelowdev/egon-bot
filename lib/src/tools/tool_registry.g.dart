@@ -16,6 +16,7 @@ import 'builtin/download_and_send_tool.dart';
 import 'builtin/fetch_url_tool.dart';
 import 'builtin/forget_memory_tool.dart';
 import 'builtin/http_request_tool.dart';
+import 'builtin/image_search_tool.dart';
 import 'builtin/list_contacts_tool.dart';
 import 'builtin/list_memories_tool.dart';
 import 'builtin/list_scheduled_tasks_tool.dart';
@@ -61,6 +62,7 @@ List<Tool> buildAllTools() => [
   FetchUrlTool(),
   ForgetMemoryTool(),
   HttpRequestTool(),
+  ImageSearchTool(),
   ListContactsTool(),
   ListMemoriesTool(),
   ListScheduledTasksTool(),

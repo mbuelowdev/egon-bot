@@ -11,10 +11,12 @@ class DownloadAndSendTool extends Tool {
   String get description =>
       'Downloads a public image or file URL and posts it as a Discord '
       'attachment in the current channel. Use when the user wants a picture '
-      'or file from the web: after fetch_url, pick a URL from images[] (prefer '
-      'kind=og), or pass a direct image/CDN URL. Optional message is the '
-      'caption. Do not use for HTML pages (fetch_url first). Not for vault '
-      'files (obsidian_send_file) or sending to other people (send_to_contact).';
+      'or file from the web: after image_search use image_url; after '
+      'fetch_url pick a URL from images[] (prefer kind=og); or pass a direct '
+      'image/CDN URL. Optional message is the caption. Do not use for HTML '
+      'pages (fetch_url first) or to invent search results (image_search). '
+      'Not for vault files (obsidian_send_file) or sending to other people '
+      '(send_to_contact).';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

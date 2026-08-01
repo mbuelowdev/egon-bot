@@ -180,10 +180,11 @@ class MessageRouter {
       }
     }
 
-    var content = replaceBotMentions(
+    var content = formatMentionsForPrompt(
       message.content,
       botUserId,
       botPromptDisplayName,
+      mentionedUserLabels: _mentionedUserLabels(message),
     );
 
     // Voice message → transcript (§10).
@@ -327,12 +328,24 @@ class MessageRouter {
 
   /// Text + attachment filename/URL refs for the rolling history (no downloads).
   String _contentForHistory(Message message, String botUserId) {
-    final text = replaceBotMentions(
+    final text = formatMentionsForPrompt(
       message.content,
       botUserId,
       botPromptDisplayName,
+      mentionedUserLabels: _mentionedUserLabels(message),
     );
     return _appendAttachmentRefs(text, message.attachments);
+  }
+
+  Map<String, String> _mentionedUserLabels(Message message) {
+    return {
+      for (final user in message.mentions)
+        user.id.toString(): discordUserPromptLabel(
+          id: user.id.toString(),
+          globalName: user.globalName,
+          username: user.username,
+        ),
+    };
   }
 
   String _appendAttachmentRefs(

@@ -5,11 +5,41 @@ library;
 /// Display name used in prompts and conversation history for the bot itself.
 const botPromptDisplayName = 'Egon';
 
-/// Replaces Discord mention tokens for the bot with a readable `@Name`.
-String replaceBotMentions(String content, String botUserId, String label) {
-  return content
-      .replaceAll('<@$botUserId>', '@$label')
-      .replaceAll('<@!$botUserId>', '@$label');
+/// Formats Discord mention tokens for the LLM prompt/history.
+///
+/// The bot itself becomes a plain `@[botLabel]`. Other users in
+/// [mentionedUserLabels] become `@Name (<@id>)` so the model can read the
+/// name and copy the `<@id>` ping token into replies and reminder payloads.
+String formatMentionsForPrompt(
+  String content,
+  String botUserId,
+  String botLabel, {
+  Map<String, String> mentionedUserLabels = const {},
+}) {
+  var out = content
+      .replaceAll('<@$botUserId>', '@$botLabel')
+      .replaceAll('<@!$botUserId>', '@$botLabel');
+  for (final entry in mentionedUserLabels.entries) {
+    final id = entry.key;
+    if (id == botUserId) continue;
+    final label = entry.value;
+    out = out
+        .replaceAll('<@$id>', '@$label (<@$id>)')
+        .replaceAll('<@!$id>', '@$label (<@$id>)');
+  }
+  return out;
+}
+
+/// Display label for a Discord user in prompts (global name, else username).
+String discordUserPromptLabel({
+  required String id,
+  String? globalName,
+  required String username,
+}) {
+  final global = globalName?.trim();
+  if (global != null && global.isNotEmpty) return global;
+  final name = username.trim();
+  return name.isNotEmpty ? name : id;
 }
 
 const _ownerIdentityRules = '''
@@ -27,11 +57,12 @@ const _conversationContextRules = '''
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Discord-Chatverlauf suchen, Seiten lesen, Bilder/Dateien laden, HTTP/APIs, Watcher, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn im Server nach älteren Nachrichten gesucht werden soll, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn eine Seite auf eine Bedingung beobachtet werden soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
-- Konkrete URL vom Nutzer: `fetch_url` für normale/statische HTML-Seiten (nicht `web_search`). SPAs, "wie sieht die Seite aus" (Analyse), JS-gerenderter Inhalt oder Live-API-Traffic: `browse_url`. Nur ein Screenshot in den Chat: `screenshot_url`. Bild/Datei von einer Seite: `fetch_url`/`browse_url` → aus `images`/`links` eine URL wählen → `download_and_send`. Direkte Bild-/Datei-URL: direkt `download_and_send`. Keine Bilder aus Such-Snippets erfinden. Login-Walls können scheitern — dann ehrlich sagen.
-- Ältere Discord-Nachrichten / "was habe ich gestern gesagt?" / was X gepostet hat: `search_discord_messages` mit `author_id` (`me` für den Fragenden, sonst Discord-id aus dem Chatverlauf `id=…` oder Kontaktname) und `after`/`before` (lokale Zeit). Treffer kurz zusammenfassen — niemals Massen-Dumps. Öffentliches Web: `web_search`.
+- Du hast Tools (Websuche, Bildsuche, Discord-Chatverlauf suchen, Seiten lesen, Bilder/Dateien laden, HTTP/APIs, Watcher, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kalender, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn im Server nach älteren Nachrichten gesucht werden soll, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn eine Seite auf eine Bedingung beobachtet werden soll, wenn Notizen oder Kalender betroffen sind, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Konkrete URL vom Nutzer: `fetch_url` für normale/statische HTML-Seiten (nicht `web_search`). SPAs, "wie sieht die Seite aus" (Analyse), JS-gerenderter Inhalt oder Live-API-Traffic: `browse_url`. Nur ein Screenshot in den Chat: `screenshot_url`. Bild suchen ("Foto/Bild/Meme von X", kein URL): `image_search` → eine `image_url` wählen → `download_and_send`. Nur wenn der Nutzer explizit unsichere/NSFW/ungefilterte Bilder will: `image_search` mit `safe_search=false`. Bild/Datei von einer bekannten Seite: `fetch_url`/`browse_url` → aus `images`/`links` eine URL wählen → `download_and_send`. Direkte Bild-/Datei-URL: direkt `download_and_send`. Keine Bild-URLs erfinden (weder aus Textsuche noch aus dem Kopf). Login-Walls können scheitern — dann ehrlich sagen.
+- Ältere Discord-Nachrichten / "was habe ich gestern gesagt?" / was X gepostet hat: `search_discord_messages` mit `author_id` (`me` für den Fragenden, sonst Discord-id aus dem Chatverlauf `id=…` oder Kontaktname) und `after`/`before` (lokale Zeit). Treffer kurz zusammenfassen — niemals Massen-Dumps. Öffentliches Web (Fakten): `web_search`. Bilder: `image_search`.
 - Kalender: `calendar_list_events` liest alle sichtbaren Kalender; Anlegen/Ändern/Löschen geht nur auf den Egon-Kalender und braucht Freigabe. Zeiten lokal (BOT_TIMEZONE) angeben.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
+- Discord-Mentions: Personen erscheinen im Chat als `@Name (<@id>)`. Nur im Reminder-Payload (`kind=message`) das Token `<@id>` wörtlich übernehmen, wenn jemand beim Auslösen gepingt werden soll — nur so erkennt Discord den Ping. In der Bestätigungsantwort kein `<@id>` und kein Ping: dort den Namen normal nennen (`@Name` oder plain). Plain `@Name` ohne Token pinged niemanden.
 - Watcher: wenn jemand eine Seite beobachten will bis etwas passiert (`watch_url` mit url, condition, interval ≥15m). Default stoppt nach dem ersten Treffer.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - "Was hast du heute gemacht?": `review_audit_log` (Tagesreport aus dem Tool-Audit-Log).

@@ -31,6 +31,7 @@ import 'package:egon_bot/src/tools/tool_registry.dart';
 import 'package:egon_bot/src/web/browser_api.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
 import 'package:egon_bot/src/web/http_request_api.dart';
+import 'package:egon_bot/src/web/image_search_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
 
 const ownerId = '1000';
@@ -164,6 +165,7 @@ Services testServices({
   BrowserApi? browserApi,
   HttpRequestApi? httpRequest,
   DiscordSearchApi? discordSearch,
+  ImageSearchApi? imageSearchApi,
   DateTime? startedAt,
 }) {
   final config = testConfig();
@@ -184,6 +186,7 @@ Services testServices({
     llmGate: testGate(ollama: fakeOllama, monitor: monitor),
     timestamps: timestamps,
     searchApi: SearchApi(),
+    imageSearchApi: imageSearchApi ?? ImageSearchApi(),
     discordSearch: discordSearch ?? DiscordSearchApi(),
     fetchApi: fetchApi ?? FetchApi(),
     browserApi: browserApi ??
