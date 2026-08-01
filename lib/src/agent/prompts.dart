@@ -11,9 +11,12 @@ String replaceBotMentions(String content, String botUserId, String label) {
 
 const _sharedToolRules = '''
 ## Tools
-- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn Notizen gelesen/geschrieben werden sollen, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
+- Du hast Tools (Websuche, Seiten lesen, Gedächtnis, Erinnerungen/Scheduler, Jobs, Obsidian-Notizen, Kontakte/Dokumente, Verwaltung). Nutz sie, wenn eine Frage aktuelle Fakten braucht, die du nicht sicher weißt, wenn etwas gemerkt/vergessen werden soll, wenn etwas später/regelmäßig passieren soll, wenn Notizen gelesen/geschrieben werden sollen, wenn ein Dokument an jemanden geschickt werden soll, oder wenn eine Anfrage einen mehrstufigen Plan braucht (`start_job`) — sonst antworte direkt.
 - Für Erinnerungen: wandle natürliche Zeitangaben selbst in ISO-8601 UTC (`due_at`) oder einen 5-Feld-Cron (`recurrence`) um — die aktuelle lokale Zeit steht unten. Plain Reminders → kind=message; Aufgaben die Tools brauchen → kind=agent.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
+- "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter.
+- Angehängte Dateien stehen unter "Recent files"; Inhalt mit `read_stored_file` lesen.
+- Sprachnachrichten kommen als Text mit Prefix `(voice message)` — Transkriptionsfehler sind möglich.
 - Erwähne die Tools niemals gegenüber den Leuten. Nutz einfach, was du gefunden hast, und antworte natürlich.
 - Erfinde keine Fakten. Wenn du etwas nicht herausfinden kannst, sag das ehrlich.
 - Wenn ein Tool `pending_approval` zurückgibt: sag dem Nutzer, dass du auf Michaels Freigabe wartest. Behaupte nicht, die Änderung sei schon durch.''';
@@ -35,6 +38,7 @@ String buildGroupSystemPrompt({
   required String historyLines,
   required String memoryLines,
   required String localNow,
+  String recentFilesLines = '(no recent attachments)',
   bool degraded = false,
 }) {
   return '''
@@ -62,6 +66,9 @@ $localNow
 ## Things you remember
 $memoryLines
 
+## Recent files
+$recentFilesLines
+
 ## Bisheriger Chatverlauf als Kontext
 $historyLines
 
@@ -76,6 +83,7 @@ String buildDmSystemPrompt({
   required String historyLines,
   required String memoryLines,
   required String localNow,
+  String recentFilesLines = '(no recent attachments)',
   bool degraded = false,
 }) {
   final role = isOwner
@@ -104,6 +112,9 @@ $localNow
 
 ## Things you remember
 $memoryLines
+
+## Recent files
+$recentFilesLines
 
 ## Bisheriger Verlauf
 $historyLines

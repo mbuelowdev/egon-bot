@@ -17,6 +17,8 @@ class Config {
     required this.obsidianVaultName,
     required this.obsidianE2eePassword,
     required this.obsidianVaultDir,
+    required this.whisperModel,
+    required this.maxAttachmentMb,
   });
 
   final String discordBotToken;
@@ -46,6 +48,12 @@ class Config {
 
   /// Local vault sync target (default `$DATA_DIR/vault`).
   final String obsidianVaultDir;
+
+  /// whisper.cpp model name without `ggml-` / `.bin` (§10), default `small`.
+  final String whisperModel;
+
+  /// Max attachment download size in megabytes (§10).
+  final int maxAttachmentMb;
 
   /// True when email, password, and vault name are all set.
   bool get obsidianSyncConfigured =>
@@ -105,6 +113,8 @@ class Config {
       obsidianVaultName: optional('OBSIDIAN_VAULT_NAME'),
       obsidianE2eePassword: optional('OBSIDIAN_E2EE_PASSWORD'),
       obsidianVaultDir: optional('OBSIDIAN_VAULT_DIR') ?? '$dataDir/vault',
+      whisperModel: optional('WHISPER_MODEL') ?? 'small',
+      maxAttachmentMb: int.tryParse(env('MAX_ATTACHMENT_MB') ?? '') ?? 25,
     );
   }
 
@@ -115,6 +125,7 @@ class Config {
       '${ollamaUtilityModel ?? '-'}, monitor: ${windowsMonitorBaseUrl ?? '-'}, '
       'dataDir: $dataDir, tz: $botTimezone, vault: $obsidianVaultDir, '
       'obsidianSync: ${obsidianSyncConfigured ? 'configured' : 'off'}, '
+      'whisper: $whisperModel, maxAttachMb: $maxAttachmentMb, '
       'token: <redacted>, obsidianPassword: <redacted>)';
 }
 

@@ -105,3 +105,16 @@ String renderMemoryLines(List<Memory> memories) {
       )
       .join('\n');
 }
+
+/// Renders recent stored files for "this document" resolution (§10).
+String renderRecentFilesLines(
+  List<({int id, String name, String mime, DateTime createdAt})> files,
+) {
+  if (files.isEmpty) return '(no recent attachments)';
+  return files
+      .map(
+        (f) => '- #${f.id} "${f.name}" (${f.mime}) '
+            '${f.createdAt.toUtc().toIso8601String()}',
+      )
+      .join('\n');
+}

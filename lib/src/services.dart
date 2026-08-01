@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'agent/approval_service.dart';
 import 'config.dart';
+import 'contacts/contacts_service.dart';
 import 'integrations/obsidian_vault.dart';
 import 'jobs/job_runner.dart';
 import 'jobs/job_store.dart';
 import 'llm/llm_gate.dart';
+import 'media/attachments.dart';
+import 'media/transcription.dart';
 import 'memory/memory_service.dart';
 import 'notices/notice_service.dart';
 import 'process_exit.dart';
@@ -33,6 +36,9 @@ class Services {
     required this.jobs,
     required this.notices,
     required this.vault,
+    required this.attachments,
+    required this.transcription,
+    required this.contacts,
   });
 
   final Config config;
@@ -47,6 +53,9 @@ class Services {
   final JobStore jobs;
   final NoticeService notices;
   final ObsidianVault vault;
+  final AttachmentStore attachments;
+  final TranscriptionService transcription;
+  final ContactsService contacts;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).

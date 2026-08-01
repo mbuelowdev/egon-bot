@@ -7,18 +7,18 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 6 — Obsidian)
+## Current state (Phase 7 — media + contacts)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- Obsidian vault via `obsidian-headless` sidecar — sandboxed `ObsidianVault`, six
-  personal note tools with unified-diff approval, idea capture to `Inbox/Ideas.md`,
-  research jobs plan a vault report under `Inbox/Research/`.
-- `supervisor/entrypoint.sh` — tool sync, Obsidian login/sync-setup/continuous sidecar,
-  registry codegen, exit `0` / `42` / crash backoff + quarantine.
-- Jobs, scheduler, approvals, memory, GPU-gated LLM queue, self-extension (`create_tool`).
+- Attachments downloaded to `$DATA_DIR/files/` (size-capped); voice messages transcribed
+  with ffmpeg + whisper.cpp; recent files injected into context; `read_stored_file`.
+- Address book: `add_contact` / `update_contact` / `list_contacts` / `send_to_contact`
+  with name resolution, ambiguity ask-back, document resolution, diff-style delivery
+  preview, DM with channel fallback.
+- Obsidian vault, self-extension, jobs, scheduler, approvals, memory, GPU-gated LLM.
 
-Next up: Phase 7 (media + contacts — voice, attachments, address book).
+Next up: Phase 8 (Google Calendar).
 
 ## Running locally
 
@@ -29,13 +29,14 @@ dart run tool/generate_tool_registry.dart   # after adding/removing builtin tool
 dart run bin/main.dart
 ```
 
-Local runs use `$DATA_DIR/vault` as a plain directory (no Sync required). In Docker,
-set `OBSIDIAN_EMAIL`, `OBSIDIAN_PASSWORD`, and `OBSIDIAN_VAULT_NAME` for Headless Sync.
+Voice transcription needs `ffmpeg` and `whisper-cli` on `PATH` plus a ggml model
+(`WHISPER_MODEL_PATH`, default `/models/ggml-small.bin`). The Docker image includes
+these; local runs without them still handle text + attachments.
 
 Run the tests with `dart test`.
 
 ## Deployment
 
-Docker image built from `Dockerfile` (ENTRYPOINT is the supervisor; includes Node 22 +
-`obsidian-headless`); deployed via the GitHub Actions workflow on `deployment.json`
-version bumps.
+Docker image built from `Dockerfile` (supervisor ENTRYPOINT; Node 22 + Obsidian
+Headless; ffmpeg + whisper.cpp `small` model + poppler). Deploy via GitHub Actions on
+`deployment.json` version bumps.

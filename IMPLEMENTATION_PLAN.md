@@ -188,7 +188,7 @@ Steps:
 Obsidian devices; a research job delivers its report as a vault document; path escapes
 (`../`) are refused.
 
-## Phase 7 — Media + contacts
+## Phase 7 — Media + contacts ✅ implemented
 
 **Goal:** voice input, attachments, and "send this document to Jan".
 

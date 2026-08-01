@@ -4,6 +4,7 @@ import 'package:egon_bot/src/agent/agent.dart';
 import 'package:egon_bot/src/config.dart';
 import 'dart:io';
 
+import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
 import 'package:egon_bot/src/jobs/job_models.dart';
@@ -13,6 +14,8 @@ import 'package:egon_bot/src/jobs/planner.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
+import 'package:egon_bot/src/media/attachments.dart';
+import 'package:egon_bot/src/media/transcription.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
 import 'package:egon_bot/src/notices/notice_service.dart';
 import 'package:egon_bot/src/scheduler/scheduler.dart';
@@ -108,6 +111,8 @@ Config testConfig({String? vaultDir}) {
     obsidianVaultName: null,
     obsidianE2eePassword: null,
     obsidianVaultDir: vaultDir ?? '$dataDir/vault',
+    whisperModel: 'tiny',
+    maxAttachmentMb: 1,
   );
 }
 
@@ -142,6 +147,8 @@ Services testServices({
     ..createSync(recursive: true);
   final database = AppDatabase.inMemory();
   final fakeOllama = ollama ?? FakeOllama();
+  final vault = ObsidianVault(root: vaultRoot.path, available: true);
+  final attachments = AttachmentStore(database: database, config: config);
   final services = Services(
     config: config,
     database: database,
@@ -157,7 +164,14 @@ Services testServices({
     tasks: TaskStore(database),
     jobs: JobStore(database),
     notices: NoticeService(database: database, config: config),
-    vault: ObsidianVault(root: vaultRoot.path, available: true),
+    vault: vault,
+    attachments: attachments,
+    transcription: TranscriptionService(config: config),
+    contacts: ContactsService(
+      database: database,
+      attachments: attachments,
+      vault: vault,
+    ),
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(

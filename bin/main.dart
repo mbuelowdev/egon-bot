@@ -5,6 +5,7 @@ import 'package:egon_bot/src/agent/agent.dart';
 import 'package:egon_bot/src/agent/approval_service.dart';
 import 'package:egon_bot/src/agent/context_builder.dart';
 import 'package:egon_bot/src/config.dart';
+import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/vault_availability.dart';
@@ -13,6 +14,8 @@ import 'package:egon_bot/src/jobs/job_runner.dart';
 import 'package:egon_bot/src/jobs/job_store.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
+import 'package:egon_bot/src/media/attachments.dart';
+import 'package:egon_bot/src/media/transcription.dart';
 import 'package:egon_bot/src/memory/memory_service.dart';
 import 'package:egon_bot/src/notices/notice_service.dart';
 import 'package:egon_bot/src/scheduler/scheduler.dart';
@@ -79,6 +82,11 @@ Future<void> main() async {
     stdout.writeln('Obsidian vault ready at ${config.obsidianVaultDir}');
   }
 
+  final vault = ObsidianVault(
+    root: config.obsidianVaultDir,
+    available: vaultAvailable,
+  );
+  final attachments = AttachmentStore(database: database, config: config);
   final services = Services(
     config: config,
     database: database,
@@ -94,9 +102,13 @@ Future<void> main() async {
     tasks: TaskStore(database),
     jobs: JobStore(database),
     notices: NoticeService(database: database, config: config),
-    vault: ObsidianVault(
-      root: config.obsidianVaultDir,
-      available: vaultAvailable,
+    vault: vault,
+    attachments: attachments,
+    transcription: TranscriptionService(config: config),
+    contacts: ContactsService(
+      database: database,
+      attachments: attachments,
+      vault: vault,
     ),
   );
   services.registry = ToolRegistry(

@@ -148,6 +148,18 @@ class Agent {
     final memoryLines = renderMemoryLines(
       services.memory.search(message.content, limit: 5),
     );
+    final recentFiles = services.attachments.recentInChannel(
+      message.channelId,
+    );
+    final recentFilesLines = renderRecentFilesLines([
+      for (final f in recentFiles)
+        (
+          id: f.id,
+          name: f.name,
+          mime: f.mime,
+          createdAt: f.createdAt,
+        ),
+    ]);
     final localNow = timestamps.now();
 
     final systemPrompt = message.isDm
@@ -156,12 +168,14 @@ class Agent {
             isOwner: context.isOwner,
             historyLines: historyLines,
             memoryLines: memoryLines,
+            recentFilesLines: recentFilesLines,
             localNow: localNow,
             degraded: degraded,
           )
         : buildGroupSystemPrompt(
             historyLines: historyLines,
             memoryLines: memoryLines,
+            recentFilesLines: recentFilesLines,
             localNow: localNow,
             degraded: degraded,
           );
