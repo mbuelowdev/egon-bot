@@ -19,6 +19,7 @@ import 'security/whitelist_service.dart';
 import 'storage/database.dart';
 import 'time/timestamps.dart';
 import 'tools/tool_registry.dart';
+import 'web/browser_api.dart';
 import 'web/fetch_api.dart';
 import 'web/http_request_api.dart';
 import 'web/search_api.dart';
@@ -33,6 +34,7 @@ class Services {
     required this.timestamps,
     required this.searchApi,
     required this.fetchApi,
+    required this.browserApi,
     required this.httpRequest,
     required this.memory,
     required this.tasks,
@@ -56,6 +58,7 @@ class Services {
   final Timestamps timestamps;
   final SearchApi searchApi;
   final FetchApi fetchApi;
+  final BrowserApi browserApi;
   final HttpRequestApi httpRequest;
   final MemoryService memory;
   final TaskStore tasks;

@@ -72,7 +72,7 @@ Steps:
 3. Wire into `ToolRegistry.dispatch`: non-null `previewChange` → pause & approve;
    `dangerous` tool requested by non-owner → escalate in-channel (§16 matrix).
 4. `lib/src/memory/memory_service.dart` — store/search (FTS)/forget; DM auto-capture
-   (`source='dm'`); guild messages into `conversation_log` pruned at 200/channel.
+   (`source='dm'`); guild messages into `conversation_log` pruned at 25/channel.
 5. Context builder: automatic FTS query per incoming message, top-5 hits injected as
    `## Things you remember`.
 6. Tools: `remember`, `recall_memories`, `forget_memory`, `list_memories` (owner DM

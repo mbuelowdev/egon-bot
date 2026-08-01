@@ -57,6 +57,7 @@ class LlmGate {
     required OllamaClient ollama,
     required WindowsMonitorClient? monitor,
     required String? utilityModel,
+    String? visionModel,
     required double busyThresholdPercent,
     required Duration pollInterval,
     Duration interactiveTtl = const Duration(hours: 6),
@@ -67,6 +68,7 @@ class LlmGate {
   })  : _ollama = ollama,
         _monitor = monitor,
         _utilityModel = utilityModel,
+        _visionModel = visionModel,
         _busyThresholdPercent = busyThresholdPercent,
         _pollInterval = pollInterval,
         _interactiveTtl = interactiveTtl,
@@ -78,6 +80,7 @@ class LlmGate {
   final OllamaClient _ollama;
   final WindowsMonitorClient? _monitor;
   final String? _utilityModel;
+  final String? _visionModel;
   final double _busyThresholdPercent;
   final Duration _pollInterval;
   final Duration _interactiveTtl;
@@ -101,6 +104,8 @@ class LlmGate {
 
   bool get hasUtilityTier => _utilityModel != null;
 
+  bool get hasVisionModel => _visionModel != null;
+
   int get queuedBigJobs => _queue.length;
 
   /// Concrete Ollama model name used for [tier] (for logs / bot_info).
@@ -116,6 +121,8 @@ class LlmGate {
   /// Alias used in turn logs: `gpt-oss:20b (big)` / `llama3.2:3b (small)`.
   String modelLabel(ModelTier tier) => '${modelName(tier)} (${tier.name})';
 
+  /// Multimodal model name when configured, else null.
+  String? get visionModelName => _visionModel;
 
   /// True after an unreachable streak that already produced the one-shot notice.
   bool get monitorDownNotified => _monitorDownNotified;
@@ -156,6 +163,24 @@ class LlmGate {
           originChannelId: originChannelId,
         );
     }
+  }
+
+  /// Screenshot / multimodal call on [OLLAMA_VISION_MODEL]. Bypasses the big
+  /// queue (short, dedicated model) and does not pin `num_gpu: 0`.
+  Future<OllamaChatMessage> chatVision({
+    required List<OllamaChatMessage> messages,
+  }) async {
+    final model = _visionModel;
+    if (model == null) {
+      throw StateError('Vision model is disabled (OLLAMA_VISION_MODEL).');
+    }
+    return _withOneRetry(
+      () => _ollama.chatCompletion(
+        messages: messages,
+        modelOverride: model,
+        think: null,
+      ),
+    );
   }
 
   /// Unique origin channels of currently queued big jobs (for exit-42 notices).

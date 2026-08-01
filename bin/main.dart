@@ -29,6 +29,7 @@ import 'package:egon_bot/src/storage/database_backup.dart';
 import 'package:egon_bot/src/time/timestamps.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
 import 'package:egon_bot/src/tools/tool_registry.g.dart';
+import 'package:egon_bot/src/web/browser_api.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
 import 'package:egon_bot/src/web/http_request_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
@@ -73,9 +74,23 @@ Future<void> main() async {
     ollama: ollama,
     monitor: monitor,
     utilityModel: config.ollamaUtilityModel,
+    visionModel: config.ollamaVisionModel,
     busyThresholdPercent: config.gpuBusyThresholdPercent,
     pollInterval: config.gpuPollInterval,
   )..start();
+
+  if (config.browserApiBaseUrl == null) {
+    stdout.writeln(
+      'BROWSER_API_BASE_URL not set — browse_url/screenshot_url unavailable.',
+    );
+  } else {
+    stdout.writeln('Chromium CDP at ${config.browserApiBaseUrl}');
+  }
+  if (config.ollamaVisionModel == null) {
+    stdout.writeln(
+      'OLLAMA_VISION_MODEL not set — browse_url vision summaries disabled.',
+    );
+  }
 
   final vaultAvailable = resolveVaultAvailable(config);
   if (!vaultAvailable) {
@@ -117,6 +132,10 @@ Future<void> main() async {
     timestamps: timestamps,
     searchApi: SearchApi(),
     fetchApi: FetchApi(),
+    browserApi: BrowserApi(
+      baseUrl: config.browserApiBaseUrl,
+      userAgent: config.browserUserAgent,
+    ),
     httpRequest: HttpRequestApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),

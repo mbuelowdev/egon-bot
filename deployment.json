@@ -1,5 +1,5 @@
 {
-  "version": "1.7.6",
+  "version": "1.9.0",
   "name": "home.mbuelow.dev/egon-bot",
   "tag": "latest",
   "url": "home.mbuelow.dev",
@@ -13,7 +13,14 @@
         "tag": "latest",
         "argPorts": "",
         "argVolumes": " -v /deployments/home_mbuelow_dev_egon_bot/data:/data -v /opt/dart-sdk:/usr/lib/dart:ro -v /opt/whisper/ggml-small.bin:/models/ggml-small.bin:ro",
-        "argExtra": " -e DISCORD_BOT_TOKEN -e OWNER_USER_ID -e ALLOWED_CHANNEL_IDS -e OLLAMA_API_BASE_URL -e OLLAMA_MODEL -e OLLAMA_UTILITY_MODEL -e WINDOWS_MONITOR_API_BASE_URL -e GPU_BUSY_THRESHOLD_PERCENT -e GPU_POLL_INTERVAL_SECONDS -e OBSIDIAN_EMAIL -e OBSIDIAN_PASSWORD -e OBSIDIAN_VAULT_NAME -e OBSIDIAN_E2EE_PASSWORD -e OBSIDIAN_VAULT_DIR -e WHISPER_MODEL -e MAX_ATTACHMENT_MB -e GOOGLE_CALENDAR_ID"
+        "argExtra": " -e DISCORD_BOT_TOKEN -e OWNER_USER_ID -e ALLOWED_CHANNEL_IDS -e OLLAMA_API_BASE_URL -e OLLAMA_MODEL -e OLLAMA_UTILITY_MODEL -e OLLAMA_VISION_MODEL -e BROWSER_API_BASE_URL=http://172.17.0.1:9222 -e BROWSER_USER_AGENT -e WINDOWS_MONITOR_API_BASE_URL -e GPU_BUSY_THRESHOLD_PERCENT -e GPU_POLL_INTERVAL_SECONDS -e OBSIDIAN_EMAIL -e OBSIDIAN_PASSWORD -e OBSIDIAN_VAULT_NAME -e OBSIDIAN_E2EE_PASSWORD -e OBSIDIAN_VAULT_DIR -e WHISPER_MODEL -e MAX_ATTACHMENT_MB -e GOOGLE_CALENDAR_ID"
+    },
+    {
+        "name": "chromedp/headless-shell",
+        "tag": "stable",
+        "argPorts": " -p 172.17.0.1:9222:9222",
+        "argVolumes": "",
+        "argExtra": " --shm-size=1gb --init"
     }
   ]
 }

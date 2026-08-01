@@ -7,6 +7,9 @@ class Config {
     required this.ollamaBaseUrl,
     required this.ollamaModel,
     required this.ollamaUtilityModel,
+    required this.ollamaVisionModel,
+    required this.browserApiBaseUrl,
+    required this.browserUserAgent,
     required this.windowsMonitorBaseUrl,
     required this.gpuBusyThresholdPercent,
     required this.gpuPollInterval,
@@ -31,6 +34,16 @@ class Config {
   /// CPU-only fallback model used while the GPU is busy (§5.1).
   /// Null = utility tier disabled.
   final String? ollamaUtilityModel;
+
+  /// Multimodal model for screenshot description (`browse_url`). Null = vision
+  /// summaries disabled.
+  final String? ollamaVisionModel;
+
+  /// Chromium CDP HTTP base (`http://host:9222`). Null = browse tools unavailable.
+  final Uri? browserApiBaseUrl;
+
+  /// UA applied via CDP for browse/screenshot (default = Chrome desktop).
+  final String browserUserAgent;
 
   /// GPU monitor sidecar on the machine hosting Ollama. Null = gating
   /// disabled (local development).
@@ -85,6 +98,7 @@ class Config {
 
     final rawUtility = env('OLLAMA_UTILITY_MODEL') ?? 'llama3.2:3b';
     final rawMonitor = env('WINDOWS_MONITOR_API_BASE_URL');
+    final rawBrowser = env('BROWSER_API_BASE_URL');
     final dataDir = env('DATA_DIR') ?? '/data';
 
     String? optional(String key) {
@@ -102,6 +116,13 @@ class Config {
       ),
       ollamaModel: env('OLLAMA_MODEL') ?? 'gpt-oss:20b',
       ollamaUtilityModel: rawUtility.isEmpty ? null : rawUtility,
+      ollamaVisionModel: optional('OLLAMA_VISION_MODEL'),
+      browserApiBaseUrl: rawBrowser == null || rawBrowser.isEmpty
+          ? null
+          : Uri.parse(rawBrowser),
+      browserUserAgent: optional('BROWSER_USER_AGENT') ??
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       windowsMonitorBaseUrl: rawMonitor == null || rawMonitor.isEmpty
           ? null
           : Uri.parse(rawMonitor),
@@ -127,7 +148,9 @@ class Config {
   String toString() =>
       'Config(owner: $ownerUserId, channels: ${allowedChannelIds.length}, '
       'ollama: $ollamaBaseUrl model: $ollamaModel utility: '
-      '${ollamaUtilityModel ?? '-'}, monitor: ${windowsMonitorBaseUrl ?? '-'}, '
+      '${ollamaUtilityModel ?? '-'}, vision: ${ollamaVisionModel ?? '-'}, '
+      'browser: ${browserApiBaseUrl ?? '-'}, '
+      'monitor: ${windowsMonitorBaseUrl ?? '-'}, '
       'dataDir: $dataDir, tz: $botTimezone, vault: $obsidianVaultDir, '
       'obsidianSync: ${obsidianSyncConfigured ? 'configured' : 'off'}, '
       'whisper: $whisperModel, maxAttachMb: $maxAttachmentMb, '

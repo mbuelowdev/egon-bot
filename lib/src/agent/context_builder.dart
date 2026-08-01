@@ -23,7 +23,8 @@ class ChannelHistoryStore {
 
   final AppDatabase _db;
 
-  static const maxMessagesPerChannel = 200;
+  /// Rolling window kept in SQLite and injected into the prompt.
+  static const maxMessagesPerChannel = 25;
 
   void add(String channelId, ChannelMessage message) {
     _db.db.execute(
@@ -40,7 +41,10 @@ class ChannelHistoryStore {
     _prune(channelId);
   }
 
-  List<ChannelMessage> recent(String channelId, {int limit = 25}) {
+  List<ChannelMessage> recent(
+    String channelId, {
+    int limit = maxMessagesPerChannel,
+  }) {
     final rows = _db.db.select(
       'SELECT author_id, author_name, created_at, content '
       'FROM conversation_log WHERE channel_id = ? '

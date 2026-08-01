@@ -27,6 +27,7 @@ import 'package:egon_bot/src/storage/database.dart';
 import 'package:egon_bot/src/time/timestamps.dart';
 import 'package:egon_bot/src/tools/tool.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
+import 'package:egon_bot/src/web/browser_api.dart';
 import 'package:egon_bot/src/web/fetch_api.dart';
 import 'package:egon_bot/src/web/http_request_api.dart';
 import 'package:egon_bot/src/web/search_api.dart';
@@ -106,6 +107,9 @@ Config testConfig({String? vaultDir}) {
     ollamaBaseUrl: Uri.parse('http://localhost:1'),
     ollamaModel: 'big-model',
     ollamaUtilityModel: 'small-model',
+    ollamaVisionModel: null,
+    browserApiBaseUrl: null,
+    browserUserAgent: BrowserApi.defaultUserAgent,
     windowsMonitorBaseUrl: null,
     gpuBusyThresholdPercent: 40,
     gpuPollInterval: const Duration(milliseconds: 30),
@@ -126,6 +130,7 @@ LlmGate testGate({
   required FakeOllama ollama,
   FakeMonitor? monitor,
   String? utilityModel = 'small-model',
+  String? visionModel,
   Duration? interactiveTtl,
   int queueCap = 20,
   Duration monitorDownNotifyAfter = const Duration(minutes: 15),
@@ -136,6 +141,7 @@ LlmGate testGate({
       ollama: ollama,
       monitor: monitor,
       utilityModel: utilityModel,
+      visionModel: visionModel,
       busyThresholdPercent: 40,
       pollInterval: const Duration(milliseconds: 30),
       interactiveTtl: interactiveTtl ?? const Duration(hours: 6),
@@ -154,6 +160,7 @@ Services testServices({
   DateTime Function()? clock,
   JobPlanner? planner,
   FetchApi? fetchApi,
+  BrowserApi? browserApi,
   HttpRequestApi? httpRequest,
   DateTime? startedAt,
 }) {
@@ -176,6 +183,8 @@ Services testServices({
     timestamps: timestamps,
     searchApi: SearchApi(),
     fetchApi: fetchApi ?? FetchApi(),
+    browserApi: browserApi ??
+        BrowserApi(userAgent: config.browserUserAgent),
     httpRequest: httpRequest ?? HttpRequestApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),

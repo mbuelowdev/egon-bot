@@ -75,10 +75,12 @@ void main() {
         'base_url': 'http://localhost:1',
         'model': 'big-model',
         'utility_model': 'small-model',
+        'vision_model': null,
       });
       expect(json['gpu_gate'], isA<Map>());
       expect((json['gpu_gate'] as Map)['enabled'], isFalse);
       expect(json['integrations'], isA<Map>());
+      expect((json['integrations'] as Map)['browser_api'], isNull);
       expect(json['tool_count'], 1);
       expect(json.toString(), isNot(contains('token')));
       expect(json.toString().toLowerCase(), isNot(contains('password')));

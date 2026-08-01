@@ -14,6 +14,7 @@ class OllamaChatMessage {
     this.toolCalls = const [],
     this.toolCallId,
     this.name,
+    this.images = const [],
   });
 
   final String role;
@@ -21,6 +22,9 @@ class OllamaChatMessage {
   final List<OllamaToolCall> toolCalls;
   final String? toolCallId;
   final String? name;
+
+  /// Optional base64-encoded images for multimodal / vision models.
+  final List<String> images;
 
   Map<String, Object?> toJson() {
     final map = <String, Object?>{'role': role, 'content': content};
@@ -33,11 +37,15 @@ class OllamaChatMessage {
     if (name != null) {
       map['name'] = name;
     }
+    if (images.isNotEmpty) {
+      map['images'] = images;
+    }
     return map;
   }
 
   factory OllamaChatMessage.fromJson(Map<String, Object?> json) {
     final rawCalls = json['tool_calls'];
+    final rawImages = json['images'];
     return OllamaChatMessage(
       role: (json['role'] as String?) ?? 'assistant',
       content: (json['content'] as String?) ?? '',
@@ -46,6 +54,12 @@ class OllamaChatMessage {
               .whereType<Map>()
               .map((m) => OllamaToolCall.fromJson(m.cast<String, Object?>()))
               .toList()
+          : const [],
+      images: rawImages is List
+          ? [
+              for (final item in rawImages)
+                if (item is String) item,
+            ]
           : const [],
     );
   }

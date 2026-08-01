@@ -56,6 +56,7 @@ class BotInfoTool extends Tool {
         'base_url': config.ollamaBaseUrl.toString(),
         'model': config.ollamaModel,
         'utility_model': config.ollamaUtilityModel,
+        'vision_model': config.ollamaVisionModel,
       },
       'gpu_gate': {
         'enabled': config.windowsMonitorBaseUrl != null,
@@ -64,6 +65,7 @@ class BotInfoTool extends Tool {
         'busy_threshold_percent': config.gpuBusyThresholdPercent,
       },
       'integrations': {
+        'browser_api': config.browserApiBaseUrl?.toString(),
         'obsidian_sync_configured': config.obsidianSyncConfigured,
         'vault_available': services.vault.isAvailable,
         'calendar_configured': services.calendar.isConfigured,

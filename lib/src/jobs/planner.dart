@@ -49,7 +49,7 @@ class JobPlanner {
               'You are a planning assistant for a Discord bot. Break the user\'s '
               'request into 2–10 concrete sequential steps. Each step should be '
               'something the bot can do with tools (web_search, fetch_url, '
-              'download_and_send, memory, scheduling, obsidian_*, etc.) or by '
+              'browse_url, download_and_send, memory, scheduling, obsidian_*, etc.) or by '
               'writing a channel '
               'digest. Do not invent steps that need unavailable capabilities. '
               'For research / deep-dive jobs, include a late step that writes '

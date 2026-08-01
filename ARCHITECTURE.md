@@ -163,6 +163,8 @@ lib/src/
       list_tools_tool.dart
       web_search_tool.dart
       fetch_url_tool.dart
+      browse_url_tool.dart
+      screenshot_url_tool.dart
       remember_tool.dart
       recall_memories_tool.dart
       forget_memory_tool.dart
@@ -562,9 +564,12 @@ CREATE TABLE conversation_log (         -- rolling per-channel history
 - **Every DM** to the bot is stored as a memory (`source = 'dm'`) *and* handled as a
   conversation turn. That is the literal reading of R3: text sent directly to him is
   memorized.
-- In guild channels, messages are logged into `conversation_log` (short-term context,
-  pruned to the last 200 per channel) but only promoted to `memories` when the user asks
-  ("remember that …") or the agent calls the `remember` tool itself.
+- In guild channels, **every** message in an allowed channel is logged into
+  `conversation_log` (short-term context, pruned to the last 25 per channel) —
+  including messages that do not mention the bot. Attachments are stored as
+  filename + CDN URL text only (binaries are never written into SQLite). Messages
+  are only promoted to `memories` when the user asks ("remember that …") or the
+  agent calls the `remember` tool itself.
 
 ### Retrieval
 - `recall_memories(query, limit)` → FTS5 match, most recent first.
@@ -828,24 +833,31 @@ capture.
 ## 11. Web tools (R6, R18)
 
 Port of the previous implementation (recoverable from git history, commit `2bca07a`),
-repackaged as two `Tool` classes:
+plus Chromium browsing for JS-heavy pages:
 
 - `web_search(query)` — keyless scraping of DuckDuckGo's `lite` HTML endpoint; returns up
   to 5 `{title, snippet, url}` entries, snippets capped at 280 chars.
 - `fetch_url(url)` — GET a public http(s) URL, strip HTML noise, return
-  `{url, title, text, content_type, truncated}` capped at 8 000 chars. Text-like MIME
-  types only.
+  `{url, title, text, content_type, truncated, images[]}` capped at 8 000 chars. Text-like
+  MIME types only. No JavaScript execution.
+- `browse_url(url)` — drives a sibling **Chromium** container over the Chrome DevTools
+  Protocol (CDP). `BROWSER_API_BASE_URL` points at Chromium's HTTP debug endpoint
+  (production: `http://172.17.0.1:9222` → `chromedp/headless-shell`). The Dart driver in
+  [`lib/src/web/cdp_client.dart`](lib/src/web/cdp_client.dart) opens a page, sets a Chrome
+  UA via CDP, waits for load, then returns JS-rendered text, links, XHR/fetch `network[]`,
+  a screenshot, and optionally `visual_summary` from `OLLAMA_VISION_MODEL`. SSRF-guarded
+  like `fetch_url`. Docker `docker run` pulls the public Chrome image after prune — no
+  custom browser image build in CI.
+- `screenshot_url(url, message?)` — same CDP render, but posts the screenshot as a
+  Discord attachment in the current channel (caption optional). Use when the user wants
+  to *see* the page; use `browse_url` for analysis.
 
 ### API analysis and usage (R18)
 
-"Look at this website, figure out their API, then use it" decomposes into existing
-pieces plus one new tool:
+"Look at this website, figure out their API, then use it" decomposes into:
 
-- **Analysis**: the agent uses `fetch_url` on the site, then probes the usual suspects —
-  `/openapi.json`, `/swagger.json`, `/api`, developer-docs links found on the page — and
-  summarizes endpoints, auth requirements, and parameters. (Limitation worth knowing:
-  no JavaScript execution; SPAs that only reveal their API in the browser's network tab
-  need you to paste an example request.)
+- **Analysis**: `fetch_url` for static docs (`/openapi.json`, `/swagger.json`, `/docs`, …).
+  For SPAs or empty shells, `browse_url` and read `network[]` for live XHR/fetch endpoints.
 - **Usage**: `http_request(method, url, headers?, body?)` makes the actual API calls.
   `ToolAccess.personal`; non-GET methods (anything that mutates remote state) show a
   preview approval (§6.5) with the exact request before it is sent. Private/loopback
@@ -978,6 +990,9 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `OLLAMA_API_BASE_URL` | no | `http://127.0.0.1:11434` | Ollama endpoint |
 | `OLLAMA_MODEL` | no | `gpt-oss:20b` | Big model (GPU, gated); must support tool calling |
 | `OLLAMA_UTILITY_MODEL` | no | `llama3.2:3b` | Small model, CPU-only (`num_gpu: 0`), always available; empty string disables the tier |
+| `OLLAMA_VISION_MODEL` | no | *(unset = no visual_summary)* | Multimodal model for `browse_url` screenshot descriptions (§11) |
+| `BROWSER_API_BASE_URL` | no | *(unset = browse tools unavailable)* | Chromium CDP HTTP base (`http://host:9222`); production `http://172.17.0.1:9222` |
+| `BROWSER_USER_AGENT` | no | Chrome 120 desktop UA | Applied via CDP `Network.setUserAgentOverride` |
 | `WINDOWS_MONITOR_API_BASE_URL` | no | *(unset = gating disabled)* | GPU monitor sidecar on the Ollama machine (§5.1) |
 | `GPU_BUSY_THRESHOLD_PERCENT` | no | `40` | 5-min-avg GPU load above which big calls wait |
 | `GPU_POLL_INTERVAL_SECONDS` | no | `60` | Re-poll interval while jobs are queued |

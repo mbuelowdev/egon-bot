@@ -19,8 +19,9 @@ const botPromptDisplayName = 'Egon';
 
 /// Routes gateway messages (ARCHITECTURE.md §7, §9, §10, §16):
 /// - guild messages only in whitelisted channels; respond on mention
+/// - all allowed-channel messages logged to `conversation_log` (text + media URLs)
 /// - DMs respond directly and are auto-captured as memories
-/// - attachments downloaded; voice messages transcribed
+/// - attachments downloaded only when addressed; voice messages transcribed
 /// - owner replies resume `waiting_user` jobs; cancel intents stop active jobs
 /// - only the owner and whitelisted users can trigger the bot
 class MessageRouter {
@@ -100,19 +101,9 @@ class MessageRouter {
 
     final authorName = await _authorDisplayName(event);
 
+    // Bot replies are logged by send()/job runner/scheduler with the prompt
+    // display name; skip the gateway echo to avoid double-counting.
     if (authorId == botUserId) {
-      // Still record bot messages that have text for history continuity.
-      if (message.content.trim().isNotEmpty) {
-        history.add(
-          channelId,
-          ChannelMessage(
-            timestamp: message.timestamp,
-            authorId: authorId,
-            authorName: authorName,
-            content: message.content,
-          ),
-        );
-      }
       return;
     }
 
@@ -124,12 +115,41 @@ class MessageRouter {
         (services.jobs.waitingInChannel(channelId) != null ||
             services.jobs.activeInChannel(channelId) != null);
 
-    if (!isDm &&
-        !_isMentioned(message.content, botUserId) &&
-        !ownerJobContext) {
+    final isAddressed = isDm ||
+        _isMentioned(message.content, botUserId) ||
+        ownerJobContext;
+
+    // Log every allowed-channel message for short-term context. Media is
+    // recorded as filename + CDN URL only — never downloaded into SQLite.
+    if (!isAddressed) {
+      final logged = _contentForHistory(message, botUserId);
+      if (logged.trim().isNotEmpty) {
+        history.add(
+          channelId,
+          ChannelMessage(
+            timestamp: message.timestamp,
+            authorId: authorId,
+            authorName: authorName,
+            content: logged,
+          ),
+        );
+      }
       return;
     }
+
     if (!services.whitelist.isAllowed(authorId)) {
+      final logged = _contentForHistory(message, botUserId);
+      if (logged.trim().isNotEmpty) {
+        history.add(
+          channelId,
+          ChannelMessage(
+            timestamp: message.timestamp,
+            authorId: authorId,
+            authorName: authorName,
+            content: logged,
+          ),
+        );
+      }
       stdout.writeln(
         'Ignoring ${isDm ? 'DM' : 'mention'} from non-whitelisted user '
         '$authorId ($authorName).',
@@ -189,9 +209,8 @@ class MessageRouter {
         );
         return;
       }
-    } else if (content.trim().isEmpty && stored.isNotEmpty) {
-      final names = stored.map((f) => f.name).join(', ');
-      content = '(attached: $names)';
+    } else if (hasAttachments) {
+      content = _appendAttachmentRefs(content, message.attachments);
     }
 
     if (content.trim().isEmpty) {
@@ -305,6 +324,28 @@ class MessageRouter {
   bool _isMentioned(String content, String botUserId) {
     return content.contains('<@$botUserId>') ||
         content.contains('<@!$botUserId>');
+  }
+
+  /// Text + attachment filename/URL refs for the rolling history (no downloads).
+  String _contentForHistory(Message message, String botUserId) {
+    final text = replaceBotMentions(
+      message.content,
+      botUserId,
+      botPromptDisplayName,
+    );
+    return _appendAttachmentRefs(text, message.attachments);
+  }
+
+  String _appendAttachmentRefs(
+    String content,
+    List<Attachment> attachments,
+  ) {
+    if (attachments.isEmpty) return content;
+    final refs = attachments
+        .map((a) => '${a.fileName} (${a.url})')
+        .join(', ');
+    if (content.trim().isEmpty) return '(attached: $refs)';
+    return '$content\n(attached: $refs)';
   }
 
   Future<String> _authorDisplayName(MessageCreateEvent event) async {

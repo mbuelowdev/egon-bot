@@ -68,10 +68,11 @@ void main() {
       );
     });
 
-    test('conversation_log prunes to 200 messages per channel', () {
+    test('conversation_log prunes to max messages per channel', () {
       final db = AppDatabase.inMemory();
       final history = ChannelHistoryStore(db);
-      for (var i = 0; i < 210; i++) {
+      final total = ChannelHistoryStore.maxMessagesPerChannel + 10;
+      for (var i = 0; i < total; i++) {
         history.add(
           '42',
           ChannelMessage(
@@ -90,8 +91,11 @@ void main() {
       expect(count, ChannelHistoryStore.maxMessagesPerChannel);
 
       final recent = history.recent('42', limit: 3);
-      expect(recent.map((m) => m.content).toList(),
-          ['msg 207', 'msg 208', 'msg 209']);
+      expect(recent.map((m) => m.content).toList(), [
+        'msg ${total - 3}',
+        'msg ${total - 2}',
+        'msg ${total - 1}',
+      ]);
     });
   });
 

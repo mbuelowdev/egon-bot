@@ -4,6 +4,7 @@
 import 'tool.dart';
 import 'builtin/add_contact_tool.dart';
 import 'builtin/bot_info_tool.dart';
+import 'builtin/browse_url_tool.dart';
 import 'builtin/calendar_create_event_tool.dart';
 import 'builtin/calendar_delete_event_tool.dart';
 import 'builtin/calendar_list_events_tool.dart';
@@ -33,6 +34,7 @@ import 'builtin/remember_tool.dart';
 import 'builtin/restart_self_tool.dart';
 import 'builtin/review_audit_log_tool.dart';
 import 'builtin/schedule_task_tool.dart';
+import 'builtin/screenshot_url_tool.dart';
 import 'builtin/send_to_contact_tool.dart';
 import 'builtin/start_job_tool.dart';
 import 'builtin/status_overview_tool.dart';
@@ -46,6 +48,7 @@ import 'builtin/whitelist_user_tool.dart';
 List<Tool> buildAllTools() => [
   AddContactTool(),
   BotInfoTool(),
+  BrowseUrlTool(),
   CalendarCreateEventTool(),
   CalendarDeleteEventTool(),
   CalendarListEventsTool(),
@@ -75,6 +78,7 @@ List<Tool> buildAllTools() => [
   RestartSelfTool(),
   ReviewAuditLogTool(),
   ScheduleTaskTool(),
+  ScreenshotUrlTool(),
   SendToContactTool(),
   StartJobTool(),
   StatusOverviewTool(),
