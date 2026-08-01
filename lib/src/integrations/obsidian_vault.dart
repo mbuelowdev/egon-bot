@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 /// Sandboxed access to the local Obsidian vault (ARCHITECTURE.md §13).
 ///
@@ -66,6 +67,11 @@ class ObsidianVault {
       return Directory(Directory(root).resolveSymbolicLinksSync());
     }
     final dir = Directory('$root${Platform.pathSeparator}$cleaned');
+    // resolveSymbolicLinksSync throws FileSystemException if the path is
+    // missing — check first so callers get ObsidianPathError like resolveFile.
+    if (!dir.existsSync()) {
+      throw ObsidianPathError('Folder not found: $relative');
+    }
     final resolved = dir.resolveSymbolicLinksSync();
     if (!_isInsideRoot(resolved)) {
       throw ObsidianPathError('Path escapes the vault: $relative');
@@ -90,27 +96,91 @@ class ObsidianVault {
     return rel.replaceAll('\\', '/');
   }
 
-  /// Lists note-like files under [folder] (relative), recursively.
+  /// Lists markdown notes under [folder] (relative), recursively.
+  ///
+  /// Skips hidden files/dirs and non-`.md` attachments (images, PDFs, etc.)
+  /// so search/list never try to decode binary vault files as text.
   List<String> listNotes({String? folder}) {
+    return listFiles(folder: folder, markdownOnly: true);
+  }
+
+  /// Lists vault files under [folder] (relative), recursively.
+  ///
+  /// Skips hidden files/dirs. When [markdownOnly] is true, only `.md` notes.
+  /// When [attachmentsOnly] is true, everything except `.md`.
+  /// [nameQuery] filters by case-insensitive substring on the relative path.
+  List<String> listFiles({
+    String? folder,
+    String? nameQuery,
+    bool markdownOnly = false,
+    bool attachmentsOnly = false,
+  }) {
     _ensureAvailable();
     final dir = resolveDir(folder ?? '');
     if (!dir.existsSync()) {
       throw ObsidianPathError('Folder not found: ${folder ?? '/'}');
     }
-    final notes = <String>[];
+    final query = nameQuery?.trim().toLowerCase() ?? '';
+    final files = <String>[];
     for (final entity in dir.listSync(recursive: true, followLinks: false)) {
       if (entity is! File) continue;
       final name = entity.uri.pathSegments.isEmpty
           ? entity.path
           : entity.uri.pathSegments.last;
       if (name.startsWith('.')) continue;
-      // Skip anything under a hidden directory segment.
+      final isMd = name.toLowerCase().endsWith('.md');
+      if (markdownOnly && !isMd) continue;
+      if (attachmentsOnly && isMd) continue;
       final rel = relativePath(entity);
       if (rel.split('/').any((p) => p.startsWith('.'))) continue;
-      notes.add(rel);
+      if (query.isNotEmpty && !rel.toLowerCase().contains(query)) continue;
+      files.add(rel);
     }
-    notes.sort();
-    return notes;
+    files.sort();
+    return files;
+  }
+
+  /// Resolves [ref] to an existing vault-relative path.
+  ///
+  /// Tries an exact relative path first, then a unique basename match, then a
+  /// unique case-insensitive path substring match.
+  String resolveExistingPath(String ref) {
+    _ensureAvailable();
+    final cleaned = ref.trim();
+    if (cleaned.isEmpty) {
+      throw ObsidianPathError('Path must not be empty.');
+    }
+    try {
+      final file = resolveFile(cleaned);
+      return relativePath(file);
+    } on ObsidianPathError {
+      // fall through to fuzzy match
+    }
+
+    final all = listFiles();
+    final lower = cleaned.toLowerCase().replaceAll('\\', '/');
+    final base = lower.split('/').last;
+
+    final byBase =
+        all.where((p) => p.split('/').last.toLowerCase() == base).toList();
+    if (byBase.length == 1) return byBase.single;
+    if (byBase.length > 1) {
+      throw ObsidianPathError(
+        'Ambiguous file "$cleaned". Matches:\n'
+        '${byBase.map((p) => '- $p').join('\n')}',
+      );
+    }
+
+    final bySub = all.where((p) => p.toLowerCase().contains(lower)).toList();
+    if (bySub.length == 1) return bySub.single;
+    if (bySub.length > 1) {
+      throw ObsidianPathError(
+        'Ambiguous file "$cleaned". Matches:\n'
+        '${bySub.take(10).map((p) => '- $p').join('\n')}'
+        '${bySub.length > 10 ? '\n…and ${bySub.length - 10} more' : ''}',
+      );
+    }
+    throw ObsidianPathError('File not found: $cleaned');
   }
 
   String readNote(String path) {
@@ -120,6 +190,36 @@ class ObsidianVault {
       throw ObsidianPathError('Note not found: $path');
     }
     return file.readAsStringSync();
+  }
+
+  /// Reads any vault file as raw bytes (images, PDFs, notes, …).
+  Uint8List readBytes(String path) {
+    _ensureAvailable();
+    final file = resolveFile(path);
+    if (!file.existsSync()) {
+      throw ObsidianPathError('File not found: $path');
+    }
+    return Uint8List.fromList(file.readAsBytesSync());
+  }
+
+  /// Best-effort MIME type from a file name extension.
+  static String mimeForName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.svg')) return 'image/svg+xml';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.md')) return 'text/markdown';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    if (lower.endsWith('.json') || lower.endsWith('.canvas')) {
+      return 'application/json';
+    }
+    if (lower.endsWith('.mp3')) return 'audio/mpeg';
+    if (lower.endsWith('.mp4')) return 'video/mp4';
+    if (lower.endsWith('.webm')) return 'video/webm';
+    return 'application/octet-stream';
   }
 
   /// Atomically writes [content] to [path] (create or overwrite).
