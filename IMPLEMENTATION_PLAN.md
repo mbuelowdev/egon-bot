@@ -255,7 +255,7 @@ Steps:
 closes itself; "check the JSON API of ⟨site⟩ and fetch X" works via GET without
 approval; a POST shows the exact request first.
 
-## Phase 10 — Hardening
+## Phase 10 — Hardening ✅ implemented
 
 **Goal:** boring reliability.
 

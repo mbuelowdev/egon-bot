@@ -5,6 +5,7 @@ import 'package:nyxx/nyxx.dart';
 import '../config.dart';
 import '../discord/discord_actions.dart';
 import '../storage/database.dart';
+import '../storage/database_backup.dart';
 
 /// Persists chat notices across the exit(42) restart boundary (§6.4).
 class NoticeService {
@@ -26,6 +27,7 @@ class NoticeService {
   /// supervisor quarantine marker if present.
   Future<void> flush(NyxxGateway client) async {
     await _flushQuarantineMarker(client);
+    await _flushDbRestoreMarker(client);
     final rows = _db.db.select(
       'SELECT id, channel_id, message FROM pending_notices '
       'WHERE posted = 0 ORDER BY id ASC',
@@ -58,14 +60,28 @@ class NoticeService {
     final text = 'Tool `$toolName` was quarantined after causing crashes. '
         'It lives in `${config.dataDir}/tools/quarantine/` — fix or delete it '
         'before moving it back.';
+    await _dmOwner(client, text);
+  }
+
+  Future<void> _flushDbRestoreMarker(NyxxGateway client) async {
+    final when = DatabaseBackup.takeRestoredMarker(config.dataDir);
+    if (when == null) return;
+    await _dmOwner(
+      client,
+      'SQLite was corrupt on boot — I restored the daily backup '
+      '(`state/egon.db.bak`, marker $when). Recent writes since the last '
+      'backup may be missing.',
+    );
+  }
+
+  Future<void> _dmOwner(NyxxGateway client, String text) async {
     try {
       final dm = await client.users.createDm(
         Snowflake.parse(config.ownerUserId),
       );
       await sendLongMessage(dm, text);
     } catch (error) {
-      stderr.writeln('Failed to DM quarantine notice: $error');
-      // Fall back to a pending notice in the DB without a channel — skip.
+      stderr.writeln('Failed to DM owner notice: $error');
     }
   }
 }

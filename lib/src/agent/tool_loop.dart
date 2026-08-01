@@ -107,6 +107,7 @@ Future<ToolLoopOutcome> runToolLoop({
       tier: tier,
       messages: messages,
       tools: tools,
+      originChannelId: context.channelId,
     );
 
     if (shouldAbort != null && await shouldAbort()) {
@@ -175,6 +176,7 @@ Future<ToolLoopOutcome> runToolLoop({
     tier: tier,
     messages: messages,
     tools: const [],
+    originChannelId: context.channelId,
   );
   return ToolLoopOutcome.reply(finalAssistant.content.trim());
 }

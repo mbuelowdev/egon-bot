@@ -31,12 +31,14 @@ class _BigJob {
     required this.tools,
     required this.ttl,
     this.format,
+    this.originChannelId,
   });
 
   final List<OllamaChatMessage> messages;
   final List<OllamaTool> tools;
   final Object? format;
   final Duration ttl;
+  final String? originChannelId;
   final DateTime enqueuedAt = DateTime.now();
   final Completer<OllamaChatMessage> completer = Completer();
 
@@ -59,13 +61,19 @@ class LlmGate {
     required Duration pollInterval,
     Duration interactiveTtl = const Duration(hours: 6),
     int queueCap = 20,
+    Duration monitorDownNotifyAfter = const Duration(minutes: 15),
+    void Function(String message)? onMonitorDownNotice,
+    DateTime Function()? clock,
   })  : _ollama = ollama,
         _monitor = monitor,
         _utilityModel = utilityModel,
         _busyThresholdPercent = busyThresholdPercent,
         _pollInterval = pollInterval,
         _interactiveTtl = interactiveTtl,
-        _queueCap = queueCap;
+        _queueCap = queueCap,
+        _monitorDownNotifyAfter = monitorDownNotifyAfter,
+        _onMonitorDownNotice = onMonitorDownNotice,
+        _clock = clock ?? DateTime.now;
 
   final OllamaClient _ollama;
   final WindowsMonitorClient? _monitor;
@@ -74,6 +82,9 @@ class LlmGate {
   final Duration _pollInterval;
   final Duration _interactiveTtl;
   final int _queueCap;
+  final Duration _monitorDownNotifyAfter;
+  void Function(String message)? _onMonitorDownNotice;
+  final DateTime Function() _clock;
 
   final Queue<_BigJob> _queue = Queue();
   bool _workerRunning = false;
@@ -83,11 +94,22 @@ class LlmGate {
   DateTime? _lastPollAt;
   bool _lastPollFree = true;
 
+  DateTime? _monitorUnreachableSince;
+  bool _monitorDownNotified = false;
+
   Timer? _hygieneTimer;
 
   bool get hasUtilityTier => _utilityModel != null;
 
   int get queuedBigJobs => _queue.length;
+
+  /// True after an unreachable streak that already produced the one-shot notice.
+  bool get monitorDownNotified => _monitorDownNotified;
+
+  /// Wire owner-notification after Discord connects (§5.1).
+  set onMonitorDownNotice(void Function(String message)? callback) {
+    _onMonitorDownNotice = callback;
+  }
 
   /// Starts the periodic VRAM-hygiene check (§5.1): if the user becomes
   /// active while no big call is running, evict the big model immediately.
@@ -107,19 +129,35 @@ class LlmGate {
     required List<OllamaChatMessage> messages,
     List<OllamaTool> tools = const [],
     Object? format,
+    String? originChannelId,
   }) {
     switch (tier) {
       case ModelTier.small:
         return _chatSmall(messages: messages, tools: tools, format: format);
       case ModelTier.big:
-        return _enqueueBig(messages: messages, tools: tools, format: format);
+        return _enqueueBig(
+          messages: messages,
+          tools: tools,
+          format: format,
+          originChannelId: originChannelId,
+        );
     }
+  }
+
+  /// Unique origin channels of currently queued big jobs (for exit-42 notices).
+  Set<String> queuedOriginChannels() {
+    final channels = <String>{};
+    for (final job in _queue) {
+      final id = job.originChannelId;
+      if (id != null && id.isNotEmpty) channels.add(id);
+    }
+    return channels;
   }
 
   /// Cheap, cached view of the gate state used to pick the tier for a turn.
   Future<bool> isGpuFree() async {
     final last = _lastPollAt;
-    if (last != null && DateTime.now().difference(last) < _pollInterval) {
+    if (last != null && _clock().difference(last) < _pollInterval) {
       return _lastPollFree;
     }
     return _pollGpuFree(force: true);
@@ -150,6 +188,7 @@ class LlmGate {
     required List<OllamaChatMessage> messages,
     required List<OllamaTool> tools,
     Object? format,
+    String? originChannelId,
   }) {
     if (_queue.length >= _queueCap) {
       throw GateQueueFullException();
@@ -159,6 +198,7 @@ class LlmGate {
       tools: tools,
       ttl: _interactiveTtl,
       format: format,
+      originChannelId: originChannelId,
     );
     _queue.add(job);
     if (!_workerRunning) {
@@ -233,6 +273,7 @@ class LlmGate {
     final monitor = _monitor;
     bool free;
     var userActive = false;
+    var unreachable = false;
     if (monitor == null) {
       free = true;
     } else {
@@ -249,11 +290,13 @@ class LlmGate {
       } catch (error) {
         stderr.writeln('GPU monitor unreachable, treating as busy: $error');
         free = false;
+        unreachable = true;
       }
     }
 
-    _lastPollAt = DateTime.now();
+    _lastPollAt = _clock();
     _lastPollFree = free;
+    _updateMonitorDownState(unreachable: unreachable);
 
     if (userActive && !_bigCallInFlight && !_unloadRequested) {
       _unloadRequested = true;
@@ -263,6 +306,24 @@ class LlmGate {
       _unloadRequested = false;
     }
     return free;
+  }
+
+  void _updateMonitorDownState({required bool unreachable}) {
+    if (!unreachable) {
+      _monitorUnreachableSince = null;
+      _monitorDownNotified = false;
+      return;
+    }
+    _monitorUnreachableSince ??= _clock();
+    if (_monitorDownNotified) return;
+    if (_queue.isEmpty) return;
+    final since = _monitorUnreachableSince!;
+    if (_clock().difference(since) < _monitorDownNotifyAfter) return;
+    _monitorDownNotified = true;
+    final n = _queue.length;
+    final message = 'monitor down, $n request${n == 1 ? '' : 's'} waiting';
+    stderr.writeln('GPU gate: $message');
+    _onMonitorDownNotice?.call(message);
   }
 
   /// VRAM hygiene: evict the big model the moment the user starts using the

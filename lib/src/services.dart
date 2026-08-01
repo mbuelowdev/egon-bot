@@ -86,8 +86,18 @@ class Services {
 
   /// Exits with code 42 when [requestRestart] was called. Safe to call after
   /// a turn or approval follow-up has finished posting.
+  ///
+  /// Queued interactive big-model jobs are lost across restart; notify their
+  /// origin channels so the user can re-send (§5.1).
   void exitIfRestartRequested() {
     if (!restartRequested) return;
+    for (final channelId in llmGate.queuedOriginChannels()) {
+      notices.enqueue(
+        channelId: channelId,
+        message:
+            "I'm restarting — please re-send your request when I'm back online.",
+      );
+    }
     stdout.writeln(
         'Restart requested — exiting with code ${ProcessExit.restart}.');
     exit(ProcessExit.restart);

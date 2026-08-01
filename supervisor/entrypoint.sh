@@ -191,12 +191,35 @@ ensure_obsidian_sidecar() {
   echo $! > "$OB_SIDECAR_PIDFILE"
 }
 
+# Daily SQLite backup (§17). Prefer an online copy from a healthy DB; this
+# shell copy is a best-effort fallback before the bot process starts.
+rotate_db_backup() {
+  local db="${DATA_DIR}/egon.db"
+  local bak="${STATE_DIR}/egon.db.bak"
+  local marker="${STATE_DIR}/egon.db.bak.date"
+  local today
+  today="$(date -u +%Y-%m-%d)"
+  if [[ ! -f "$db" ]]; then
+    return 0
+  fi
+  if [[ -f "$marker" ]] && [[ "$(cat "$marker")" == "$today" ]]; then
+    return 0
+  fi
+  cp -f "$db" "$bak"
+  # Best-effort WAL companions (may be absent).
+  [[ -f "${db}-wal" ]] && cp -f "${db}-wal" "${bak}-wal" || true
+  [[ -f "${db}-shm" ]] && cp -f "${db}-shm" "${bak}-shm" || true
+  printf '%s' "$today" > "$marker"
+  echo "Rotated daily SQLite backup → ${bak}"
+}
+
 # One-time Obsidian setup before the bot loop.
 setup_obsidian
 
 while true; do
   # Keep the sync sidecar alive across bot restarts.
   ensure_obsidian_sidecar
+  rotate_db_backup
 
   sync_tools
   generate_registry

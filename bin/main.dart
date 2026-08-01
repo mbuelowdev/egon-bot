@@ -24,6 +24,7 @@ import 'package:egon_bot/src/scheduler/task_store.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
+import 'package:egon_bot/src/storage/database_backup.dart';
 import 'package:egon_bot/src/time/timestamps.dart';
 import 'package:egon_bot/src/tools/tool_registry.dart';
 import 'package:egon_bot/src/tools/tool_registry.g.dart';
@@ -53,6 +54,7 @@ Future<void> main() async {
   stdout.writeln('Starting with $config');
 
   final database = AppDatabase.open(config.dataDir);
+  DatabaseBackup.maybeRotateDaily(database, config.dataDir);
   final ollama = OllamaClient(
     baseUrl: config.ollamaBaseUrl,
     model: config.ollamaModel,

@@ -125,6 +125,9 @@ LlmGate testGate({
   String? utilityModel = 'small-model',
   Duration? interactiveTtl,
   int queueCap = 20,
+  Duration monitorDownNotifyAfter = const Duration(minutes: 15),
+  void Function(String message)? onMonitorDownNotice,
+  DateTime Function()? clock,
 }) =>
     LlmGate(
       ollama: ollama,
@@ -134,6 +137,9 @@ LlmGate testGate({
       pollInterval: const Duration(milliseconds: 30),
       interactiveTtl: interactiveTtl ?? const Duration(hours: 6),
       queueCap: queueCap,
+      monitorDownNotifyAfter: monitorDownNotifyAfter,
+      onMonitorDownNotice: onMonitorDownNotice,
+      clock: clock,
     );
 
 /// Builds a fully wired [Services] with an in-memory database.

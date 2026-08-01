@@ -27,6 +27,7 @@ import 'builtin/read_stored_file_tool.dart';
 import 'builtin/recall_memories_tool.dart';
 import 'builtin/remember_tool.dart';
 import 'builtin/restart_self_tool.dart';
+import 'builtin/review_audit_log_tool.dart';
 import 'builtin/schedule_task_tool.dart';
 import 'builtin/send_to_contact_tool.dart';
 import 'builtin/start_job_tool.dart';
@@ -64,6 +65,7 @@ List<Tool> buildAllTools() => [
       RecallMemoriesTool(),
       RememberTool(),
       RestartSelfTool(),
+      ReviewAuditLogTool(),
       ScheduleTaskTool(),
       SendToContactTool(),
       StartJobTool(),

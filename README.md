@@ -7,16 +7,17 @@ The project was reset to a minimal seed (Discord gateway + Ollama client) and is
 rebuilt from scratch. **The full target design lives in [ARCHITECTURE.md](ARCHITECTURE.md)**
 — read that first.
 
-## Current state (Phase 9 — Watchers + API usage)
+## Current state (Phase 10 — Hardening)
 
 Implemented so far (see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-- `watch_url` scheduled scrapers (snapshot diff + utility condition check) and
-  owner-only `http_request` with SSRF blocking / mutation previews.
-- Google Calendar, media + contacts, Obsidian, self-extension, jobs, scheduler,
-  approvals, memory, GPU-gated LLM.
+- Gateway watchdog, monitor-down owner ping, daily SQLite backup/restore,
+  `review_audit_log`, graceful-restart queue notices.
+- Watchers + `http_request`, Google Calendar, media + contacts, Obsidian,
+  self-extension, jobs, scheduler, approvals, memory, GPU-gated LLM.
 
-Next up: Phase 10 (hardening).
+Architecture phases 1–10 are complete. Optional extras (morning briefing, etc.)
+are listed under Deferred in the implementation plan.
 
 ## Running locally
 

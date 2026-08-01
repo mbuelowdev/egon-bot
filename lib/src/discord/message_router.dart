@@ -12,6 +12,7 @@ import '../media/stored_file.dart';
 import '../media/transcription.dart';
 import '../services.dart';
 import 'discord_actions.dart';
+import 'gateway_watchdog.dart';
 
 /// Name used in prompts when replacing `<@botId>` mentions.
 const botPromptDisplayName = 'Egon';
@@ -43,8 +44,18 @@ class MessageRouter {
     markHealthyBoot(services.config);
     await services.notices.flush(client);
 
+    services.llmGate.onMonitorDownNotice = (message) {
+      unawaited(_notifyOwner(client, message));
+    };
+
+    final watchdog = GatewayWatchdog()..start();
+    final gatewaySub = client.gateway.messages.listen((message) {
+      if (message is EventReceived) watchdog.touch();
+    });
+
     try {
       await for (final event in client.onMessageCreate) {
+        watchdog.touch();
         try {
           await _handleEvent(event, botUserId);
         } catch (error, stackTrace) {
@@ -52,10 +63,24 @@ class MessageRouter {
         }
       }
     } finally {
+      await gatewaySub.cancel();
+      watchdog.stop();
+      services.llmGate.onMonitorDownNotice = null;
       services.scheduler.stop();
       services.jobRunner.detachClient();
       services.approvals.detachClient();
       services.contacts.detachClient();
+    }
+  }
+
+  Future<void> _notifyOwner(NyxxGateway client, String text) async {
+    try {
+      final dm = await client.users.createDm(
+        Snowflake.parse(services.config.ownerUserId),
+      );
+      await sendLongMessage(dm, text);
+    } catch (error) {
+      stderr.writeln('Failed to DM owner: $error');
     }
   }
 
