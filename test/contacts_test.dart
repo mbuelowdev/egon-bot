@@ -105,6 +105,23 @@ void main() {
       expect(preview!, contains('Jan Müller'));
       expect(preview, contains('report.pdf'));
     });
+
+    test('resolves vault binary attachments as documents', () async {
+      final services = testServices(tools: []);
+      final png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+      File('${services.config.obsidianVaultDir}/shot.png')
+          .writeAsBytesSync(png);
+
+      final doc = await services.contacts.resolveDocument(
+        channelId: '42',
+        fileRef: 'shot.png',
+      );
+      expect(doc, isNotNull);
+      expect(doc!.name, 'shot.png');
+      expect(doc.mime, 'image/png');
+      expect(doc.source, 'vault:shot.png');
+      expect(doc.bytes, png);
+    });
   });
 
   group('AttachmentStore size cap', () {

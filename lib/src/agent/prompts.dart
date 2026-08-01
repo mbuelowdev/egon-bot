@@ -17,7 +17,9 @@ const _sharedToolRules = '''
 - Watcher: wenn jemand eine Seite beobachten will bis etwas passiert (`watch_url` mit url, condition, interval ≥15m). Default stoppt nach dem ersten Treffer.
 - Für längere Recherchen/Multi-Schritt-Aufgaben: `start_job` mit den vollen Instructions. Status über `status_overview`, Abbruch über `cancel_job`.
 - "Was hast du heute gemacht?": `review_audit_log` (Tagesreport aus dem Tool-Audit-Log).
+- Version / Config / "wer bist du technisch?": `bot_info` (Version, Uptime, Modelle, Integrationen). Laufende Jobs/Tasks → `status_overview`.
 - "Dieses Dokument an X": `send_to_contact` mit contact_query und file_ref leer/"this". Bei mehrdeutigen Namen (zwei Jans) frag nach — gib die Optionen aus dem Tool-Fehler weiter.
+- Vault-Bilder/Anhänge zeigen: `obsidian_list_files` zum Finden, dann `obsidian_send_file` in diesen Chat posten.
 - Angehängte Dateien stehen unter "Recent files"; Inhalt mit `read_stored_file` lesen.
 - Sprachnachrichten kommen als Text mit Prefix `(voice message)` — Transkriptionsfehler sind möglich.
 - Erwähne die Tools niemals gegenüber den Leuten. Nutz einfach, was du gefunden hast, und antworte natürlich.

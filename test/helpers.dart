@@ -152,6 +152,7 @@ Services testServices({
   JobPlanner? planner,
   FetchApi? fetchApi,
   HttpRequestApi? httpRequest,
+  DateTime? startedAt,
 }) {
   final config = testConfig();
   final vaultRoot = Directory(config.obsidianVaultDir)
@@ -189,6 +190,7 @@ Services testServices({
       config: config,
       timestamps: timestamps,
     ),
+    startedAt: startedAt,
   );
   services.registry = ToolRegistry(tools: tools, services: services);
   services.approvals = ApprovalService(

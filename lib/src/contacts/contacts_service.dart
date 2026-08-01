@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -133,7 +132,7 @@ class ContactsService {
 
   /// Resolves a document reference for send_to_contact (§14).
   ///
-  /// Order: recent attachment (default / "this") → URL → vault note →
+  /// Order: recent attachment (default / "this") → URL → vault file →
   /// stored file id/name in channel. Returns null when [fileRef] is empty
   /// and there is no recent attachment (message-only send).
   Future<ResolvedDocument?> resolveDocument({
@@ -177,19 +176,29 @@ class ContactsService {
       return ResolvedDocument.fromStored(stored);
     }
 
-    // Vault note path?
+    // Vault path (markdown note or binary attachment)?
     if (vault.isAvailable) {
       try {
-        final content = vault.readNote(ref);
-        final name = ref.split('/').last;
-        final fileName = name.endsWith('.md') ? name : '$name.md';
+        final path = vault.resolveExistingPath(ref);
+        final name = path.split('/').last;
+        final bytes = vault.readBytes(path);
+        if (bytes.length > attachments.maxBytes) {
+          throw AttachmentTooLargeException(
+            name,
+            bytes.length,
+            attachments.maxBytes,
+          );
+        }
         return ResolvedDocument(
-          name: fileName,
-          mime: 'text/markdown',
-          bytes: Uint8List.fromList(utf8.encode(content)),
-          source: 'vault:$ref',
+          name: name,
+          mime: ObsidianVault.mimeForName(name),
+          bytes: bytes,
+          source: 'vault:$path',
         );
-      } on ObsidianPathError {
+      } on ObsidianPathError catch (error) {
+        if (error.message.startsWith('Ambiguous file')) {
+          throw StateError(error.message);
+        }
         // fall through
       } on ObsidianUnavailableError {
         // fall through
@@ -208,6 +217,47 @@ class ContactsService {
     throw StateError(
       'Could not resolve document "$ref". Use a recent attachment, URL, '
       'vault path, or file id.',
+    );
+  }
+
+  /// Posts optional [doc] + [message] into [channelId] (current chat).
+  Future<DeliveryResult> deliverToChannel({
+    required String channelId,
+    ResolvedDocument? doc,
+    String? message,
+  }) async {
+    final client = _client;
+    if (client == null) {
+      throw StateError('Discord client not attached.');
+    }
+    final trimmed = message?.trim() ?? '';
+    if (doc == null && trimmed.isEmpty) {
+      throw StateError('Need a file or a message to send.');
+    }
+
+    final attachmentBuilders = doc == null
+        ? <AttachmentBuilder>[]
+        : [AttachmentBuilder(data: doc.bytes, fileName: doc.name)];
+
+    final channel =
+        client.channels[Snowflake.parse(channelId)] as PartialTextChannel;
+    await channel.sendMessage(
+      MessageBuilder(
+        content: trimmed.isEmpty
+            ? null
+            : (trimmed.length > discordMessageLimit
+                ? trimmed.substring(0, discordMessageLimit)
+                : trimmed),
+        attachments: attachmentBuilders,
+      ),
+    );
+    return DeliveryResult(
+      mode: 'channel',
+      recipientId: channelId,
+      fileName: doc?.name,
+      message: doc == null
+          ? 'Posted message in this channel.'
+          : 'Posted ${doc.name} in this channel.',
     );
   }
 

@@ -10,8 +10,9 @@ class SendToContactTool extends Tool {
       'Sends a document and/or message to someone in the address book. '
       'Owner-only. Resolves the contact by name/alias (asks back if '
       'ambiguous). file_ref defaults to the most recent attachment in this '
-      'channel ("this document"); may also be a URL, vault note path, or '
-      'file id. Always shows a delivery preview for approval before sending.';
+      'channel ("this document"); may also be a URL, vault file path '
+      '(notes or images), or file id. Always shows a delivery preview for '
+      'approval before sending.';
 
   @override
   ToolAccess get access => ToolAccess.personal;

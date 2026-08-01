@@ -110,6 +110,56 @@ void main() {
       expect(hits['Inbox/a.md'], ['Hello Wood']);
     });
 
+    test('missing folder yields ObsidianPathError, not FileSystemException', () {
+      expect(
+        () => vault.listNotes(folder: '2 – Privat'),
+        throwsA(
+          isA<ObsidianPathError>().having(
+            (e) => e.message,
+            'message',
+            'Folder not found: 2 – Privat',
+          ),
+        ),
+      );
+    });
+
+    test('skips binary attachments when listing and searching', () {
+      vault.writeNote('Idee.md', 'Projektidee: Holz');
+      // PNG magic bytes — must not be decoded as UTF-8 during search.
+      File('${tmp.path}/Screenshot_20250331-103548.png')
+          .writeAsBytesSync([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+      File('${tmp.path}/notes.pdf').writeAsBytesSync([0x25, 0x50, 0x44, 0x46]);
+
+      expect(vault.listNotes(), ['Idee.md']);
+      final hits = vault.searchNotes('Idee');
+      expect(hits.keys, ['Idee.md']);
+      expect(hits['Idee.md'], ['Projektidee: Holz']);
+    });
+
+    test('lists and resolves binary attachments', () {
+      final png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+      File('${tmp.path}/Screenshot_20250331-103548.png').writeAsBytesSync(png);
+      File('${tmp.path}/Assets/photo.jpg')
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([0xFF, 0xD8, 0xFF]);
+      vault.writeNote('note.md', 'text');
+
+      expect(
+        vault.listFiles(attachmentsOnly: true),
+        ['Assets/photo.jpg', 'Screenshot_20250331-103548.png'],
+      );
+      expect(
+        vault.listFiles(nameQuery: 'screenshot'),
+        ['Screenshot_20250331-103548.png'],
+      );
+      expect(
+        vault.resolveExistingPath('Screenshot_20250331-103548.png'),
+        'Screenshot_20250331-103548.png',
+      );
+      expect(vault.readBytes('Assets/photo.jpg'), [0xFF, 0xD8, 0xFF]);
+      expect(ObsidianVault.mimeForName('x.PNG'), 'image/png');
+    });
+
     test('delete removes the file', () {
       vault.writeNote('gone.md', 'x');
       vault.deleteNote('gone.md');
