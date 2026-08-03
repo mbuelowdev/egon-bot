@@ -44,10 +44,12 @@ class MessageRouter {
     final botUserId = client.user.id.toString();
     services.approvals.attachClient(client);
     services.jobRunner.attachClient(client);
+    services.selfExtensionRunner.attachClient(client);
     services.contacts.attachClient(client);
     services.discordSearch.attachClient(client);
     await services.scheduler.start(client);
     await services.jobRunner.recover();
+    await services.selfExtensionRunner.recover();
     markHealthyBoot(services.config);
     await services.notices.flush(client);
 
@@ -75,6 +77,7 @@ class MessageRouter {
       services.llmGate.onMonitorDownNotice = null;
       services.scheduler.stop();
       services.jobRunner.detachClient();
+      services.selfExtensionRunner.detachClient();
       services.approvals.detachClient();
       services.contacts.detachClient();
       services.discordSearch.detachClient();
@@ -116,15 +119,17 @@ class MessageRouter {
 
     final isOwner = authorId == services.config.ownerUserId;
 
-    // Job orchestration for the owner happens even without a mention when
-    // there is an active/waiting job in this channel (§9).
+    // Job / self-extension orchestration for the owner happens even without
+    // a mention when there is active/waiting work in this channel (§9, §6.4).
     final ownerJobContext = isOwner &&
         (services.jobs.waitingInChannel(channelId) != null ||
-            services.jobs.activeInChannel(channelId) != null);
+            services.jobs.activeInChannel(channelId) != null ||
+            services.selfExtensions.awaitingPlanApprovalInChannel(channelId) !=
+                null ||
+            services.selfExtensions.openExtension()?.channelId == channelId);
 
-    final isAddressed = isDm ||
-        _isMentioned(message.content, botUserId) ||
-        ownerJobContext;
+    final isAddressed =
+        isDm || _isMentioned(message.content, botUserId) || ownerJobContext;
 
     // Log every allowed-channel message for short-term context. Media is
     // recorded as filename + CDN URL only — never downloaded into SQLite.
@@ -244,15 +249,32 @@ class MessageRouter {
         services.jobRunner.answerWaitingJob(waiting.id, content);
         return;
       }
+
+      final awaitingPlan =
+          services.selfExtensions.awaitingPlanApprovalInChannel(channelId);
+      if (awaitingPlan != null) {
+        stdout.writeln(
+          'Self-extension #${awaitingPlan.id} plan revision from owner '
+          'in $channelId',
+        );
+        await services.selfExtensionRunner.requestPlanRevision(
+          extensionId: awaitingPlan.id,
+          notes: content,
+        );
+        return;
+      }
     }
 
     final active = services.jobs.activeInChannel(channelId);
+    final openExt = services.selfExtensions.openExtension();
+    final extBusyHere =
+        openExt != null && openExt.channelId == channelId && openExt.isOpen;
     final chatBusy = turnQueue.isBusy(channelId);
-    if (active != null || chatBusy) {
+    if (active != null || chatBusy || extBusyHere) {
       final intent = await busyIntent.classify(
         message: content,
         activeJob: active,
-        chatTurnInFlight: chatBusy,
+        chatTurnInFlight: chatBusy || extBusyHere,
       );
       switch (intent) {
         case BusyFollowUpIntent.cancel:
@@ -264,12 +286,19 @@ class MessageRouter {
             services.jobRunner.requestCancel(active.id);
             reply =
                 'Stopping **${active.title}** — wrapping up the current step.';
+          } else if (isOwner &&
+              openExt != null &&
+              openExt.channelId == channelId) {
+            stdout.writeln(
+              'Cancel intent for self-extension #${openExt.id}',
+            );
+            await services.selfExtensionRunner.requestCancel(openExt.id);
+            reply = 'Cancelling self-extension **#${openExt.id}**.';
           } else if (active != null && !isOwner) {
             reply =
                 'Only Michael can cancel the running job **${active.title}**.';
           } else if (chatBusy) {
-            reply =
-                'The current reply is still running — I am not starting '
+            reply = 'The current reply is still running — I am not starting '
                 'anything new for it. Cancel mid tool-step is not supported yet.';
           } else {
             reply = 'No job here I can stop right now.';
@@ -408,9 +437,7 @@ class MessageRouter {
     List<Attachment> attachments,
   ) {
     if (attachments.isEmpty) return content;
-    final refs = attachments
-        .map((a) => '${a.fileName} (${a.url})')
-        .join(', ');
+    final refs = attachments.map((a) => '${a.fileName} (${a.url})').join(', ');
     if (content.trim().isEmpty) return '(attached: $refs)';
     return '$content\n(attached: $refs)';
   }

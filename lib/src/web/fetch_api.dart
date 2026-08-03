@@ -397,8 +397,7 @@ List<PageImage> extractPageImages(
     final content = meta.attributes['content'];
     if (property == 'og:image' || property == 'og:image:url') {
       add(content, kind: 'og');
-    } else if (property == 'twitter:image' ||
-        property == 'twitter:image:src') {
+    } else if (property == 'twitter:image' || property == 'twitter:image:src') {
       add(content, kind: 'twitter');
     }
   }
@@ -459,8 +458,8 @@ String? _bestSrcsetUrl(String? srcset) {
       if (desc.endsWith('w')) {
         score = double.tryParse(desc.substring(0, desc.length - 1)) ?? score;
       } else if (desc.endsWith('x')) {
-        score = (double.tryParse(desc.substring(0, desc.length - 1)) ?? 1) *
-            10000;
+        score =
+            (double.tryParse(desc.substring(0, desc.length - 1)) ?? 1) * 10000;
       }
     }
     if (score >= bestScore) {

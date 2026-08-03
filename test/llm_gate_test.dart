@@ -77,14 +77,19 @@ void main() {
       expect(await gate.isGpuFree(), isTrue);
     });
 
-    test('chat requests enable think=high by default', () async {
+    test('big enables think=high; small and vision omit think', () async {
       final ollama = FakeOllama();
-      final gate = testGate(ollama: ollama, monitor: null);
+      final gate = testGate(
+        ollama: ollama,
+        monitor: null,
+        visionModel: 'vision-model',
+      );
 
       await gate.chat(tier: ModelTier.big, messages: _messages);
       await gate.chat(tier: ModelTier.small, messages: _messages);
+      await gate.chatVision(messages: _messages);
 
-      expect(ollama.thinkValues, ['high', 'high']);
+      expect(ollama.thinkValues, ['high', null, null]);
     });
 
     test('no monitor configured means always free', () async {

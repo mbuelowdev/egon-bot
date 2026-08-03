@@ -23,6 +23,10 @@ class Config {
     required this.whisperModel,
     required this.maxAttachmentMb,
     required this.googleCalendarId,
+    required this.cursorApiKey,
+    required this.cursorRepoUrl,
+    required this.cursorStartingRef,
+    required this.cursorModel,
   });
 
   final String discordBotToken;
@@ -72,11 +76,26 @@ class Config {
   /// Optional override for the Egon write calendar id (§12).
   final String? googleCalendarId;
 
+  /// Cursor Cloud Agents API key (§6.4). Null = `extend_self` unavailable.
+  final String? cursorApiKey;
+
+  /// GitHub repo URL for cloud self-extension agents.
+  final String cursorRepoUrl;
+
+  /// Branch / ref cloud agents start from (deploy watches `master`).
+  final String cursorStartingRef;
+
+  /// Optional Cursor model id for cloud agents. Null = account default.
+  final String? cursorModel;
+
   /// True when email, password, and vault name are all set.
   bool get obsidianSyncConfigured =>
       obsidianEmail != null &&
       obsidianPassword != null &&
       obsidianVaultName != null;
+
+  /// True when Cursor Cloud Agents can be used for `extend_self`.
+  bool get cursorConfigured => cursorApiKey != null && cursorApiKey!.isNotEmpty;
 
   /// Builds a config from an env lookup. Throws [ConfigError] when a
   /// required variable is missing.
@@ -141,6 +160,11 @@ class Config {
       whisperModel: optional('WHISPER_MODEL') ?? 'small',
       maxAttachmentMb: int.tryParse(env('MAX_ATTACHMENT_MB') ?? '') ?? 25,
       googleCalendarId: optional('GOOGLE_CALENDAR_ID'),
+      cursorApiKey: optional('CURSOR_API_KEY'),
+      cursorRepoUrl: optional('CURSOR_REPO_URL') ??
+          'https://github.com/mbuelowdev/egon-bot',
+      cursorStartingRef: optional('CURSOR_STARTING_REF') ?? 'master',
+      cursorModel: optional('CURSOR_MODEL'),
     );
   }
 
@@ -155,7 +179,9 @@ class Config {
       'obsidianSync: ${obsidianSyncConfigured ? 'configured' : 'off'}, '
       'whisper: $whisperModel, maxAttachMb: $maxAttachmentMb, '
       'googleCal: ${googleCalendarId ?? 'auto'}, '
-      'token: <redacted>, obsidianPassword: <redacted>)';
+      'cursor: ${cursorConfigured ? 'configured' : 'off'}, '
+      'token: <redacted>, obsidianPassword: <redacted>, '
+      'cursorApiKey: <redacted>)';
 }
 
 class ConfigError implements Exception {

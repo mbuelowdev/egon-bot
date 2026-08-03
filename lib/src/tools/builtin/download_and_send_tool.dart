@@ -16,8 +16,9 @@ class DownloadAndSendTool extends Tool {
       'attachment in the current channel. Use when the user wants a picture '
       'or file from the web: after image_search use image_url; after '
       'fetch_url pick a URL from images[] (prefer kind=og); or pass a direct '
-      'image/CDN URL. Optional message is the caption. Do not use for HTML '
-      'pages (fetch_url first) or to invent search results (image_search). '
+      'image/CDN URL. Optional message is the caption — if you set it, leave '
+      'your final chat reply empty (do not repeat the caption). Do not use for '
+      'HTML pages (fetch_url first) or to invent search results (image_search). '
       'Not for vault files (obsidian_send_file) or sending to other people '
       '(send_to_contact).';
 
@@ -29,11 +30,13 @@ class DownloadAndSendTool extends Tool {
             'type': 'string',
             'description':
                 'Direct http(s) URL of an image or downloadable file '
-                '(not an HTML page).',
+                    '(not an HTML page).',
           },
           'message': {
             'type': 'string',
-            'description': 'Optional caption posted with the file.',
+            'description':
+                'Optional caption posted with the file. If set, leave the '
+                    'final chat reply empty — do not send the same text again.',
           },
         },
         'required': ['url'],
@@ -94,11 +97,13 @@ class DownloadAndSendTool extends Tool {
         source: 'file:#${stored.id}',
         storedFileId: stored.id,
       );
+      final caption = args['message'] as String?;
       final result = await context.services.contacts.deliverToChannel(
         channelId: context.channelId,
         doc: doc,
-        message: args['message'] as String?,
+        message: caption,
       );
+      context.notePostedCaption(caption);
       return ToolResult.ok({
         'status': 'sent',
         'url': file.url,

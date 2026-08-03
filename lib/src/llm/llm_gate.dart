@@ -219,6 +219,8 @@ class LlmGate {
         // Never let the utility model claim VRAM (§5.1).
         options: const {'num_gpu': 0},
         format: format,
+        // Utility models (e.g. llama3.2) reject `think`.
+        think: null,
       ),
     );
   }

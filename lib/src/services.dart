@@ -4,6 +4,7 @@ import 'agent/approval_service.dart';
 import 'config.dart';
 import 'contacts/contacts_service.dart';
 import 'discord/discord_search_api.dart';
+import 'integrations/cursor_agents_client.dart';
 import 'integrations/google_calendar_client.dart';
 import 'integrations/obsidian_vault.dart';
 import 'jobs/job_runner.dart';
@@ -17,6 +18,8 @@ import 'process_exit.dart';
 import 'scheduler/scheduler.dart';
 import 'scheduler/task_store.dart';
 import 'security/whitelist_service.dart';
+import 'self_extension/self_extension_runner.dart';
+import 'self_extension/self_extension_store.dart';
 import 'storage/database.dart';
 import 'time/timestamps.dart';
 import 'tools/tool_registry.dart';
@@ -43,12 +46,14 @@ class Services {
     required this.memory,
     required this.tasks,
     required this.jobs,
+    required this.selfExtensions,
     required this.notices,
     required this.vault,
     required this.attachments,
     required this.transcription,
     required this.contacts,
     required this.calendar,
+    this.cursorAgents,
     DateTime? startedAt,
   }) : startedAt = startedAt ?? DateTime.now().toUtc();
 
@@ -69,12 +74,16 @@ class Services {
   final MemoryService memory;
   final TaskStore tasks;
   final JobStore jobs;
+  final SelfExtensionStore selfExtensions;
   final NoticeService notices;
   final ObsidianVault vault;
   final AttachmentStore attachments;
   final TranscriptionService transcription;
   final ContactsService contacts;
   final GoogleCalendarClient calendar;
+
+  /// Null when [Config.cursorApiKey] is unset.
+  final CursorAgentsClient? cursorAgents;
 
   /// Set once after the registry has been built (tools like `list_tools`
   /// need to look back into it).
@@ -88,6 +97,9 @@ class Services {
 
   /// Set once after history exists — recovered/started when Discord connects.
   late final JobRunner jobRunner;
+
+  /// Cursor-backed self-extension orchestrator (§6.4).
+  late final SelfExtensionRunner selfExtensionRunner;
 
   /// When true, the process should exit with [ProcessExit.restart] after the
   /// current Discord reply is sent (§6.4).

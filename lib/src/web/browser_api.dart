@@ -11,16 +11,18 @@ class BrowseResult {
     required this.text,
     required this.truncated,
     required this.links,
+    List<Map<String, Object?>>? images,
     required this.network,
     required this.screenshotBytes,
     required this.screenshotMime,
-  });
+  }) : images = images ?? const [];
 
   final String url;
   final String title;
   final String text;
   final bool truncated;
   final List<Map<String, Object?>> links;
+  final List<Map<String, Object?>> images;
   final List<Map<String, Object?>> network;
   final Uint8List screenshotBytes;
   final String screenshotMime;
@@ -31,6 +33,7 @@ class BrowseResult {
         text: page.text,
         truncated: page.truncated,
         links: page.links,
+        images: page.images,
         network: page.network,
         screenshotBytes: page.screenshotBytes,
         screenshotMime: page.screenshotMime,

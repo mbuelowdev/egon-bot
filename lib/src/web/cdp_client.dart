@@ -88,9 +88,8 @@ class CdpSession {
     final method = map['method'] as String?;
     if (method == null) return;
     final params = map['params'];
-    final event = params is Map
-        ? params.cast<String, Object?>()
-        : <String, Object?>{};
+    final event =
+        params is Map ? params.cast<String, Object?>() : <String, Object?>{};
     _eventControllers[method]?.add(event);
   }
 
@@ -172,8 +171,8 @@ bool hostLooksBlockedForBrowse(String hostname) {
       lower == 'metadata') {
     return true;
   }
-  final m = RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$')
-      .firstMatch(lower);
+  final m =
+      RegExp(r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$').firstMatch(lower);
   if (m == null) return false;
   final a = int.parse(m.group(1)!);
   final b = int.parse(m.group(2)!);
@@ -193,16 +192,20 @@ class CdpPageResult {
     required this.text,
     required this.truncated,
     required this.links,
+    List<Map<String, Object?>>? images,
     required this.network,
     required this.screenshotBytes,
     required this.screenshotMime,
-  });
+  }) : images = images ?? const [];
 
   final String url;
   final String title;
   final String text;
   final bool truncated;
   final List<Map<String, Object?>> links;
+
+  /// Image candidates from og/twitter/img in the rendered DOM.
+  final List<Map<String, Object?>> images;
   final List<Map<String, Object?>> network;
   final Uint8List screenshotBytes;
   final String screenshotMime;
@@ -216,6 +219,7 @@ Future<CdpPageResult> cdpAnalyzePage({
   Duration timeout = const Duration(seconds: 45),
   int maxText = 12000,
   int maxLinks = 80,
+  int maxImages = 15,
   int maxNetwork = 80,
 }) async {
   final target = Uri.parse(url);
@@ -350,7 +354,7 @@ Future<CdpPageResult> cdpAnalyzePage({
     }
 
     final evalText = await pageSend('Runtime.evaluate', {
-      'expression': r'''(() => {
+      'expression': '''(() => {
         const title = document.title || '';
         const text = document.body ? (document.body.innerText || '') : '';
         const links = [];
@@ -364,9 +368,58 @@ Future<CdpPageResult> cdpAnalyzePage({
             url: href,
             text: (a.innerText || a.textContent || '').trim().slice(0, 120),
           });
-          if (links.length >= 80) break;
+          if (links.length >= $maxLinks) break;
         }
-        return { title, text, links, href: location.href };
+        const images = [];
+        const seenImg = new Set();
+        const addImg = (raw, kind, alt) => {
+          if (images.length >= $maxImages) return;
+          if (!raw) return;
+          let abs;
+          try { abs = new URL(raw, location.href).href; } catch (_) { return; }
+          if (!abs.startsWith('http://') && !abs.startsWith('https://')) return;
+          if (abs.startsWith('data:')) return;
+          if (seenImg.has(abs)) return;
+          seenImg.add(abs);
+          images.push({ url: abs, alt: (alt || '').trim().slice(0, 160), kind });
+        };
+        for (const meta of document.querySelectorAll('meta')) {
+          const prop = (meta.getAttribute('property') || meta.getAttribute('name') || '')
+            .trim().toLowerCase();
+          const content = meta.getAttribute('content');
+          if (prop === 'og:image' || prop === 'og:image:url') addImg(content, 'og', '');
+          else if (prop === 'twitter:image' || prop === 'twitter:image:src') {
+            addImg(content, 'twitter', '');
+          }
+        }
+        for (const link of document.querySelectorAll('link[rel]')) {
+          if ((link.getAttribute('rel') || '').trim().toLowerCase() === 'image_src') {
+            addImg(link.getAttribute('href'), 'link', '');
+          }
+        }
+        for (const img of document.querySelectorAll('img')) {
+          if (images.length >= $maxImages) break;
+          const alt = img.getAttribute('alt') || '';
+          const srcset = img.getAttribute('srcset');
+          let fromSrcset = null;
+          if (srcset) {
+            let best = -1;
+            for (const part of srcset.split(',')) {
+              const bits = part.trim().split(/\\s+/);
+              if (!bits.length || !bits[0]) continue;
+              let score = 1;
+              if (bits.length >= 2) {
+                const d = bits[1].toLowerCase();
+                if (d.endsWith('w')) score = parseFloat(d) || score;
+                else if (d.endsWith('x')) score = (parseFloat(d) || 1) * 10000;
+              }
+              if (score >= best) { best = score; fromSrcset = bits[0]; }
+            }
+          }
+          if (fromSrcset) addImg(fromSrcset, 'img', alt);
+          else addImg(img.getAttribute('data-src') || img.currentSrc || img.getAttribute('src'), 'img', alt);
+        }
+        return { title, text, links, images, href: location.href };
       })()''',
       'returnByValue': true,
       'awaitPromise': true,
@@ -394,6 +447,13 @@ Future<CdpPageResult> cdpAnalyzePage({
         if (item is Map) links.add(item.cast<String, Object?>());
       }
     }
+    final imagesRaw = pageInfo['images'];
+    final images = <Map<String, Object?>>[];
+    if (imagesRaw is List) {
+      for (final item in imagesRaw.take(maxImages)) {
+        if (item is Map) images.add(item.cast<String, Object?>());
+      }
+    }
 
     final shot = await pageSend('Page.captureScreenshot', {
       'format': 'jpeg',
@@ -410,6 +470,7 @@ Future<CdpPageResult> cdpAnalyzePage({
       text: text,
       truncated: truncated,
       links: links,
+      images: images,
       network: network.take(maxNetwork).toList(),
       screenshotBytes: bytes,
       screenshotMime: 'image/jpeg',

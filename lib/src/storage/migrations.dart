@@ -152,4 +152,32 @@ const List<String> migrations = [
     notes            TEXT
   );
   ''',
+
+  // 7: Cursor-backed self-extension (§6.4) + approval kinds
+  '''
+  ALTER TABLE pending_approvals
+    ADD COLUMN kind TEXT NOT NULL DEFAULT 'tool';
+
+  CREATE TABLE self_extensions (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    created_by        TEXT NOT NULL,
+    channel_id        TEXT NOT NULL,
+    plan_message_id   TEXT,
+    description       TEXT NOT NULL,
+    title             TEXT,
+    status            TEXT NOT NULL DEFAULT 'planning',
+    cursor_agent_id   TEXT,
+    cursor_run_id     TEXT,
+    plan_markdown     TEXT,
+    plan_json         TEXT,
+    revision_notes    TEXT,
+    pr_url            TEXT,
+    target_version    TEXT,
+    error             TEXT,
+    approval_id       INTEGER
+  );
+  CREATE INDEX idx_self_extensions_status ON self_extensions(status, id);
+  ''',
 ];

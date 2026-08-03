@@ -10,8 +10,10 @@ class FetchUrlTool extends Tool {
       'Use when the user gives a concrete URL, or to read a web_search result. '
       'Returns {url, title, text, content_type, truncated, images[]} where '
       'images entries are {url, alt, kind} (kind=og|twitter|link|img). Prefer '
-      'og images, then download_and_send that URL to post a picture. Not for '
-      'binary files or direct image URLs — use download_and_send.';
+      'og images, then download_and_send that URL to post a picture. If images[] '
+      'is empty or the target is missing, try browse_url on the same URL — '
+      'never web_search/image_search. Not for binary files or direct image '
+      'URLs — use download_and_send.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {

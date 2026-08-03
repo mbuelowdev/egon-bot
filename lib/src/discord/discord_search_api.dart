@@ -134,8 +134,7 @@ class DiscordSearchApi {
     if (client == null) {
       throw StateError('Discord client not attached.');
     }
-    final channel =
-        await client.channels.get(Snowflake.parse(channelId));
+    final channel = await client.channels.get(Snowflake.parse(channelId));
     if (channel is! GuildChannel) {
       throw StateError(
         'Channel $channelId is not a guild channel (search needs a guild).',
@@ -186,8 +185,10 @@ class DiscordSearchApi {
     final scalars = <String, String>{
       if (query.content != null && query.content!.isNotEmpty)
         'content': query.content!,
-      if (query.minId != null && query.minId!.isNotEmpty) 'min_id': query.minId!,
-      if (query.maxId != null && query.maxId!.isNotEmpty) 'max_id': query.maxId!,
+      if (query.minId != null && query.minId!.isNotEmpty)
+        'min_id': query.minId!,
+      if (query.maxId != null && query.maxId!.isNotEmpty)
+        'max_id': query.maxId!,
       if (query.sortBy != null && query.sortBy!.isNotEmpty)
         'sort_by': query.sortBy!,
       if (query.sortOrder != null && query.sortOrder!.isNotEmpty)

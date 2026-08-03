@@ -51,19 +51,19 @@ class SearchDiscordMessagesTool extends Tool {
             'type': 'string',
             'description':
                 'Keyword/phrase filter (max 1024). Optional when author_id, '
-                'mentions, or has is set.',
+                    'mentions, or has is set.',
           },
           'channel_id': {
             'type': 'string',
             'description':
                 'One allowed channel id. Default: current channel in guild '
-                'chats; all allowed channels in DMs.',
+                    'chats; all allowed channels in DMs.',
           },
           'author_id': {
             'type': 'string',
             'description':
                 '"me" for the caller, a Discord snowflake id, or a contact '
-                'name that has a discord_user_id. Use for "what did I/X say".',
+                    'name that has a discord_user_id. Use for "what did I/X say".',
           },
           'mentions': {
             'type': 'string',
@@ -73,19 +73,19 @@ class SearchDiscordMessagesTool extends Tool {
             'type': 'string',
             'description':
                 'image, sound, video, file, sticker, embed, link, poll, or '
-                'snapshot. Prefix with - to exclude.',
+                    'snapshot. Prefix with - to exclude.',
           },
           'after': {
             'type': 'string',
             'description':
                 'Only messages after this time (local BOT_TIMEZONE or ISO-8601). '
-                'Example for "yesterday": start of that local day.',
+                    'Example for "yesterday": start of that local day.',
           },
           'before': {
             'type': 'string',
             'description':
                 'Only messages before this time (local BOT_TIMEZONE or ISO-8601). '
-                'Example for "yesterday": start of today.',
+                    'Example for "yesterday": start of today.',
           },
           'sort_by': {
             'type': 'string',
@@ -325,21 +325,19 @@ class SearchDiscordMessagesTool extends Tool {
             'jump_url': m.jumpUrl,
           },
       ],
-      'policy':
-          'Hard caps: limit≤$_maxLimit, offset≤$_maxOffset, '
+      'policy': 'Hard caps: limit≤$_maxLimit, offset≤$_maxOffset, '
           'range≤${_maxRangeWithoutContent.inDays}d without keywords / '
           '${_maxRangeWithContent.inDays}d with keywords. '
           'Summarize for the user; never paste a bulk transcript.',
       if (capped)
-        'note_capped':
-            'Requested limit/offset was reduced to the hard cap '
+        'note_capped': 'Requested limit/offset was reduced to the hard cap '
             '($_maxLimit / $_maxOffset). Mass dumps are blocked.',
       if (result.messages.isEmpty)
         'note': 'No matching messages. Say so naturally in English.',
       if (result.totalResults > result.messages.length)
         'note_more':
             'More matches exist (total_results). Ask the user to narrow '
-            'keywords/time; do not keep paging for a dump.',
+                'keywords/time; do not keep paging for a dump.',
     });
   }
 

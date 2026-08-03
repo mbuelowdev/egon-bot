@@ -260,11 +260,11 @@ void main() {
       final api = DiscordSearchApi(
         searchImpl: ({required guildId, required query}) async =>
             DiscordMessageSearchResult(
-              totalResults: 0,
-              messages: const [],
-              indexing: true,
-              retryAfterSeconds: 2,
-            ),
+          totalResults: 0,
+          messages: const [],
+          indexing: true,
+          retryAfterSeconds: 2,
+        ),
       );
       final services = testServices(
         tools: [tool],

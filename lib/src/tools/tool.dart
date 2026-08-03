@@ -11,7 +11,7 @@ enum ToolAccess {
 
   /// Owner runs it directly; a whitelisted user's request pauses and asks
   /// the owner for approval in the same channel (§6.5): create_tool,
-  /// restart_self.
+  /// extend_self, restart_self.
   dangerous,
 }
 
@@ -30,6 +30,29 @@ class ToolContext {
   final bool isOwner;
   final bool isDm;
   final Services services;
+
+  /// Captions already shown with channel attachments this turn.
+  ///
+  /// Used so the final chat reply does not repeat text that was already
+  /// posted as an image/file caption.
+  final List<String> postedCaptions = [];
+
+  /// Records a non-empty caption posted with an attachment in this channel.
+  void notePostedCaption(String? message) {
+    final trimmed = message?.trim() ?? '';
+    if (trimmed.isNotEmpty) postedCaptions.add(trimmed);
+  }
+
+  /// Returns [reply] unchanged, or empty when it only repeats a posted caption.
+  String replyWithoutDuplicateCaption(String reply) {
+    final out = reply.trim();
+    if (out.isEmpty || postedCaptions.isEmpty) return out;
+    final lower = out.toLowerCase();
+    for (final caption in postedCaptions) {
+      if (caption.trim().toLowerCase() == lower) return '';
+    }
+    return out;
+  }
 }
 
 /// Result fed back to the model verbatim as the tool message content.

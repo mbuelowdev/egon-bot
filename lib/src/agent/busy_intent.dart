@@ -68,16 +68,16 @@ class BusyIntentClassifier {
   BusyFollowUpIntent _heuristic(String message) {
     final lower = message.toLowerCase();
     if (RegExp(
-          r'\b(stop|cancel|abort|halt|abbrechen|stopp|aufhören)\b',
-        ).hasMatch(lower)) {
+      r'\b(stop|cancel|abort|halt|abbrechen|stopp|aufhören)\b',
+    ).hasMatch(lower)) {
       return BusyFollowUpIntent.cancel;
     }
     if (RegExp(
-          r'(noch\s+dran|noch\s+am|noch\s+beschäftigt|arbeitest\s+du\s+noch|'
-          r'bist\s+du\s+noch|immer\s+noch|wie\s+weit|fertig\b|status\b|'
-          r'was\s+machst\s+du|still\s+working|are\s+you\s+(still|done)|'
-          r'how.?s\s+it\s+going|any\s+update|progress\b)',
-        ).hasMatch(lower)) {
+      r'(noch\s+dran|noch\s+am|noch\s+beschäftigt|arbeitest\s+du\s+noch|'
+      r'bist\s+du\s+noch|immer\s+noch|wie\s+weit|fertig\b|status\b|'
+      r'was\s+machst\s+du|still\s+working|are\s+you\s+(still|done)|'
+      r'how.?s\s+it\s+going|any\s+update|progress\b)',
+    ).hasMatch(lower)) {
       return BusyFollowUpIntent.status;
     }
     return BusyFollowUpIntent.proceed;

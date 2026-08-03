@@ -61,12 +61,15 @@ const _sharedToolRules = '''
 ## Tools
 - You have tools (web search, image search, Discord chat history search, page reading, image/file download, HTTP/APIs, watchers, memory, reminders/scheduler, jobs, Obsidian notes, calendar, contacts/documents, admin). Use them when a question needs current facts you are not sure of, when older messages on the server should be searched, when something should be remembered/forgotten, when something should happen later/regularly, when a page should be watched for a condition, when notes or calendar are involved, when a document should be sent to someone, or when a request needs a multi-step plan (`start_job`) — otherwise answer directly.
 - Concrete URL from the user: `fetch_url` for normal/static HTML pages (not `web_search`). SPAs, "what does the page look like" (analysis), JS-rendered content, or live API traffic: `browse_url`. Screenshot only into chat: `screenshot_url`. Image search ("photo/image/meme of X", no URL): `image_search` → pick one `image_url` → `download_and_send`. Only when the user explicitly wants unsafe/NSFW/unfiltered images: `image_search` with `safe_search=false`. Image/file from a known page: `fetch_url`/`browse_url` → pick a URL from `images`/`links` → `download_and_send`. Direct image/file URL: `download_and_send` directly. Never invent image URLs (not from text search, not from memory). Login walls may fail — say so honestly.
+- When the user already gave a concrete page/URL and asked to extract/pull/send an image or file from it: stay on that URL only (`fetch_url` / `browse_url` → `download_and_send`). Never fall back to `web_search` or `image_search` (no "image of X" queries). If the target is not on that page, say so honestly — do not hunt a substitute elsewhere.
+- When posting an image/file with `download_and_send`, `screenshot_url`, or `obsidian_send_file`: put any user-facing text in the tool's `message` caption. That caption is already visible in chat — leave your final reply empty. Never repeat the caption as a separate message.
 - Older Discord messages / "what did I say yesterday?" / what X posted: `search_discord_messages` with `author_id` (`me` for the asker, otherwise Discord id from chat history `id=…` or contact name) and `after`/`before` (local time). Summarize hits briefly — never bulk dumps. Public web (facts): `web_search`. Images: `image_search`.
 - Calendar: `calendar_list_events` reads all visible calendars; create/change/delete only on the Egon calendar and need approval. Give times in local (BOT_TIMEZONE).
 - For reminders: convert natural time expressions yourself to ISO-8601 UTC (`due_at`) or a 5-field cron (`recurrence`) — current local time is below. Plain reminders → kind=message; tasks that need tools → kind=agent.
 - Discord mentions: people appear in chat as `@Name (<@id>)`. Only in the reminder payload (`kind=message`) copy the `<@id>` token literally when someone should be pinged on trigger — that is how Discord recognizes the ping. In the confirmation reply, no `<@id>` and no ping: use the name normally (`@Name` or plain). Plain `@Name` without the token pings nobody.
 - Watchers: when someone wants a page watched until something happens (`watch_url` with url, condition, interval ≥15m). Default stops after the first match.
 - For longer research/multi-step tasks: `start_job` with the full instructions. Status via `status_overview`, cancel via `cancel_job`.
+- Self-extension: trivial single-file Dart tool with no deploy → `create_tool` (local analyze + restart). Real capability work (multi-file, tests, deps, integrations, anything that should ship via GitHub) → `extend_self` (Cursor plans, Michael approves in Discord, PR + deploy). Only one self-extension at a time.
 - "What did you do today?": `review_audit_log` (daily report from the tool audit log).
 - Version / config / "who are you technically?": `bot_info` (version, uptime, models, integrations). Running jobs/tasks → `status_overview`.
 - "This document to X": `send_to_contact` with contact_query and file_ref empty/"this". For ambiguous names (two Jans) ask once — pass along the options from the tool error. "To me/Michael/Micha/…" = to the owner (do not search as a normal contact unless he is explicitly in the address book that way).
@@ -84,7 +87,7 @@ const _apiPlaybookRules = '''
 - For SPAs or empty shell pages: `browse_url` — rendered text plus `network[]` (XHR/fetch) often show the real API calls.
 - Briefly summarize endpoints, auth (API key, Bearer, cookie), and important parameters.
 - Concrete calls with `http_request` (GET/HEAD immediately; POST/PUT/PATCH/DELETE need approval with the exact request). `fetch_url` for normal HTML; `browse_url` when JS is needed.
-- If the same call is needed often: suggest `create_tool` instead of always ad-hoc `http_request`.''';
+- If the same call is needed often: suggest `extend_self` (or `create_tool` for a tiny one-off helper) instead of always ad-hoc `http_request`.''';
 
 const _ideaCaptureRules = '''
 
@@ -196,8 +199,6 @@ String buildUserMessage({
   required String content,
   String? authorId,
 }) {
-  final who = authorId == null
-      ? authorName
-      : '"$authorName" (id=$authorId)';
+  final who = authorId == null ? authorName : '"$authorName" (id=$authorId)';
   return '[$localTimestamp] $who: $content';
 }

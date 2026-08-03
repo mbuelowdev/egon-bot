@@ -10,7 +10,6 @@ import 'context_builder.dart';
 import 'prompts.dart';
 import 'tool_loop.dart';
 
-
 /// A message the router decided the bot should respond to.
 class IncomingMessage {
   IncomingMessage({
@@ -91,8 +90,9 @@ class Agent {
         return;
       }
 
-      if (outcome.reply.isNotEmpty) {
-        await send(outcome.reply);
+      final reply = context.replyWithoutDuplicateCaption(outcome.reply);
+      if (reply.isNotEmpty) {
+        await send(reply);
       }
     } on GateQueueFullException {
       await send(
@@ -131,8 +131,9 @@ class Agent {
         context: context,
         initialMessages: initialMessages,
       );
-      if (outcome.reply.isNotEmpty) {
-        await send('${message.authorName}: ${outcome.reply}');
+      final reply = context.replyWithoutDuplicateCaption(outcome.reply);
+      if (reply.isNotEmpty) {
+        await send('${message.authorName}: $reply');
       }
       services.exitIfRestartRequested();
     } on GateTimeoutException {

@@ -19,6 +19,12 @@ abstract final class ApprovalStatus {
   static const expired = 'expired';
 }
 
+/// Values stored in `pending_approvals.kind`.
+abstract final class ApprovalKind {
+  static const tool = 'tool';
+  static const selfExtensionPlan = 'self_extension_plan';
+}
+
 /// A persisted approval request (ARCHITECTURE.md §6.5).
 class PendingApproval {
   PendingApproval({
@@ -31,6 +37,7 @@ class PendingApproval {
     required this.args,
     required this.preview,
     required this.status,
+    this.kind = ApprovalKind.tool,
   });
 
   final int id;
@@ -42,6 +49,7 @@ class PendingApproval {
   final Map<String, Object?> args;
   final String? preview;
   final String status;
+  final String kind;
 
   bool isExpired(Duration ttl, DateTime now) =>
       status == ApprovalStatus.pending && now.difference(createdAt) > ttl;
@@ -88,6 +96,8 @@ class ApprovalService {
 
   static const approvePrefix = 'egon:approve:';
   static const rejectPrefix = 'egon:reject:';
+  static const extApprovePrefix = 'egon:ext-approve:';
+  static const extRejectPrefix = 'egon:ext-reject:';
 
   /// Inline preview budget inside the approval message (header + fences).
   static const inlinePreviewBudget = 1400;
@@ -138,11 +148,33 @@ class ApprovalService {
   PendingApproval? byId(int id) {
     final rows = _db.db.select(
       'SELECT id, created_at, channel_id, message_id, requested_by, tool_name, '
-      'args_json, preview, status FROM pending_approvals WHERE id = ?',
+      'args_json, preview, status, kind FROM pending_approvals WHERE id = ?',
       [id],
     );
     if (rows.isEmpty) return null;
     return _fromRow(rows.first);
+  }
+
+  /// Marks a single pending approval expired (e.g. plan superseded by revision).
+  void expireById(int id) {
+    final pending = byId(id);
+    if (pending == null || pending.status != ApprovalStatus.pending) return;
+    _setStatus(id, ApprovalStatus.expired);
+    if (pending.messageId != null) {
+      unawaited(
+        _disableButtons(
+          channelId: pending.channelId,
+          messageId: pending.messageId!,
+          footer: '⏱ Superseded',
+          approveCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+              ? 'egon:done:ext-approve'
+              : 'egon:done:approve',
+          rejectCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+              ? 'egon:done:ext-reject'
+              : 'egon:done:reject',
+        ),
+      );
+    }
   }
 
   /// Creates the DB row, posts the Discord request (when a client is
@@ -158,8 +190,8 @@ class ApprovalService {
     final createdAt = DateTime.now().toUtc();
     _db.db.execute(
       'INSERT INTO pending_approvals (created_at, channel_id, message_id, '
-      'requested_by, tool_name, args_json, preview, status) '
-      'VALUES (?, ?, NULL, ?, ?, ?, ?, ?)',
+      'requested_by, tool_name, args_json, preview, status, kind) '
+      'VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)',
       [
         createdAt.toIso8601String(),
         context.channelId,
@@ -168,6 +200,7 @@ class ApprovalService {
         jsonEncode(args),
         preview,
         ApprovalStatus.pending,
+        ApprovalKind.tool,
       ],
     );
     final id = _db.db.lastInsertRowId;
@@ -179,6 +212,9 @@ class ApprovalService {
         requestedBy: context.userId,
         toolName: toolName,
         preview: preview,
+        approvePrefix: approvePrefix,
+        rejectPrefix: rejectPrefix,
+        headerKind: 'Tool',
       );
     } catch (error, stackTrace) {
       stderr.writeln('Failed to post approval $id: $error\n$stackTrace');
@@ -197,11 +233,60 @@ class ApprovalService {
     });
   }
 
+  /// Posts Approve/Reject for a Cursor self-extension plan. Returns the
+  /// approval row id (may be used without a tool-loop [ToolResult]).
+  Future<int> requestSelfExtensionPlanApproval({
+    required String channelId,
+    required String requestedBy,
+    required int extensionId,
+    required String preview,
+  }) async {
+    expireStale();
+
+    final createdAt = DateTime.now().toUtc();
+    _db.db.execute(
+      'INSERT INTO pending_approvals (created_at, channel_id, message_id, '
+      'requested_by, tool_name, args_json, preview, status, kind) '
+      'VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)',
+      [
+        createdAt.toIso8601String(),
+        channelId,
+        requestedBy,
+        'extend_self',
+        jsonEncode({'extension_id': extensionId}),
+        preview,
+        ApprovalStatus.pending,
+        ApprovalKind.selfExtensionPlan,
+      ],
+    );
+    final id = _db.db.lastInsertRowId;
+
+    try {
+      await _postApprovalMessage(
+        id: id,
+        channelId: channelId,
+        requestedBy: requestedBy,
+        toolName: 'extend_self #$extensionId',
+        preview: preview,
+        approvePrefix: extApprovePrefix,
+        rejectPrefix: extRejectPrefix,
+        headerKind: 'Self-extension plan',
+      );
+    } catch (error, stackTrace) {
+      stderr.writeln(
+        'Failed to post self-extension approval $id: $error\n$stackTrace',
+      );
+      _setStatus(id, ApprovalStatus.expired);
+      rethrow;
+    }
+    return id;
+  }
+
   /// Programmatic decision used by tests and by the button handler.
   ///
   /// Returns [ApprovalDecisionResult.forbidden] when [actorId] is not the
-  /// owner (no state change). On approve, executes the stored tool call and
-  /// posts a follow-up when a client is attached.
+  /// owner (no state change). On approve of a tool call, executes the stored
+  /// tool; on approve of a self-extension plan, starts Cursor implement.
   Future<ApprovalDecisionResult> decide({
     required int id,
     required bool approved,
@@ -222,6 +307,12 @@ class ApprovalService {
           channelId: pending.channelId,
           messageId: pending.messageId!,
           footer: '⏱ Expired',
+          approveCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+              ? 'egon:done:ext-approve'
+              : 'egon:done:approve',
+          rejectCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+              ? 'egon:done:ext-reject'
+              : 'egon:done:reject',
         );
       }
       return ApprovalDecisionResult.ignored;
@@ -237,7 +328,30 @@ class ApprovalService {
         channelId: pending.channelId,
         messageId: pending.messageId!,
         footer: approved ? '✅ Approved' : '❌ Rejected',
+        approveCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+            ? 'egon:done:ext-approve'
+            : 'egon:done:approve',
+        rejectCustomId: pending.kind == ApprovalKind.selfExtensionPlan
+            ? 'egon:done:ext-reject'
+            : 'egon:done:reject',
       );
+    }
+
+    if (pending.kind == ApprovalKind.selfExtensionPlan) {
+      final extensionId = _extensionIdFromArgs(pending.args);
+      if (extensionId == null) {
+        await _postFollowUp(
+          pending.channelId,
+          'Approved, but the self-extension id was missing from the request.',
+        );
+        return ApprovalDecisionResult.handled;
+      }
+      if (!approved) {
+        await _services().selfExtensionRunner.rejectPlan(extensionId);
+        return ApprovalDecisionResult.handled;
+      }
+      await _services().selfExtensionRunner.approvePlan(extensionId);
+      return ApprovalDecisionResult.handled;
     }
 
     if (!approved) {
@@ -286,6 +400,16 @@ class ApprovalService {
     return ApprovalDecisionResult.handled;
   }
 
+  int? _extensionIdFromArgs(Map<String, Object?> args) {
+    final raw = args['extension_id'];
+    return switch (raw) {
+      int n => n,
+      num n => n.toInt(),
+      String s => int.tryParse(s),
+      _ => null,
+    };
+  }
+
   Future<void> _onComponent(MessageComponentInteraction interaction) async {
     final customId = interaction.data.customId;
     final bool approved;
@@ -296,6 +420,12 @@ class ApprovalService {
     } else if (customId.startsWith(rejectPrefix)) {
       approved = false;
       id = int.tryParse(customId.substring(rejectPrefix.length)) ?? -1;
+    } else if (customId.startsWith(extApprovePrefix)) {
+      approved = true;
+      id = int.tryParse(customId.substring(extApprovePrefix.length)) ?? -1;
+    } else if (customId.startsWith(extRejectPrefix)) {
+      approved = false;
+      id = int.tryParse(customId.substring(extRejectPrefix.length)) ?? -1;
     } else {
       return;
     }
@@ -338,6 +468,9 @@ class ApprovalService {
     required String requestedBy,
     required String toolName,
     required String preview,
+    required String approvePrefix,
+    required String rejectPrefix,
+    required String headerKind,
   }) async {
     final client = _client;
     if (client == null) {
@@ -355,7 +488,7 @@ class ApprovalService {
 
     final header = '<@${_config.ownerUserId}> — approval needed\n'
         'Requested by <@$requestedBy>\n'
-        'Tool: `$toolName`\n'
+        '$headerKind: `$toolName`\n'
         '```\n$inline\n```';
 
     final builder = MessageBuilder(
@@ -398,6 +531,8 @@ class ApprovalService {
     required String channelId,
     required String messageId,
     required String footer,
+    String approveCustomId = 'egon:done:approve',
+    String rejectCustomId = 'egon:done:reject',
   }) async {
     final client = _client;
     if (client == null) return;
@@ -418,12 +553,12 @@ class ApprovalService {
               components: [
                 ButtonBuilder.success(
                   label: 'Approve',
-                  customId: 'egon:done:approve',
+                  customId: approveCustomId,
                   isDisabled: true,
                 ),
                 ButtonBuilder.danger(
                   label: 'Reject',
-                  customId: 'egon:done:reject',
+                  customId: rejectCustomId,
                   isDisabled: true,
                 ),
               ],
@@ -468,6 +603,12 @@ class ApprovalService {
     } catch (_) {
       args = <String, Object?>{};
     }
+    String kind;
+    try {
+      kind = row['kind'] as String? ?? ApprovalKind.tool;
+    } catch (_) {
+      kind = ApprovalKind.tool;
+    }
     return PendingApproval(
       id: row['id'] as int,
       createdAt: DateTime.parse(row['created_at'] as String),
@@ -478,6 +619,7 @@ class ApprovalService {
       args: args,
       preview: row['preview'] as String?,
       status: row['status'] as String,
+      kind: kind,
     );
   }
 }

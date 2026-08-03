@@ -54,7 +54,8 @@ class DiscordImage {
       if (result.exitCode != 0 || !output.existsSync()) {
         throw StateError(
           'Could not convert WebP to PNG for Discord: '
-          '${result.stderr}'.trim(),
+                  '${result.stderr}'
+              .trim(),
         );
       }
       return Uint8List.fromList(await output.readAsBytes());

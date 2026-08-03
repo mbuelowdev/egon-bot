@@ -19,7 +19,7 @@ below describes the target design.
 | R6 | Web search | §11 Web tools |
 | R7 | Google Calendar integration | §12 Google Calendar |
 | R8 | Edit Obsidian notes — vault synced into the container via Obsidian credentials; every change shown as a diff and applied only after owner approval | §13 Obsidian, §6.5 Approvals |
-| R9 | Implement its own tools in Dart + restart with new code | §6.4 Self-extension |
+| R9 | Implement its own tools (local JIT or Cursor+GitHub PR) | §6.4 Self-extension |
 | R10 | Query local Ollama for LLM tasks | §5 LLM layer |
 | R11 | GPU is shared (16 GB VRAM, gaming PC) — queue big-model calls until the Windows monitor reports the GPU as free | §5.1 GPU gate |
 | R12 | Whitelisted users get non-personal features only; dangerous actions by non-owners need owner approval in the same chat | §16 Security, §6.5 Approvals |
@@ -192,7 +192,8 @@ lib/src/
       send_to_contact_tool.dart # DM a document/message to a contact (§14)
       whitelist_user_tool.dart
       unwhitelist_user_tool.dart
-      create_tool_tool.dart     # the self-extension tool
+      create_tool_tool.dart     # local JIT self-extension (trivial tools)
+      extend_self_tool.dart     # Cursor Cloud Agent + GitHub PR path
       restart_self_tool.dart
       defer_to_big_model_tool.dart  # registered in degraded mode only (§5.1)
     generated/                  # synced from /data/tools at boot, gitignored
@@ -205,6 +206,11 @@ lib/src/
   jobs/
     job_runner.dart             # sequential queue, resume, cancellation (§9)
     planner.dart                # instructions -> step plan (utility JSON call)
+  self_extension/
+    self_extension_runner.dart  # Cursor plan/approve/implement/PR (§6.4)
+    self_extension_store.dart
+    plan_parser.dart
+    extension_prompts.dart
   media/
     attachments.dart            # download, size cap, files table (§10)
     transcription.dart          # ffmpeg + whisper.cpp voice-to-text (§10)
@@ -217,6 +223,7 @@ lib/src/
     google_calendar_client.dart
     obsidian_vault.dart         # sandboxed file access to the vault
     windows_monitor_client.dart # client for the GPU monitor sidecar (§5.1)
+    cursor_agents_client.dart   # Cursor Cloud Agents REST (§6.4)
 tool/                           # dev-time scripts (not shipped tools!)
   generate_tool_registry.dart   # codegen for tool_registry.g.dart
   google_calendar_setup.dart    # one-time OAuth consent flow
@@ -311,7 +318,7 @@ Tier routing:
 | Full agent turn, GPU free | big |
 | Full agent turn, GPU busy | **small — degraded mode** (see below) |
 | Utility calls (reminder parsing, structured extraction, memory tagging) | small, always |
-| `create_tool` code generation | big — code quality matters; queued while busy |
+| `create_tool` / Cursor plan codegen | big — code quality matters; queued while busy |
 | Scheduler `agent` tasks | big — background work, no urgency; deferred while busy |
 
 **Degraded mode** is what makes the assistant usable while you game: when the GPU is
@@ -371,7 +378,8 @@ enum ToolAccess {
   personal,
 
   /// Owner runs it directly; a whitelisted user's request pauses and asks
-  /// the owner for approval in the same channel: create_tool, restart_self.
+  /// the owner for approval in the same channel: create_tool, extend_self,
+  /// restart_self.
   dangerous,
 }
 
@@ -448,46 +456,64 @@ Convention for discoverability: one tool per file, file name `<tool_name>_tool.d
 class name is the PascalCase of the file name, constructor takes `Services`. The
 generator validates this convention and skips (and reports) files that violate it.
 
-### 6.4 Self-extension: `create_tool` (R9)
+### 6.4 Self-extension (R9)
 
-Flow when the user says "build yourself a tool that does X":
+Two paths — pick by scope:
+
+#### A. Local JIT — `create_tool` (trivial tools)
+
+For a single-file Dart tool with no deploy: Ollama codegen → `dart analyze` (≤3
+repair rounds) → write `/data/tools/<name>_tool.dart` → exit 42 → supervisor syncs
+into `lib/src/tools/generated/`, regenerates the registry, restarts. Import whitelist
+(`dart:*`, `package:http`, `../tool.dart`) + crash-loop quarantine (§3) still apply.
+
+#### B. Cursor Cloud + GitHub — `extend_self` (primary path)
+
+For real capability work (multi-file, tests, deps, integrations, anything that should
+ship):
 
 ```mermaid
 sequenceDiagram
-    participant U as User (owner)
-    participant A as Agent
-    participant O as Ollama
-    participant FS as /data/tools
-    participant S as Supervisor
+  participant U as Owner
+  participant E as Egon
+  participant C as CursorCloud
+  participant G as GitHub
 
-    U->>A: "Build a tool that ..."
-    A->>O: create_tool call → utility prompt with Tool interface + conventions
-    O-->>A: complete Dart source for the new tool
-    A->>A: stage in temp workspace, run `dart analyze`
-    alt analysis fails
-        A->>O: feed errors back (max 3 repair rounds)
-    end
-    A->>FS: write <name>_tool.dart
-    A->>U: "Tool ready, restarting now."
-    A->>A: exit(42)
-    S->>S: sync tools, regenerate registry, pub get
-    S->>A: start bot with new tool registered
-    A->>U: post-boot notice: "Back online, tool <name> is live."
+  U->>E: extend_self description
+  E->>C: create agent mode=plan
+  C-->>E: structured plan
+  E->>U: plan + Approve Reject
+  alt request changes
+    U->>E: reply with notes
+    E->>C: follow-up mode=plan
+    C-->>E: revised plan
+    E->>U: re-post plan
+  end
+  U->>E: Approve
+  E->>C: follow-up mode=agent + version bump
+  C->>G: PR with deployment.json bump
+  E->>U: PR link awaiting merge
+  U->>G: merge to master
+  G->>E: deploy workflow
+  E->>U: live at vX.Y.Z
 ```
 
-Safety rails:
-- `create_tool` is `ToolAccess.dangerous`: the owner triggers it directly; a whitelisted
-  user's request pauses and asks the owner for approval in the same channel (§6.5).
-- Static validation before install: `dart analyze` must be clean; the file must contain
-  exactly one class extending `Tool`; the tool name must not collide with an existing one.
-- The generated source may only import `dart:*` core libraries, `package:http`, and the
-  bot's own `tool.dart` — enforced by a simple import whitelist check on the source.
-- Crash-loop quarantine (§3) as the last line of defense.
-- "Back online" notice: the bot writes a `pending_notice` row before exiting and posts it
-  to the originating channel after boot, so restarts are visible in chat.
+Mechanics:
 
-`restart_self` is a trivial `dangerous` tool that just exits with code 42 — useful after
-manual edits on the host.
+- Durable row in `self_extensions` (not the research job table). At most one open
+  extension at a time.
+- Dart HTTP client → Cloud Agents REST API (`CURSOR_API_KEY`). Plan run uses
+  `mode=plan`; execute uses `mode=agent` on the same `agentId` with `autoCreatePR`.
+- Plan gate reuses `ApprovalService` with `kind=self_extension_plan` and
+  `egon:ext-approve:` / `egon:ext-reject:` buttons. Owner replies in the channel while
+  `awaiting_plan_approval` are treated as revision notes.
+- Execute prompt sets `deployment.json` version to a computed next patch; on boot, if
+  the running `deployment.json` matches `target_version`, the row becomes `done` and
+  Discord is notified (no GitHub token required for ship detection).
+- `status_overview` / `cancel_job` / busy CANCEL cover open self-extensions.
+- `create_tool` and `extend_self` are both `ToolAccess.dangerous`.
+
+`restart_self` remains a trivial `dangerous` tool that exits with code 42.
 
 ### 6.5 Approval flow
 
@@ -873,7 +899,8 @@ plus Chromium browsing for JS-heavy pages:
   preview approval (§6.5) with the exact request before it is sent. Private/loopback
   address ranges are blocked so a prompt-injected page can't probe the home network.
 - **Permanence**: when an API turns out to be useful repeatedly, the natural follow-up
-  is "make yourself a tool for this" → `create_tool` (§6.4) generates a dedicated,
+  is "make yourself a tool for this" → `extend_self` (§6.4 B) or trivial
+  `create_tool` (§6.4 A) generates a dedicated,
   typed tool wrapping that API.
 
 Prompt-injection note: content fetched from the web is untrusted. The tool loop tags web
@@ -1016,6 +1043,10 @@ All configuration via environment variables (dotenv locally, `-e` flags in
 | `GOOGLE_CALENDAR_ID` | no | *(auto: "Egon" calendar)* | Write-target calendar override |
 | `WHISPER_MODEL` | no | `small` | whisper.cpp model for voice transcription (§10) |
 | `MAX_ATTACHMENT_MB` | no | `25` | Attachment download cap (§10) |
+| `CURSOR_API_KEY` | for `extend_self` | — | Cursor Cloud Agents API key (§6.4 B) |
+| `CURSOR_REPO_URL` | no | `https://github.com/mbuelowdev/egon-bot` | Repo cloud agents work on |
+| `CURSOR_STARTING_REF` | no | `master` | Branch / ref for new agents |
+| `CURSOR_MODEL` | no | *(account default)* | Optional Cursor model id |
 
 The privileged **Message Content Intent** is enabled in the developer portal (decided),
 so the bot reads guild messages that don't mention it and can build conversation
@@ -1025,7 +1056,7 @@ context. The seed connects with `allUnprivileged | messageContent`.
 
 Three actor roles and three tool tiers (decided):
 
-| | `standard` tools (search, list_tools, reminders…) | `personal` tools (calendar, notes, memory listing) | `dangerous` tools (create_tool, restart_self) |
+| | `standard` tools (search, list_tools, reminders…) | `personal` tools (calendar, notes, memory listing) | `dangerous` tools (create_tool, extend_self, restart_self) |
 |---|---|---|---|
 | **Owner** (`OWNER_USER_ID`) | runs | runs (note/calendar writes still show a diff/preview first, §6.5) | runs |
 | **Whitelisted user** | runs | refused — personal features are never available to others | paused → owner is asked in the same channel, runs only on Approve |
@@ -1038,10 +1069,12 @@ Three actor roles and three tool tiers (decided):
   message router, never in the prompt.
 - **Channel whitelist**: guild messages outside `ALLOWED_CHANNEL_IDS` are ignored.
 - **Vault sandbox**: §13.
-- **Generated-code limits**: import whitelist + `dart analyze` gate + quarantine (§6.4).
-  Note the honest limitation: a self-written tool still runs with the bot's full OS
-  privileges inside the container. The container itself is the sandbox — it gets no
+- **Generated-code limits** (local `create_tool`): import whitelist + `dart analyze`
+  gate + quarantine (§6.4 A). Note: a self-written tool still runs with the bot's full
+  OS privileges inside the container. The container itself is the sandbox — it gets no
   volume mounts beyond `/data` and runs as a non-root user.
+- **Cursor path** (`extend_self`): Discord plan gate, GitHub PR review/merge, CI/deploy
+  via `deployment.json` bump (§6.4 B).
 - **Audit trail**: every tool invocation logged to `tool_audit_log`
   (`id, at, tool, caller, channel, args_json, ok, duration_ms`).
 - **Secrets** never enter the prompt; the config object redacts itself in `toString`.
@@ -1124,3 +1157,6 @@ Each phase leaves the bot deployable and useful on its own:
    private-network blocking, API-analysis prompt playbook.
 10. **Hardening**: watchdog, audit log review, DB backup rotation, tests for scheduler
     recurrence, vault sandboxing, approval expiry, and job resume.
+11. **Cursor self-extension**: `extend_self` via Cloud Agents API, Discord plan gate,
+    PR + `deployment.json` bump, ship detection on boot (§6.4 B). Local `create_tool`
+    remains the fast path for trivial tools.

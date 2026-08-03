@@ -13,7 +13,7 @@ class HttpRequestTool extends Tool {
       'GET/HEAD run immediately; POST/PUT/PATCH/DELETE show the exact request '
       'for approval first. Private/loopback addresses are blocked. Prefer '
       'fetch_url for reading normal web pages. For recurring APIs, consider '
-      'create_tool afterwards.';
+      'create_tool / extend_self afterwards.';
 
   @override
   ToolAccess get access => ToolAccess.personal;

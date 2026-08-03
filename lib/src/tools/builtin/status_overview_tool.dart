@@ -9,8 +9,9 @@ class StatusOverviewTool extends Tool {
   @override
   String get description =>
       'Returns a snapshot of everything the bot is working on: active/queued/'
-      'waiting jobs, next scheduled tasks, pending approvals, and GPU gate '
-      'state. Use when the owner asks what you are doing or for a status check.';
+      'waiting jobs, open self-extension, next scheduled tasks, pending '
+      'approvals, and GPU gate state. Use when the owner asks what you are '
+      'doing or for a status check.';
 
   @override
   ToolAccess get access => ToolAccess.personal;
@@ -38,13 +39,14 @@ class StatusOverviewTool extends Tool {
     final reminders = upcoming.where((t) => t.kind != TaskKind.watch).toList();
 
     final pendingApprovals = context.services.database.db.select(
-      "SELECT id, tool_name, requested_by, channel_id, created_at "
+      "SELECT id, tool_name, requested_by, channel_id, created_at, kind "
       "FROM pending_approvals WHERE status = 'pending' "
       'ORDER BY id ASC LIMIT 10',
     );
 
     final gpuFree = await context.services.llmGate.isGpuFree();
     final gate = context.services.llmGate;
+    final selfExt = context.services.selfExtensions.openExtension();
 
     return ToolResult.ok({
       'active_job': active == null
@@ -67,6 +69,7 @@ class StatusOverviewTool extends Tool {
                               .clamp(0, active.plan.length - 1)]
                           .description,
             },
+      'self_extension': selfExt?.toOverviewJson(),
       'queued_jobs': [
         for (final j in queued)
           {'id': j.id, 'title': j.title, 'channel_id': j.channelId},
@@ -104,6 +107,7 @@ class StatusOverviewTool extends Tool {
           {
             'id': row['id'],
             'tool': row['tool_name'],
+            'kind': row['kind'],
             'requested_by': row['requested_by'],
             'channel_id': row['channel_id'],
             'created_at': row['created_at'],

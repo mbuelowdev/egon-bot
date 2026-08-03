@@ -110,7 +110,8 @@ void main() {
       expect(hits['Inbox/a.md'], ['Hello Wood']);
     });
 
-    test('missing folder yields ObsidianPathError, not FileSystemException', () {
+    test('missing folder yields ObsidianPathError, not FileSystemException',
+        () {
       expect(
         () => vault.listNotes(folder: '2 – Privat'),
         throwsA(

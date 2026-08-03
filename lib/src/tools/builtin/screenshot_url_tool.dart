@@ -11,7 +11,8 @@ class ScreenshotUrlTool extends Tool {
   String get description =>
       'Opens a public http(s) page in Chromium via CDP (JS executed) and posts '
       'a screenshot as a Discord attachment in this channel. Use when the user '
-      'wants to see what a page looks like. Optional message is the caption. '
+      'wants to see what a page looks like. Optional message is the caption — '
+      'if you set it, leave your final chat reply empty (do not repeat it). '
       'For full analysis (text, network, vision) use browse_url. For direct '
       'image file URLs use download_and_send.';
 
@@ -25,7 +26,9 @@ class ScreenshotUrlTool extends Tool {
           },
           'message': {
             'type': 'string',
-            'description': 'Optional caption posted with the screenshot.',
+            'description':
+                'Optional caption posted with the screenshot. If set, leave '
+                    'the final chat reply empty — do not send the same text again.',
           },
         },
         'required': ['url'],
@@ -85,11 +88,13 @@ class ScreenshotUrlTool extends Tool {
         source: 'file:#${stored.id}',
         storedFileId: stored.id,
       );
+      final caption = args['message'] as String?;
       final result = await context.services.contacts.deliverToChannel(
         channelId: context.channelId,
         doc: doc,
-        message: args['message'] as String?,
+        message: caption,
       );
+      context.notePostedCaption(caption);
       return ToolResult.ok({
         'status': 'sent',
         'url': page.url,

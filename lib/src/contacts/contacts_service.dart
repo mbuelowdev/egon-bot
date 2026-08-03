@@ -251,13 +251,17 @@ class ContactsService {
         attachments: attachmentBuilders,
       ),
     );
+    final postedWithCaption = doc != null && trimmed.isNotEmpty;
     return DeliveryResult(
       mode: 'channel',
       recipientId: channelId,
       fileName: doc?.name,
       message: doc == null
           ? 'Posted message in this channel.'
-          : 'Posted ${doc.name} in this channel.',
+          : postedWithCaption
+              ? 'Posted ${doc.name} in this channel with caption. '
+                  'Leave your final chat reply empty — do not repeat the caption.'
+              : 'Posted ${doc.name} in this channel.',
     );
   }
 

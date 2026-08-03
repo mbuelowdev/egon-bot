@@ -12,12 +12,15 @@ class BrowseUrlTool extends Tool {
   @override
   String get description =>
       'Opens a public http(s) URL in Chromium via CDP (JS executed), '
-      'returning rendered text, links, captured XHR/fetch network traffic, a '
-      'screenshot, and an optional vision summary of what the page looks like. '
-      'Use for SPAs, "what does this site look like", or live API discovery '
-      'from network traffic. Prefer fetch_url for simple static HTML pages. '
-      'To only post a picture of the page into chat, use screenshot_url. '
-      'Not for binary downloads — use download_and_send.';
+      'returning rendered text, images[], links, captured XHR/fetch network '
+      'traffic, a screenshot, and an optional vision summary of what the page '
+      'looks like. Use for SPAs, "what does this site look like", live API '
+      'discovery, or when fetch_url missed JS-rendered images. Prefer '
+      'fetch_url for simple static HTML pages. To extract an image from this '
+      'page: pick a URL from images[] (or links/network) → download_and_send. '
+      'Do not fall back to web_search/image_search. To only post a picture of '
+      'the page into chat, use screenshot_url. Not for binary downloads — use '
+      'download_and_send.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {
@@ -34,9 +37,8 @@ class BrowseUrlTool extends Tool {
           },
           'include_vision': {
             'type': 'boolean',
-            'description':
-                'Ask the vision model to describe the screenshot '
-                    '(default true when OLLAMA_VISION_MODEL is set).',
+            'description': 'Ask the vision model to describe the screenshot '
+                '(default true when OLLAMA_VISION_MODEL is set).',
           },
         },
         'required': ['url'],
@@ -80,6 +82,7 @@ class BrowseUrlTool extends Tool {
         'title': page.title,
         'text': page.text,
         'truncated': page.truncated,
+        'images': page.images,
         'links': page.links,
         'network': page.network,
       };
@@ -115,8 +118,7 @@ class BrowseUrlTool extends Tool {
               messages: [
                 OllamaChatMessage(
                   role: 'user',
-                  content:
-                      'Describe this rendered web page screenshot for an '
+                  content: 'Describe this rendered web page screenshot for an '
                       'assistant that will answer the user. Cover layout, '
                       'main visible text, UI elements, and anything that '
                       'looks like an error, login wall, or empty SPA shell. '

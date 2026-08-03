@@ -11,7 +11,8 @@ class ObsidianSendFileTool extends Tool {
       'Posts a vault file (image, PDF, note, …) into the current Discord '
       'channel so Michael can see it. Owner-only. path may be a vault-'
       'relative path or a unique filename (e.g. a screenshot). Optional '
-      'message is sent as the caption. Prefer this over describing the '
+      'message is the caption — if you set it, leave your final chat reply '
+      'empty (do not repeat it). Prefer this over describing the '
       'image; do not use for sending to other people (use send_to_contact).';
 
   @override
@@ -23,13 +24,14 @@ class ObsidianSendFileTool extends Tool {
         'properties': {
           'path': {
             'type': 'string',
-            'description':
-                'Vault-relative path or unique filename, e.g. '
-                    '"Screenshot_20250331-103548.png".',
+            'description': 'Vault-relative path or unique filename, e.g. '
+                '"Screenshot_20250331-103548.png".',
           },
           'message': {
             'type': 'string',
-            'description': 'Optional caption posted with the file.',
+            'description':
+                'Optional caption posted with the file. If set, leave the '
+                    'final chat reply empty — do not send the same text again.',
           },
         },
         'required': ['path'],
@@ -58,11 +60,13 @@ class ObsidianSendFileTool extends Tool {
       if (doc == null || !doc.source.startsWith('vault:')) {
         return ToolResult.error('Vault file not found: $pathArg');
       }
+      final caption = args['message'] as String?;
       final result = await context.services.contacts.deliverToChannel(
         channelId: context.channelId,
         doc: doc,
-        message: args['message'] as String?,
+        message: caption,
       );
+      context.notePostedCaption(caption);
       return ToolResult.ok({
         'status': 'sent',
         'path': doc.source.substring('vault:'.length),

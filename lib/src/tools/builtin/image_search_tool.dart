@@ -17,8 +17,9 @@ class ImageSearchTool extends Tool {
       'the DuckDuckGo thumbnail in image_url (hotlink-blocked). SafeSearch is '
       'on by default; set safe_search=false only when the user explicitly asks '
       'for unsafe/NSFW/unfiltered images. Not for text facts (web_search), '
-      'concrete page URLs (fetch_url), or direct image URLs '
-      '(download_and_send). Never invent image URLs.';
+      'concrete page URLs (fetch_url/browse_url → download_and_send), or '
+      'direct image URLs (download_and_send). Never invent image URLs. Never '
+      'use as a fallback when extracting from a user-given URL failed.';
 
   @override
   Map<String, Object?> get parametersJsonSchema => const {
@@ -26,15 +27,14 @@ class ImageSearchTool extends Tool {
         'properties': {
           'query': {
             'type': 'string',
-            'description':
-                'Short image search query in the user\'s language '
+            'description': 'Short image search query in the user\'s language '
                 '(what the picture should show).',
           },
           'safe_search': {
             'type': 'boolean',
             'description':
                 'Default true. Set false only if the user explicitly asks '
-                'for unsafe, NSFW, uncensored, or unfiltered images.',
+                    'for unsafe, NSFW, uncensored, or unfiltered images.',
           },
         },
         'required': ['query'],

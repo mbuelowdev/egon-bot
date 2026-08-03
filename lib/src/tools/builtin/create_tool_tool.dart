@@ -11,7 +11,9 @@ class CreateToolTool extends Tool {
       'Creates a new Dart tool from a natural-language description, validates '
       'it with dart analyze (up to 3 repair rounds), installs it under '
       '/data/tools, and restarts the bot so the tool becomes available. '
-      'Use when the owner asks you to build yourself a new capability. '
+      'Use only for trivial single-file tools with no deploy. For real '
+      'capability work (multi-file, tests, integrations, shipping via GitHub) '
+      'use extend_self instead. '
       'Do NOT use for one-off tasks that existing tools can already handle.';
 
   @override

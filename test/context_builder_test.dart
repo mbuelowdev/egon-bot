@@ -111,6 +111,7 @@ void main() {
       );
       expect(prompt, contains('Conversation context'));
       expect(prompt, contains('Always answer in English'));
+      expect(prompt, contains('leave your final reply empty'));
       expect(prompt, isNot(contains('Bisheriger Chatverlauf')));
     });
   });

@@ -8,7 +8,18 @@ void main() {
   group('DiscordImage.isWebp', () {
     test('detects mime, extension, and RIFF magic', () {
       final magic = Uint8List.fromList([
-        0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50,
+        0x52,
+        0x49,
+        0x46,
+        0x46,
+        0,
+        0,
+        0,
+        0,
+        0x57,
+        0x45,
+        0x42,
+        0x50,
       ]);
       expect(
         DiscordImage.isWebp(mime: 'image/webp', name: 'x.bin', bytes: const []),
@@ -19,7 +30,8 @@ void main() {
         isTrue,
       );
       expect(
-        DiscordImage.isWebp(mime: 'application/octet-stream', name: 'x.bin', bytes: magic),
+        DiscordImage.isWebp(
+            mime: 'application/octet-stream', name: 'x.bin', bytes: magic),
         isTrue,
       );
       expect(

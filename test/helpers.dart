@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/discord/discord_search_api.dart';
+import 'package:egon_bot/src/integrations/cursor_agents_client.dart';
 import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/windows_monitor_client.dart';
@@ -13,6 +14,8 @@ import 'package:egon_bot/src/jobs/job_models.dart';
 import 'package:egon_bot/src/jobs/job_runner.dart';
 import 'package:egon_bot/src/jobs/job_store.dart';
 import 'package:egon_bot/src/jobs/planner.dart';
+import 'package:egon_bot/src/self_extension/self_extension_runner.dart';
+import 'package:egon_bot/src/self_extension/self_extension_store.dart';
 import 'package:egon_bot/src/llm/llm_gate.dart';
 import 'package:egon_bot/src/llm/ollama_client.dart';
 import 'package:egon_bot/src/llm/ollama_models.dart';
@@ -125,6 +128,10 @@ Config testConfig({String? vaultDir}) {
     whisperModel: 'tiny',
     maxAttachmentMb: 1,
     googleCalendarId: null,
+    cursorApiKey: null,
+    cursorRepoUrl: 'https://github.com/mbuelowdev/egon-bot',
+    cursorStartingRef: 'master',
+    cursorModel: null,
   );
 }
 
@@ -168,8 +175,10 @@ Services testServices({
   ImageSearchApi? imageSearchApi,
   DateTime? startedAt,
   String? utilityModel = 'small-model',
+  CursorAgentsClient? cursorAgents,
+  Config? configOverride,
 }) {
-  final config = testConfig();
+  final config = configOverride ?? testConfig();
   final vaultRoot = Directory(config.obsidianVaultDir)
     ..createSync(recursive: true);
   final database = AppDatabase.inMemory();
@@ -194,12 +203,12 @@ Services testServices({
     imageSearchApi: imageSearchApi ?? ImageSearchApi(),
     discordSearch: discordSearch ?? DiscordSearchApi(),
     fetchApi: fetchApi ?? FetchApi(),
-    browserApi: browserApi ??
-        BrowserApi(userAgent: config.browserUserAgent),
+    browserApi: browserApi ?? BrowserApi(userAgent: config.browserUserAgent),
     httpRequest: httpRequest ?? HttpRequestApi(),
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),
+    selfExtensions: SelfExtensionStore(database),
     notices: NoticeService(database: database, config: config),
     vault: vault,
     attachments: attachments,
@@ -213,6 +222,7 @@ Services testServices({
       config: config,
       timestamps: timestamps,
     ),
+    cursorAgents: cursorAgents,
     startedAt: startedAt,
   );
   services.registry = ToolRegistry(tools: tools, services: services);
@@ -236,6 +246,11 @@ Services testServices({
     store: services.jobs,
     history: history,
     planner: planner ?? JobPlanner(services.llmGate),
+  );
+  services.selfExtensionRunner = SelfExtensionRunner(
+    services: services,
+    store: services.selfExtensions,
+    client: cursorAgents,
   );
   return services;
 }

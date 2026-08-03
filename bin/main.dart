@@ -9,6 +9,7 @@ import 'package:egon_bot/src/contacts/contacts_service.dart';
 import 'package:egon_bot/src/discord/boot_presence.dart';
 import 'package:egon_bot/src/discord/discord_search_api.dart';
 import 'package:egon_bot/src/discord/message_router.dart';
+import 'package:egon_bot/src/integrations/cursor_agents_client.dart';
 import 'package:egon_bot/src/integrations/google_calendar_client.dart';
 import 'package:egon_bot/src/integrations/obsidian_vault.dart';
 import 'package:egon_bot/src/integrations/vault_availability.dart';
@@ -24,6 +25,8 @@ import 'package:egon_bot/src/notices/notice_service.dart';
 import 'package:egon_bot/src/scheduler/scheduler.dart';
 import 'package:egon_bot/src/scheduler/task_store.dart';
 import 'package:egon_bot/src/security/whitelist_service.dart';
+import 'package:egon_bot/src/self_extension/self_extension_runner.dart';
+import 'package:egon_bot/src/self_extension/self_extension_store.dart';
 import 'package:egon_bot/src/services.dart';
 import 'package:egon_bot/src/storage/database.dart';
 import 'package:egon_bot/src/storage/database_backup.dart';
@@ -123,6 +126,19 @@ Future<void> main() async {
     stdout.writeln(
         'Google Calendar credentials found under ${config.dataDir}/google');
   }
+  final cursorAgents = config.cursorConfigured
+      ? CursorAgentsClient(apiKey: config.cursorApiKey!)
+      : null;
+  if (cursorAgents == null) {
+    stdout.writeln(
+      'CURSOR_API_KEY unset — extend_self (Cursor self-extension) disabled.',
+    );
+  } else {
+    stdout.writeln(
+      'Cursor Cloud Agents configured for ${config.cursorRepoUrl} '
+      '(${config.cursorStartingRef}).',
+    );
+  }
   final services = Services(
     config: config,
     database: database,
@@ -144,6 +160,7 @@ Future<void> main() async {
     memory: MemoryService(database),
     tasks: TaskStore(database),
     jobs: JobStore(database),
+    selfExtensions: SelfExtensionStore(database),
     notices: NoticeService(database: database, config: config),
     vault: vault,
     attachments: attachments,
@@ -154,6 +171,7 @@ Future<void> main() async {
       vault: vault,
     ),
     calendar: calendar,
+    cursorAgents: cursorAgents,
   );
   services.registry = ToolRegistry(
     tools: buildAllTools(),
@@ -177,6 +195,11 @@ Future<void> main() async {
     services: services,
     store: services.jobs,
     history: history,
+  );
+  services.selfExtensionRunner = SelfExtensionRunner(
+    services: services,
+    store: services.selfExtensions,
+    client: cursorAgents,
   );
   final router = MessageRouter(
     services: services,

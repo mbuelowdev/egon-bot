@@ -275,6 +275,29 @@ Steps:
 **Acceptance:** kill -9, container restart, monitor outage, and Ollama outage each
 recover without manual help and without silent work loss.
 
+## Phase 11 — Cursor self-extension ✅ implemented
+
+**Goal:** durable self-extension via Cursor Cloud Agents + GitHub PR, with Discord
+plan approval. Local `create_tool` stays as the trivial fast path.
+
+Steps:
+
+1. Config: `CURSOR_API_KEY`, `CURSOR_REPO_URL`, `CURSOR_STARTING_REF`, `CURSOR_MODEL`.
+2. `CursorAgentsClient` + `self_extensions` table + `pending_approvals.kind`.
+3. `SelfExtensionRunner`: plan → await approval → revise → implement → awaiting_merge
+   → done when `deployment.json` version matches; single-flight; cancel + poll.
+4. Discord: `egon:ext-approve:` / `egon:ext-reject:`; owner reply = revision notes;
+   `status_overview` / `cancel_job` / busy CANCEL cover open extensions.
+5. `extend_self` tool + agent prompts (vs `create_tool`); registry codegen.
+6. `deployment.json` env wiring; ARCHITECTURE §6.4 rewrite.
+
+**Acceptance:** `extend_self` posts a plan → revise via message → approve → PR with
+bumped `deployment.json` → merge → bot reports live at new version. Concurrent second
+extension rejected. Local dice-roller still uses `create_tool` without a PR.
+
+**Owner setup (manual):** Cursor API key + GitHub repo connected to Cloud Agents;
+add `CURSOR_API_KEY` to host env / deploy; optional branch protection on `master`.
+
 ---
 
 ## Deferred / optional (§18 — pending yes/no)

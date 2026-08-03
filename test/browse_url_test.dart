@@ -20,6 +20,13 @@ CdpPageResult _stubPage({List<int> screenshot = const [9, 9]}) => CdpPageResult(
       links: const [
         {'url': 'https://example.com/a', 'text': 'A'},
       ],
+      images: const [
+        {
+          'url': 'https://example.com/og.png',
+          'alt': '',
+          'kind': 'og',
+        },
+      ],
       network: const [
         {
           'method': 'GET',
@@ -115,6 +122,8 @@ void main() {
       expect(result.title, 'Eg');
       expect(result.text, 'Hi');
       expect(result.links, hasLength(1));
+      expect(result.images, hasLength(1));
+      expect(result.images.first['url'], 'https://example.com/og.png');
       expect(result.network.first['url'], 'https://example.com/api');
       expect(result.screenshotBytes, [9, 9]);
     });
@@ -156,6 +165,9 @@ void main() {
       expect(result.isError, isFalse);
       expect(result.json['title'], 'Eg');
       expect(result.json['text'], 'Hi');
+      expect(result.json['images'], [
+        {'url': 'https://example.com/og.png', 'alt': '', 'kind': 'og'},
+      ]);
       expect(result.json['screenshot'], isA<Map>());
       expect(result.json['visual_summary'], contains('vision disabled'));
     });
