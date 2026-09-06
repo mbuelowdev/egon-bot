@@ -1,0 +1,15 @@
+services:
+  egon:
+    build: .
+    init: true
+    env_file: .env
+    ports:
+      - "10001:10001"
+    volumes:
+      - egon-data:/data
+      - egon-game:/game
+    restart: unless-stopped
+
+volumes:
+  egon-data:
+  egon-game:

@@ -1,0 +1,25 @@
+{
+  "name": "egon-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "tsx --test src/config.test.ts src/catalog/*.test.ts src/discord/*.test.ts src/features/*.test.ts src/cursor/*.test.ts src/git/*.test.ts src/godot/*.test.ts"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.31",
+    "@playwright/mcp": "^0.0.80",
+    "discord.js": "^14.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

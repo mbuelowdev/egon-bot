@@ -1,5 +1,5 @@
 {
-  "version": "0.15.0",
+  "version": "0.16.0",
   "name": "home.mbuelow.dev/egon-bot",
   "tag": "latest",
   "url": "home.mbuelow.dev",
@@ -7,5 +7,13 @@
   "_documentation1": "The arguments are being passed to docker run. They can be empty.",
   "_documentation2": "You can mount custom stuff via the path /deployments/home_mbuelow_dev_egon_bot/.",
   "_documentation3": "0.0.0.0 exposes the service publicly and 172.17.0.1 internally",
-  "deployImages": []
+  "deployImages": [
+    {
+      "name": "home.mbuelow.dev/egon-bot",
+      "tag": "latest",
+      "argPorts": "-p 172.17.0.1:10001:10001",
+      "argVolumes": " -v /deployments/home_mbuelow_dev_egon_bot/data:/data -v /opt/whisper/ggml-small.bin:/models/ggml-small.bin:ro",
+      "argExtra": " -e DISCORD_CHANNEL_ID=1461803674144735252 -e DISCORD_APP_ID=1422897079751147642 -e DISCORD_GUILD_ID=234802941540696064 -e DISCORD_TOKEN -e CURSOR_API_KEY -e CURSOR_ADMIN_API_KEY -e GAME_REPO_HTTPS_URL -e GITHUB_TOKEN -e GITHUB_WEBHOOK_SECRET "
+    }
+  ]
 }
