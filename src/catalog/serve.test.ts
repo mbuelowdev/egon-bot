@@ -117,7 +117,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
     assert.match(indexHtml, /data-delete-slug="wall-run"/);
     assert.match(indexHtml, /data-delete-slug="dash-hud"/);
-    assert.doesNotMatch(indexHtml, /data-delete-slug="jump"/);
+    assert.match(indexHtml, /data-delete-slug="jump"/);
 
     const idea = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
     const ideaHtml = await idea.text();
@@ -170,7 +170,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
   }
 });
 
-test("catalog deletes collecting and planned features after the shared password", async () => {
+test("catalog deletes collecting, planned, and implemented features after the shared password", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-delete-"));
   const store = new FeatureStore(":memory:");
   const collecting = store.createFeature("Wall run", "channel-1");
@@ -188,6 +188,13 @@ test("catalog deletes collecting and planned features after the shared password"
   store.transition(done.id, "planning");
   store.transition(done.id, "implementing");
   store.transition(done.id, "accepted");
+  store.setGithubPr(done.id, {
+    branch: "egon/jump",
+    number: 7,
+    url: "https://github.com/org/game/pull/7",
+  });
+  mkdirSync(join(dataDir, "features", String(done.id)), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(done.id), "SPEC.md"), "# Jump\n");
   const closedPrs: number[] = [];
 
   const port = await freePort();
@@ -220,14 +227,6 @@ test("catalog deletes collecting and planned features after the shared password"
     assert.equal(wrong.status, 403);
     assert.equal(store.getFeatureById(collecting.id)?.name, "Wall run");
 
-    const implemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
-    });
-    assert.equal(implemented.status, 409);
-    assert.equal(store.getFeatureById(done.id)?.state, "accepted");
-
     const ok = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -249,13 +248,24 @@ test("catalog deletes collecting and planned features after the shared password"
     assert.equal(store.getFeatureById(planned.id), undefined);
     assert.deepEqual(closedPrs, [12]);
 
-    const stillImplemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump`);
-    assert.equal(stillImplemented.status, 200);
+    const implemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(implemented.status, 204);
+    assert.equal(store.getFeatureById(done.id), undefined);
+    assert.equal(existsSync(join(dataDir, "features", String(done.id))), false);
+    assert.deepEqual(closedPrs, [12]);
+
+    const goneImplemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump`);
+    assert.equal(goneImplemented.status, 404);
 
     const index = await fetch(`http://127.0.0.1:${String(port)}/`);
     const indexHtml = await index.text();
     assert.doesNotMatch(indexHtml, /Wall run/);
     assert.doesNotMatch(indexHtml, /Dash HUD/);
+    assert.doesNotMatch(indexHtml, /Jump/);
   } finally {
     await stopCatalogServer();
     store.close();

@@ -62,9 +62,13 @@ test("index page lists collecting features separately from planned", () => {
   const idea = store.createFeature("Double jump", "channel-1");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
+  const done = store.createFeature("Jump", "channel-1");
+  store.transition(done.id, "planning");
+  store.transition(done.id, "implementing");
+  store.transition(done.id, "accepted");
   const html = indexPage(
     [store.getFeatureById(planned.id)!],
-    [],
+    [store.getFeatureById(done.id)!],
     emptyStats,
     links,
     [store.getFeatureById(idea.id)!],
@@ -73,13 +77,15 @@ test("index page lists collecting features separately from planned", () => {
   assert.match(html, /Collecting/);
   assert.match(html, /Double jump/);
   assert.match(html, /Dash HUD/);
+  assert.match(html, /Jump/);
   assert.match(html, /Ideas still being collected/);
   assert.match(html, /data-delete-slug="double-jump"/);
   assert.match(html, /window\.prompt\("Password"\)/);
   assert.match(html, /data-delete-slug="dash-hud"/);
+  assert.match(html, /data-delete-slug="jump"/);
 });
 
-test("collecting and planned feature pages include a delete action; implemented does not", () => {
+test("collecting, planned, and implemented feature pages include a delete action", () => {
   const store = new FeatureStore(":memory:");
   const idea = store.createFeature("Wall run", "channel-1");
   const planned = store.createFeature("Dash HUD", "channel-1");
@@ -111,7 +117,7 @@ test("collecting and planned feature pages include a delete action; implemented 
   assert.doesNotMatch(collectingHtml, /href="#agent-log"/);
   assert.match(plannedHtml, /data-delete-slug="dash-hud"/);
   assert.doesNotMatch(plannedHtml, /href="#agent-log"/);
-  assert.doesNotMatch(doneHtml, /data-delete-slug="jump"/);
+  assert.match(doneHtml, /data-delete-slug="jump"/);
 });
 
 test("closed PR is labeled closed on index and detail pages", () => {

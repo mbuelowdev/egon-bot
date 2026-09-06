@@ -1,18 +1,25 @@
 import type { Client } from "discord.js";
-import { catalogUrl, type Config } from "../config.js";
+import { featurePageUrl, type Config } from "../config.js";
 import { cancelActiveAgentRun, clearAgentCancel } from "../cursor/activeRun.js";
 import { StuckAgentError } from "../cursor/agentWatch.js";
+import { postPlannerQuestion } from "../cursor/askUsersTool.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { runPlanner } from "../cursor/planner.js";
 import { postToChannel } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
-import { cancelAllThreadWaiters, waitForThreadAnswer } from "../discord/qaWaiters.js";
-import { copyFeatureAssets, copyFeatureSpec, featureBranchName, plannedAssetPath } from "../features/artifacts.js";
+import { cancelAllQuestionWaiters, waitForQuestionAnswer } from "../discord/qaWaiters.js";
+import {
+  copyFeatureAssets,
+  copyFeatureSpec,
+  featureBranchName,
+  newFeatureBranchName,
+  plannedAssetPath,
+} from "../features/artifacts.js";
 import { saveFeatureImage, type IncomingImage } from "../features/saveImage.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
-import { formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
+import { formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
 import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
 import {
   createDraftPr,
@@ -69,19 +76,10 @@ export function createPipeline(ctx: {
   };
 
   const featureCatalogUrl = (feature: Feature): string | undefined =>
-    catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+    featurePageUrl(ctx.config, feature.name);
 
-  const extraLinks = (feature: Feature): string[] => {
-    const lines: string[] = [];
-    if (feature.githubPrUrl) {
-      lines.push(discordLink(feature.githubPrUrl));
-    }
-    const page = featureCatalogUrl(feature);
-    if (page) {
-      lines.push(discordLink(page));
-    }
-    return lines;
-  };
+  const extraLinks = (feature: Feature): string[] =>
+    feature.githubPrUrl ? [discordLink(feature.githubPrUrl)] : [];
 
   const pushImplementerWork = async (feature: Feature, message: string): Promise<Feature> => {
     await ensureDeploymentBump(ctx.config);
@@ -123,7 +121,9 @@ export function createPipeline(ctx: {
 
       if (feature.state === "planning") {
         if (!options.resume) {
-          await createFeatureBranch(ctx.config, featureSlug(feature.name));
+          const branch = newFeatureBranchName(featureSlug(feature.name));
+          await createFeatureBranch(ctx.config, branch);
+          feature = ctx.store.setGithubBranch(feature.id, branch);
         }
         copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
         if (haltIfNeeded()) {
@@ -131,8 +131,8 @@ export function createPipeline(ctx: {
         }
         await notify(
           options.resume
-            ? formatPlanningStart(feature.name, [])
-            : formatPlanningStart(feature.name, ctx.store.listNotes(feature.id)),
+            ? formatPlanningStart(feature.name, [], featureCatalogUrl(feature))
+            : formatPlanningStart(feature.name, ctx.store.listNotes(feature.id), featureCatalogUrl(feature)),
         );
         const deps = {
           client: ctx.client,
@@ -145,11 +145,9 @@ export function createPipeline(ctx: {
           if (feature.pendingAnswer) {
             followUp = `The humans answered:\n${feature.pendingAnswer}`;
             ctx.store.clearPendingQuestion(feature.id);
-          } else if (feature.discordThreadId) {
-            await notify(
-              `${PHASE_EMOJI.planning} Still waiting for an answer on **${feature.name}**. Mention me in the plan thread.`,
-            );
-            const answer = await waitForThreadAnswer(feature.discordThreadId);
+          } else {
+            await postPlannerQuestion(deps, feature, feature.pendingQuestion);
+            const answer = await waitForQuestionAnswer(feature.id);
             ctx.store.clearPendingQuestion(feature.id);
             followUp = `The humans answered:\n${answer}`;
           }
@@ -176,7 +174,7 @@ export function createPipeline(ctx: {
         if (planned.marker !== "PLAN_COMPLETE") {
           await notify(
             [
-              `${PHASE_EMOJI.planning} Planning **${feature.name}** did not complete (${planned.marker ?? "no marker"}).`,
+              `${PHASE_EMOJI.planning} Planning ${formatFeatureName(feature.name, featureCatalogUrl(feature))} did not complete (${planned.marker ?? "no marker"}).`,
               planned.text ? planned.text.slice(0, 1500) : "",
             ]
               .filter((line) => line !== "")
@@ -243,7 +241,7 @@ export function createPipeline(ctx: {
         }
         if (result.status !== "finished") {
           await notify(
-            `${PHASE_EMOJI.implementing} Implementer failed for **${feature.name}**: ${result.errorMessage ?? result.status}`,
+            `${PHASE_EMOJI.implementing} Implementer failed for ${formatFeatureName(feature.name, featureCatalogUrl(feature))}: ${result.errorMessage ?? result.status}`,
           );
           return;
         }
@@ -305,7 +303,7 @@ export function createPipeline(ctx: {
       }
       await checkoutDefaultBranch(ctx.config);
       await cleanupAfterMerge(ctx.config, ctx.store, feature.id);
-      await notify(`Feature ${feature.name} merged to master.`);
+      await notify(`Feature ${formatFeatureName(feature.name, featureCatalogUrl(feature))} merged to master.`);
       return;
     }
     if (feature.state === "accepted" || feature.state === "rejected") {
@@ -313,7 +311,7 @@ export function createPipeline(ctx: {
     }
     ctx.store.transition(feature.id, "rejected");
     await notify(
-      `PR for **${feature.name}** was closed without merging. Use /egon-retry or /egon-pivot to continue.`,
+      `PR for ${formatFeatureName(feature.name, featureCatalogUrl(feature))} was closed without merging. Use /egon-retry or /egon-pivot to continue.`,
     );
   };
 
@@ -382,7 +380,7 @@ export function createPipeline(ctx: {
       ).catch((error: unknown) => {
         console.error("pivot pipeline failed", error);
       });
-      return formatPivoting(name, text, assetPath);
+      return formatPivoting(name, text, assetPath, featurePageUrl(ctx.config, name));
     },
     retry: async () => {
       const lock = ctx.store.getPipelineLock();
@@ -397,7 +395,7 @@ export function createPipeline(ctx: {
         throw new UserFacingError(`Cannot retry from ${lock.feature.state}.`);
       }
       jobAbort?.abort();
-      cancelAllThreadWaiters();
+      cancelAllQuestionWaiters();
       await cancelActiveAgentRun();
       let state = lock.feature.state;
       if (lock.feature.state === "awaiting_review" || lock.feature.state === "rejected") {
@@ -409,11 +407,11 @@ export function createPipeline(ctx: {
       void enqueue(() => runJob(featureId, { resume: true })).catch((error: unknown) => {
         console.error("retry pipeline failed", error);
       });
-      return `Retrying **${name}** from ${state}.`;
+      return `Retrying ${formatFeatureName(name, featurePageUrl(ctx.config, name))} from ${state}.`;
     },
     stop: async () => {
       jobAbort?.abort();
-      cancelAllThreadWaiters();
+      cancelAllQuestionWaiters();
       await cancelActiveAgentRun();
       const { feature, releasedLock } = ctx.store.stopPipelineWork();
       try {
@@ -430,10 +428,10 @@ export function createPipeline(ctx: {
         console.error("failed to stop web server after stop", error);
       }
       if (releasedLock) {
-        return `${PHASE_EMOJI.stop} Stopped **${feature.name}**. Feature is back to collecting.`;
+        return `${PHASE_EMOJI.stop} Stopped ${formatFeatureName(feature.name, featureCatalogUrl(feature))}. Feature is back to collecting.`;
       }
       return [
-        `${PHASE_EMOJI.stop} Stopped **${feature.name}**.`,
+        `${PHASE_EMOJI.stop} Stopped ${formatFeatureName(feature.name, featureCatalogUrl(feature))}.`,
         ...extraLinks(feature),
         "Merge on GitHub, /egon-retry to continue, or /egon-pivot to steer.",
       ]
@@ -464,7 +462,7 @@ export function createPipeline(ctx: {
         return;
       }
       jobAbort?.abort();
-      cancelAllThreadWaiters();
+      cancelAllQuestionWaiters();
       await cancelActiveAgentRun();
       try {
         await discardUncommittedWork(ctx.config);

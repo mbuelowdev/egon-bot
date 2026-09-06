@@ -7,13 +7,12 @@ import {
   type MessageCreateOptions,
   type ModalSubmitInteraction,
 } from "discord.js";
-import { catalogUrl, type Config } from "../config.js";
+import { catalogUrl, featurePageUrl, type Config } from "../config.js";
 import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
 import { plannedAssetPath } from "../features/artifacts.js";
-import { featureSlug } from "../features/slug.js";
 import { assertImageContentType, saveFeatureImage } from "../features/saveImage.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
-import { formatNoteAdded, formatPlanStarted } from "../format.js";
+import { formatFeatureName, formatNoteAdded, formatPlanStarted } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { addNoteButtonRow } from "./noteButton.js";
 import { discordLink, noLinkPreview } from "./preview.js";
@@ -87,7 +86,10 @@ export async function addNoteAndReply(
     assetPath = plannedAssetPath(feature.name, store.listAttachments(feature.id), saved.id);
   }
   store.addNote(feature.id, text);
-  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath));
+  await replyCommand(
+    interaction,
+    formatNoteAdded(feature.name, text, assetPath, featurePageUrl(config, feature.name)),
+  );
 }
 
 async function addNoteWithOptionalImage(
@@ -106,7 +108,7 @@ async function addNoteWithOptionalImage(
   );
 }
 
-function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
+function featureLine(feature: Feature, pageUrl?: string, extra?: { noteCount?: number }): string {
   const notes =
     extra?.noteCount === undefined
       ? undefined
@@ -118,7 +120,7 @@ function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
     notes,
     feature.githubPrUrl ? discordLink(feature.githubPrUrl) : undefined,
   ].filter((value): value is string => value !== undefined && value !== null && value !== "");
-  return `• **${feature.name}** — ${bits.join(", ")}`;
+  return `• ${formatFeatureName(feature.name, pageUrl)} — ${bits.join(", ")}`;
 }
 
 export const COMMANDS: RegisteredCommand[] = [
@@ -145,7 +147,7 @@ export const COMMANDS: RegisteredCommand[] = [
       const feature = store.createFeature(name, config.discordChannelId);
       await replyCommand(
         interaction,
-        `Created **${feature.name}** (${feature.state}). It is now the latest feature in this channel.`,
+        `Created ${formatFeatureName(feature.name, featurePageUrl(config, feature.name))} (${feature.state}). It is now the latest feature in this channel.`,
         { components: [addNoteButtonRow(feature.id)] },
       );
     },
@@ -207,7 +209,7 @@ export const COMMANDS: RegisteredCommand[] = [
         return;
       }
       const lines = open.map((feature) =>
-        featureLine(feature, { noteCount: feature.noteCount }),
+        featureLine(feature, featurePageUrl(config, feature.name), { noteCount: feature.noteCount }),
       );
       await replyCommand(
         interaction,
@@ -241,7 +243,10 @@ export const COMMANDS: RegisteredCommand[] = [
         throw new UserFacingError(`No feature named "${name}".`);
       }
       const planned = store.startPlanning(feature.id);
-      await replyCommand(interaction, formatPlanStarted(planned.name));
+      await replyCommand(
+        interaction,
+        formatPlanStarted(planned.name, featurePageUrl(config, planned.name)),
+      );
       void pipeline.startPlan(planned.id).catch((error: unknown) => {
         console.error("plan pipeline failed", error);
       });
@@ -314,13 +319,11 @@ export const COMMANDS: RegisteredCommand[] = [
         );
         return;
       }
-      const catalog = catalogUrl(config, `/features/${featureSlug(lock.feature.name)}`);
       const activity = getActiveAgentActivity();
       const lines = [
-        `Pipeline: **${lock.feature.name}** (${lock.feature.state}).`,
+        `Pipeline: ${formatFeatureName(lock.feature.name, featurePageUrl(config, lock.feature.name))} (${lock.feature.state}).`,
         activity ? formatStatusActivity(activity) : "",
         lock.feature.githubPrUrl ? discordLink(lock.feature.githubPrUrl) : "",
-        catalog ? discordLink(catalog) : "",
       ].filter((line) => line !== "");
       await replyCommand(interaction, lines.join("\n"));
     },

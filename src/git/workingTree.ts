@@ -14,8 +14,7 @@ export async function git(
   return result.stdout.trim();
 }
 
-export async function createFeatureBranch(config: Config, slug: string): Promise<string> {
-  const branch = `egon/${slug}`;
+export async function createFeatureBranch(config: Config, branch: string): Promise<string> {
   const env = ghEnv(config);
   await git(config.gameRepoDir, ["fetch", "origin"], env);
   await git(config.gameRepoDir, ["checkout", config.gameRepoBranch], env);

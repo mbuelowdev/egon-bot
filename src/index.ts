@@ -4,7 +4,7 @@ import { serveCatalog, stopCatalogServer } from "./catalog/serve.js";
 import { loadConfig } from "./config.js";
 import { configureCursorSdk } from "./cursor/client.js";
 import { registerGuildCommands } from "./discord/commands.js";
-import { handleInteraction, handleThreadMessage } from "./discord/handlers.js";
+import { handleInteraction } from "./discord/handlers.js";
 import { bindPresence, refreshPresence } from "./discord/presence.js";
 import { FeatureStore } from "./features/store.js";
 import { configureGitIdentity } from "./git/accept.js";
@@ -21,11 +21,7 @@ async function main(): Promise<void> {
 
   const store = new FeatureStore(join(config.dataDir, "egon.sqlite"));
   const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
+    intents: [GatewayIntentBits.Guilds],
   });
   const pipeline = createPipeline({ client, store, config });
   bindPresence(client, store);
@@ -56,14 +52,6 @@ async function main(): Promise<void> {
         console.error("interaction handler failed", error);
       },
     );
-  });
-
-  client.on(Events.MessageCreate, (message) => {
-    try {
-      handleThreadMessage(message, { store, config, client, pipeline });
-    } catch (error) {
-      console.error("thread message handler failed", error);
-    }
   });
 
   let shuttingDown = false;

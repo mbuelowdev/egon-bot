@@ -30,7 +30,7 @@ export function plannerPrompt(
     noteBlock,
     ...attachmentPromptLines(attachmentsDir, featureAssetDir(slug), attachments.length, false),
     "",
-    "If you need a human decision, call ask_discord_users and wait for the answer.",
+    "If you need a human decision, call ask_discord_users with a clear question and up to 3 numbered choices (1, 2, 3) plus Other. Wait for the answer.",
     "When finished, end your last message with a one-line marker exactly: PLAN_COMPLETE or PLAN_BLOCKED.",
   ].join("\n");
 }

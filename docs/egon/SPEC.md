@@ -9,8 +9,8 @@ This repo is the orchestrator (Discord bot, Cursor SDK runners, Godot export/ser
 Humans talk in one Discord channel, then drive the pipeline with slash commands. **Merge happens on GitHub**, not via Discord accept/reject.
 
 1. Collect ideas (`/egon-new-feature`, `/egon-add`, `/egon-add-to-feature`).
-2. `/egon-plan` starts a local Cursor **planner**. Questions go to a Discord thread; the first message that **mentions the bot** is the answer.
-3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}`. Discord images are copied into `assets/egon/{slug}/`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. On `PLAN_COMPLETE` the bot commits the spec (and those assets), pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
+2. `/egon-plan` starts a local Cursor **planner**. Questions go to the Discord channel with answer buttons; the first button or modal response is the answer.
+3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}` (UTC, seconds; a new feature never reuses an older branch of the same slug). Discord images are copied into `assets/egon/{slug}/`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. On `PLAN_COMPLETE` the bot commits the spec (and those assets), pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
 4. A local Cursor **implementer** edits the game repo on that branch. The agent does not commit or push. After a successful implementer run the bot commits, pushes, and **un-drafts** the PR (spec-only commits stay draft).
 5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status.
 6. Bugs go back to the same implementer. The bot commits and pushes each fix. Export and test again until overall PASS or the retry cap.
@@ -30,7 +30,7 @@ flowchart TD
   gh[gh CLI PRs]
   catalog[Feature catalog HTTP]
 
-  humans -->|slash commands and thread replies| bot
+  humans -->|slash commands and Q&A buttons| bot
   bot --> store
   bot -->|ask_discord_users tool| humans
   bot --> planner
@@ -70,7 +70,7 @@ Validate in `src/config.ts`. Fail fast on missing required vars. Document every 
 Required:
 
 - `DISCORD_TOKEN`, `DISCORD_APP_ID` — bot credentials
-- `DISCORD_CHANNEL_ID` — the only channel the bot listens in; ignore slash commands and Q&A messages elsewhere
+- `DISCORD_CHANNEL_ID` — the only channel the bot listens in; ignore slash commands and Q&A buttons elsewhere
 - `DISCORD_GUILD_ID` — register guild slash commands here (instant, not global)
 - `CURSOR_API_KEY` — Cursor SDK
 - `GAME_REPO_HTTPS_URL` — git remote of the single game repo (e.g. `https://github.com/org/game.git`)
@@ -89,7 +89,7 @@ Optional with defaults:
 - `FEATURES_PUBLIC_URL` — public base URL for Discord catalog links and the GitHub webhook URL
 - `CURSOR_ADMIN_API_KEY` — optional; official remaining-usage % via Admin pooled-usage
 
-On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}`; humans merge that PR on GitHub.
+On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}-{YYYYMMDDTHHMMSSZ}`; humans merge that PR on GitHub.
 
 Configure a GitHub repository webhook on the game repo: URL `{FEATURES_PUBLIC_URL}/github/webhook`, content type JSON, secret `GITHUB_WEBHOOK_SECRET`, event **Pull requests**.
 
@@ -114,13 +114,13 @@ There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Disc
 
 `/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none.
 
-Optional `image` on `/egon-add`, `/egon-add-to-feature`, and `/egon-pivot` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only, except `/egon-pivot` with an image attaches that new file as vision on the implementer follow-up. Text remains required; extra images are additional `/egon-add` or `/egon-pivot` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
+Optional `image` on `/egon-add`, `/egon-add-to-feature`, and `/egon-pivot` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only, except `/egon-pivot` with an image attaches that new file as vision on the implementer follow-up. Text remains required; extra images are additional `/egon-add` or `/egon-pivot` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
 
-### Q&A threads
+### Q&A buttons
 
-The bot posts the question and opens a thread. **The first thread message that mentions the bot is the answer.** Persist `agentId`, thread id, and pending question so a bot restart can `Agent.resume()` and `send()` the answer instead of relying on a blocked tool call.
+The bot posts the question in the channel. When the question offers numbered options, the message includes **1.**, **2.**, **3.** (as applicable) plus **Answer other**. Numbered buttons submit that choice immediately; **Answer other** (or **Answer** when there are no numbered options) opens a modal. **The first successful button or modal answer wins.** Persist `agentId`, the question message id, and pending question so a bot restart can `Agent.resume()` and `send()` the answer instead of relying on a blocked tool call.
 
-Enable Message Content Intent, Guilds, and GuildMessages.
+Enable Guilds intent (slash commands, buttons, and modals).
 
 ## Cursor SDK
 
@@ -130,7 +130,7 @@ Do **not** install the Cursor IDE. The SDK local executor runs in-process.
 
 ### Planner
 
-Durable agent. Custom tool `ask_discord_users` (local `customTools`, not a separate MCP server) posts to Discord and waits, with a timeout. Writes `docs/features/{slug}/SPEC.md` **in the game repo** on branch `egon/{slug}`. Discord images collected with `/egon-add` are attached as vision on the first `send` and already sit at `assets/egon/{slug}/`.
+Durable agent. Custom tool `ask_discord_users` (local `customTools`, not a separate MCP server) posts to Discord and waits, with a timeout. Writes `docs/features/{slug}/SPEC.md` **in the game repo** on branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}`. Discord images collected with `/egon-add` are attached as vision on the first `send` and already sit at `assets/egon/{slug}/`.
 
 That game-repo spec **must** include an **Acceptance criteria** section: a numbered list of at most **3** concrete, browser-verifiable checks (what to do, what must be visible/true). Never more than 3. The tester treats this list as the test plan and never runs more than 3 criteria. Planner may read existing game code; it must not write outside that spec file.
 
@@ -189,7 +189,7 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 
 ## GitHub PRs, pivot, merge
 
-**Branch + draft PR** after `PLAN_COMPLETE`: commit spec on `egon/{slug}`, `git push`, `gh pr create --draft` against `GAME_REPO_BRANCH`. Copy SPEC into `$DATA_DIR/features/{id}/SPEC.md`.
+**Branch + draft PR** after `PLAN_COMPLETE`: commit spec on `egon/{slug}-{YYYYMMDDTHHMMSSZ}` (name chosen at plan start and stored on the feature), `git push`, `gh pr create --draft` against `GAME_REPO_BRANCH`. Copy SPEC into `$DATA_DIR/features/{id}/SPEC.md`.
 
 **Un-draft** after the first implementer commit that actually has a diff (`gh pr ready`). Later fix-cycle commits push to the same PR; `gh pr ready` is idempotent. Do not convert back to draft on pivot.
 
@@ -209,7 +209,7 @@ Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepte
 
 A public HTTP server (separate from the Godot debug server) binds `0.0.0.0:$FEATURES_HTTP_PORT`:
 
-- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Collecting and planned cards (and their detail pages) have a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Implemented features cannot be deleted. If the feature still has an open GitHub PR, delete closes it (`gh pr close`). A closed-unmerged PR stays in Planned labeled **PR #N (closed)** until someone deletes it.
+- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Every card (and its detail page) has a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Delete removes the feature from the catalog only — it does not revert git. If the feature still has an open GitHub PR, delete closes it (`gh pr close`). A closed-unmerged PR stays in Planned labeled **PR #N (closed)** until someone deletes it.
 - Detail `/features/{slug}`: name, state, PR link, collected notes, Discord reference images, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Images are served at `/features/{slug}/attachments/{file}`.
 - Persist each planner / implementer / tester run under `$DATA_DIR/features/{id}/agent-log.jsonl`. The file is written when the run starts (prompt) and updated as stream events arrive, so a catalog refresh shows in-flight output — not only the finished run. A running entry that has gone silent is marked possibly stuck. If that file is missing, the catalog hydrates from the Cursor agent store using `plannerAgentId` / `implementerAgentId`.
 - `POST /github/webhook` as above.

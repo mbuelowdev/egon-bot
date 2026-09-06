@@ -14,6 +14,7 @@ import { COMMAND_BY_NAME } from "./commands.js";
 import { handleInteraction } from "./handlers.js";
 import { parseAddNoteCustomId } from "./noteButton.js";
 import { SUPPRESS_LINK_PREVIEW } from "./preview.js";
+import { waitForQuestionAnswer } from "./qaWaiters.js";
 
 const config = { discordChannelId: "chan" } as Config;
 const ctx = {
@@ -39,8 +40,11 @@ type FakeAttachment = {
 };
 
 type FakeMessage = {
+  id: string;
   deleted: boolean;
+  edits: unknown[];
   delete: () => Promise<void>;
+  edit: (payload: unknown) => Promise<void>;
 };
 
 type FakeModal = {
@@ -52,6 +56,7 @@ type FakeInteraction = {
   isButton: () => boolean;
   isModalSubmit: () => boolean;
   isRepliable: () => boolean;
+  id: string;
   channelId: string;
   channel: { parentId: string | null };
   commandName: string;
@@ -96,9 +101,14 @@ function deleteCustomId(payload: ReplyPayload | undefined): string | undefined {
 
 function fakeCommand(overrides: Partial<FakeInteraction> = {}): FakeInteraction {
   const message: FakeMessage = {
+    id: "m1",
     deleted: false,
+    edits: [],
     async delete() {
       message.deleted = true;
+    },
+    async edit(payload: unknown) {
+      message.edits.push(payload);
     },
   };
   const interaction: FakeInteraction = {
@@ -106,6 +116,7 @@ function fakeCommand(overrides: Partial<FakeInteraction> = {}): FakeInteraction 
     isButton: () => false,
     isModalSubmit: () => false,
     isRepliable: () => true,
+    id: "i1",
     channelId: "chan",
     channel: { parentId: null },
     commandName: "egon-list",
@@ -334,6 +345,24 @@ test("egon-plan with a name still targets that feature", async () => {
   assert.equal(interaction.followUps.length, 0);
 });
 
+test("egon-plan links the feature name to the catalog page", async () => {
+  const interaction = fakeCommand({ commandName: "egon-plan" });
+  const store = {
+    getLatestFeatureForChannel: () => ({ id: 7, name: "Dash HUD" }),
+    startPlanning: () => ({ id: 7, name: "Dash HUD" }),
+  };
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    config: { ...config, featuresPublicUrl: "https://egon.example" },
+    store: store as unknown as FeatureStore,
+    pipeline: { startPlan: async () => undefined } as unknown as Pipeline,
+  });
+  assert.equal(
+    contentOf(interaction.replies[0]),
+    `${PHASE_EMOJI.planning} Started planning [**Dash HUD**](<https://egon.example/features/dash-hud>). Progress will be posted in this channel.`,
+  );
+});
+
 test("egon-status includes live agent activity", async () => {
   const interaction = fakeCommand({ commandName: "egon-status" });
   const store = {
@@ -521,5 +550,65 @@ test("Add note modal stores the note and posts a public reply", async () => {
       flags: SUPPRESS_LINK_PREVIEW,
     },
   ]);
+  store.close();
+});
+
+test("numbered answer button submits that choice immediately", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "Pick:\n1. Jump high\n2. Dash\n3. Fly");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  const pending = waitForQuestionAnswer(feature.id, 1000);
+  const interaction = fakeButton(`egon-qa:${String(feature.id)}:1`);
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(await pending, "1. Jump high");
+  assert.equal(store.getFeatureById(feature.id)?.pendingAnswer, "1. Jump high");
+  assert.deepEqual(store.listNotes(feature.id), ["1. Jump high"]);
+  assert.equal(contentOf(interaction.replies[0]), "Michael answered: 1. Jump high");
+  assert.deepEqual(interaction.message.edits, [{ components: [] }]);
+  assert.equal(interaction.modals.length, 0);
+  store.close();
+});
+
+test("Answer other opens a modal instead of submitting", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "Pick:\n1. Jump high\n2. Dash");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  const interaction = fakeButton(`egon-qa:${String(feature.id)}:other`);
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(interaction.modals.length, 1);
+  const modal = interaction.modals[0]?.toJSON();
+  assert.equal(modal?.custom_id, `egon-qa-modal:${String(feature.id)}`);
+  assert.equal(modal?.title, "Answer: Jump");
+  assert.equal(interaction.replies.length, 0);
+  assert.equal(store.getFeatureById(feature.id)?.pendingAnswer, null);
+  store.close();
+});
+
+test("answer modal submits the typed text", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "How high?");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  const pending = waitForQuestionAnswer(feature.id, 1000);
+  const interaction = fakeModal(`egon-qa-modal:${String(feature.id)}`, "about 3 tiles", {
+    fieldValues: { answer: "about 3 tiles" },
+  });
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(await pending, "about 3 tiles");
+  assert.equal(contentOf(interaction.replies[0]), "Michael answered: about 3 tiles");
+  store.close();
+});
+
+test("stale question buttons are rejected", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "Pick:\n1. Jump");
+  store.setDiscordIds(feature.id, { messageId: "m-new" });
+  const interaction = fakeButton(`egon-qa:${String(feature.id)}:1`);
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.match(contentOf(interaction.replies[0]), /no longer open/);
+  assert.equal(store.getFeatureById(feature.id)?.pendingAnswer, null);
   store.close();
 });

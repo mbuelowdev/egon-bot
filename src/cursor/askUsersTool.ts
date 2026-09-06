@@ -1,11 +1,11 @@
 import type { SDKCustomTool } from "@cursor/sdk";
 import type { Client } from "discord.js";
-import type { Config } from "../config.js";
+import { featurePageUrl, type Config } from "../config.js";
+import { answerButtonRow, formatQuestionBody, normalizeChoices, parseNumberedChoices } from "../discord/answerButtons.js";
 import { postToChannel } from "../discord/channel.js";
-import { noLinkPreview } from "../discord/preview.js";
-import { PHASE_EMOJI } from "../format.js";
-import { waitForThreadAnswer } from "../discord/qaWaiters.js";
-import type { FeatureStore } from "../features/store.js";
+import { waitForQuestionAnswer } from "../discord/qaWaiters.js";
+import { formatFeatureName, PHASE_EMOJI } from "../format.js";
+import type { Feature, FeatureStore } from "../features/store.js";
 import { beginAgentIdle, endAgentIdle } from "./agentIdle.js";
 
 export type AskUsersDeps = {
@@ -19,16 +19,38 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+export async function postPlannerQuestion(
+  deps: AskUsersDeps,
+  feature: Pick<Feature, "id" | "name">,
+  question: string,
+): Promise<void> {
+  const choices = parseNumberedChoices(question);
+  const prompt = [
+    `${PHASE_EMOJI.planning} Planner question for ${formatFeatureName(feature.name, featurePageUrl(deps.config, feature.name))}`,
+    question,
+  ].join("\n\n");
+  const posted = await postToChannel(deps.client, deps.config.discordChannelId, prompt, {
+    components: [answerButtonRow(feature.id, choices.length)],
+  });
+  deps.store.setDiscordIds(feature.id, { messageId: posted.id });
+}
+
 export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
   return {
     description:
-      "Ask the humans in Discord a clarifying question. Use this when the spec cannot be finished without a decision. The first thread reply that mentions the bot is the answer.",
+      "Ask the humans in Discord a clarifying question. Prefer up to 3 numbered choices (1, 2, 3); they can also pick Answer other. The first button click or typed answer wins.",
     inputSchema: {
       type: "object",
       properties: {
         question: {
           type: "string",
-          description: "The question to post in Discord",
+          description: "The question to post in Discord. Include numbered options 1, 2, 3 in the text when possible.",
+        },
+        choices: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 3,
+          description: "Up to 3 answer options. Humans can also pick Answer other.",
         },
       },
       required: ["question"],
@@ -46,38 +68,13 @@ export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
       if (!feature) {
         return { content: [{ type: "text", text: "Feature not found" }], isError: true };
       }
-      const botMention = deps.client.user ? `<@${deps.client.user.id}>` : "the bot";
-      const prompt = [
-        `${PHASE_EMOJI.planning} **Planner question for ${feature.name}**`,
-        question,
-        "",
-        `Reply in this thread and mention ${botMention} with your answer.`,
-      ].join("\n");
-
-      deps.store.setPendingQuestion(feature.id, question);
-
-      let threadId = feature.discordThreadId;
-      if (threadId) {
-        const thread = await deps.client.channels.fetch(threadId);
-        if (thread?.isTextBased() && !thread.isDMBased()) {
-          const posted = await thread.send(noLinkPreview({ content: prompt }));
-          deps.store.setDiscordIds(feature.id, { messageId: posted.id, threadId });
-        } else {
-          threadId = null;
-        }
-      }
-      if (!threadId) {
-        const posted = await postToChannel(deps.client, deps.config.discordChannelId, prompt);
-        const started = await posted.startThread({
-          name: `plan-${feature.name}`.slice(0, 100),
-        });
-        threadId = started.id;
-        deps.store.setDiscordIds(feature.id, { messageId: posted.id, threadId });
-      }
+      const body = formatQuestionBody(question, normalizeChoices(args.choices));
+      deps.store.setPendingQuestion(feature.id, body);
 
       try {
+        await postPlannerQuestion(deps, feature, body);
         beginAgentIdle();
-        const answer = await waitForThreadAnswer(threadId);
+        const answer = await waitForQuestionAnswer(feature.id);
         deps.store.clearPendingQuestion(feature.id);
         return `The humans answered:\n${answer}`;
       } catch (error) {

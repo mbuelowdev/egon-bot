@@ -2,13 +2,21 @@ import {
   type ButtonInteraction,
   type Client,
   type Interaction,
-  type Message,
   type ModalSubmitInteraction,
 } from "discord.js";
 import type { Config } from "../config.js";
 import { UserFacingError, type FeatureStore } from "../features/store.js";
+import { escapeDiscordMarkdown } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { addNoteAndReply, COMMAND_BY_NAME, type CommandContext } from "./commands.js";
+import {
+  ANSWER_TEXT_INPUT_ID,
+  answerOtherModal,
+  formatChoiceAnswer,
+  parseAnswerButtonCustomId,
+  parseAnswerModalCustomId,
+  type ParsedAnswerButton,
+} from "./answerButtons.js";
 import {
   ADD_NOTE_TEXT_INPUT_ID,
   addNoteModal,
@@ -16,8 +24,8 @@ import {
   parseAddNoteModalCustomId,
 } from "./noteButton.js";
 import { noLinkPreview } from "./preview.js";
-import { deliverThreadAnswer } from "./qaWaiters.js";
-import { isInConfiguredChannel, isWinningMention } from "./threads.js";
+import { deliverQuestionAnswer } from "./qaWaiters.js";
+import { isInConfiguredChannel } from "./threads.js";
 
 export type BotContext = {
   store: FeatureStore;
@@ -115,88 +123,180 @@ export async function handleInteraction(
 
 async function handleButton(interaction: ButtonInteraction, ctx: BotContext): Promise<void> {
   const addFeatureId = parseAddNoteCustomId(interaction.customId);
-  if (addFeatureId === undefined) {
+  if (addFeatureId !== undefined) {
+    if (!(await ensureConfiguredChannel(interaction, ctx))) {
+      return;
+    }
+    const feature = ctx.store.getFeatureById(addFeatureId);
+    if (!feature) {
+      await replyError(interaction, "Feature not found.");
+      return;
+    }
+    await interaction.showModal(addNoteModal(feature.id, feature.name));
     return;
   }
-  if (!(await ensureConfiguredChannel(interaction, ctx))) {
-    return;
+
+  const answerClick = parseAnswerButtonCustomId(interaction.customId);
+  if (answerClick !== undefined) {
+    await handleAnswerButton(interaction, ctx, answerClick);
   }
-  const feature = ctx.store.getFeatureById(addFeatureId);
-  if (!feature) {
-    await replyError(interaction, "Feature not found.");
-    return;
-  }
-  await interaction.showModal(addNoteModal(feature.id, feature.name));
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction, ctx: BotContext): Promise<void> {
-  const featureId = parseAddNoteModalCustomId(interaction.customId);
-  if (featureId === undefined) {
+  const addFeatureId = parseAddNoteModalCustomId(interaction.customId);
+  if (addFeatureId !== undefined) {
+    if (!(await ensureConfiguredChannel(interaction, ctx))) {
+      return;
+    }
+    const feature = ctx.store.getFeatureById(addFeatureId);
+    if (!feature) {
+      await replyError(interaction, "Feature not found.");
+      return;
+    }
+    try {
+      await addNoteAndReply(
+        interaction,
+        ctx.store,
+        ctx.config,
+        feature,
+        interaction.fields.getTextInputValue(ADD_NOTE_TEXT_INPUT_ID),
+      );
+    } catch (error) {
+      if (error instanceof UserFacingError) {
+        await replyError(interaction, error.message);
+        return;
+      }
+      console.error(error);
+      await replyError(interaction, "Something went wrong.");
+    }
     return;
   }
-  if (!(await ensureConfiguredChannel(interaction, ctx))) {
+
+  const answerFeatureId = parseAnswerModalCustomId(interaction.customId);
+  if (answerFeatureId !== undefined) {
+    await handleAnswerModal(interaction, ctx, answerFeatureId);
+  }
+}
+
+function questionMessageId(interaction: ButtonInteraction | ModalSubmitInteraction): string | undefined {
+  const message = interaction.message;
+  if (!message || typeof message !== "object" || !("id" in message)) {
+    return undefined;
+  }
+  const id = message.id;
+  return typeof id === "string" ? id : undefined;
+}
+
+async function clearQuestionButtons(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+): Promise<void> {
+  const message = interaction.message;
+  if (!message || typeof message !== "object" || !("edit" in message)) {
     return;
+  }
+  const edit = message.edit;
+  if (typeof edit !== "function") {
+    return;
+  }
+  try {
+    await edit.call(message, { components: [] });
+  } catch (error) {
+    console.error("failed to clear question buttons", error);
+  }
+}
+
+function displayName(interaction: Interaction): string {
+  const member = interaction.member;
+  if (member && typeof member === "object" && "displayName" in member) {
+    const name = member.displayName;
+    if (typeof name === "string" && name.trim() !== "") {
+      return name;
+    }
+  }
+  return interaction.user.displayName;
+}
+
+async function submitQuestionAnswer(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  ctx: BotContext,
+  featureId: number,
+  answer: string,
+): Promise<void> {
+  const recorded = ctx.store.recordFirstAnswer(featureId, interaction.id, answer);
+  if (!recorded?.pendingAnswer) {
+    await replyError(interaction, "This question already has an answer.");
+    return;
+  }
+  deliverQuestionAnswer(featureId, recorded.pendingAnswer);
+  await clearQuestionButtons(interaction);
+  const content = `${escapeDiscordMarkdown(displayName(interaction))} answered: ${escapeDiscordMarkdown(recorded.pendingAnswer)}`;
+  await interaction.reply(noLinkPreview({ content, ephemeral: false }));
+}
+
+async function requireOpenQuestion(
+  interaction: ButtonInteraction | ModalSubmitInteraction,
+  ctx: BotContext,
+  featureId: number,
+): Promise<{ pendingQuestion: string } | undefined> {
+  if (!(await ensureConfiguredChannel(interaction, ctx))) {
+    return undefined;
   }
   const feature = ctx.store.getFeatureById(featureId);
   if (!feature) {
     await replyError(interaction, "Feature not found.");
-    return;
+    return undefined;
   }
-  try {
-    await addNoteAndReply(
-      interaction,
-      ctx.store,
-      ctx.config,
-      feature,
-      interaction.fields.getTextInputValue(ADD_NOTE_TEXT_INPUT_ID),
-    );
-  } catch (error) {
-    if (error instanceof UserFacingError) {
-      await replyError(interaction, error.message);
-      return;
-    }
-    console.error(error);
-    await replyError(interaction, "Something went wrong.");
+  if (feature.pendingQuestion === null) {
+    await replyError(interaction, "No question is waiting.");
+    return undefined;
   }
+  const messageId = questionMessageId(interaction);
+  if (feature.discordMessageId !== null && messageId !== undefined && feature.discordMessageId !== messageId) {
+    await replyError(interaction, "This question is no longer open.");
+    return undefined;
+  }
+  if (feature.answerMessageId !== null) {
+    await replyError(interaction, "This question already has an answer.");
+    return undefined;
+  }
+  return { pendingQuestion: feature.pendingQuestion };
 }
 
-export function handleThreadMessage(message: Message, ctx: BotContext): void {
-  const botUser = ctx.client.user;
-  if (!botUser) {
+async function handleAnswerButton(
+  interaction: ButtonInteraction,
+  ctx: BotContext,
+  click: ParsedAnswerButton,
+): Promise<void> {
+  const open = await requireOpenQuestion(interaction, ctx, click.featureId);
+  if (!open) {
     return;
   }
-  if (!message.channel.isThread()) {
+  if (click.choice === "other") {
+    const feature = ctx.store.getFeatureById(click.featureId);
+    await interaction.showModal(answerOtherModal(click.featureId, feature?.name ?? "feature"));
     return;
   }
-  if (
-    !isInConfiguredChannel(
-      message.channelId,
-      message.channel.parentId,
-      ctx.config.discordChannelId,
-    )
-  ) {
-    return;
-  }
-  const mentionedUserIds = [...message.mentions.users.keys()];
-  const feature = ctx.store.getFeatureByThreadId(message.channelId);
-  if (!feature || feature.pendingQuestion === null) {
-    return;
-  }
-  if (
-    !isWinningMention(
-      { id: message.id, authorId: message.author.id, mentionedUserIds },
-      botUser.id,
-      feature.answerMessageId !== null,
-    )
-  ) {
-    return;
-  }
-  const recorded = ctx.store.recordFirstThreadAnswer(
-    message.channelId,
-    message.id,
-    message.content,
+  await submitQuestionAnswer(
+    interaction,
+    ctx,
+    click.featureId,
+    formatChoiceAnswer(open.pendingQuestion, click.choice),
   );
-  if (recorded?.pendingAnswer) {
-    deliverThreadAnswer(message.channelId, recorded.pendingAnswer);
+}
+
+async function handleAnswerModal(
+  interaction: ModalSubmitInteraction,
+  ctx: BotContext,
+  featureId: number,
+): Promise<void> {
+  const open = await requireOpenQuestion(interaction, ctx, featureId);
+  if (!open) {
+    return;
   }
+  await submitQuestionAnswer(
+    interaction,
+    ctx,
+    featureId,
+    interaction.fields.getTextInputValue(ANSWER_TEXT_INPUT_ID),
+  );
 }

@@ -1,3 +1,5 @@
+import { featureSlug } from "./features/slug.js";
+
 const REQUIRED_KEYS = [
   "DISCORD_TOKEN",
   "DISCORD_APP_ID",
@@ -111,6 +113,11 @@ export function catalogUrl(config: Config, path = "/"): string | undefined {
   }
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${config.featuresPublicUrl}${suffix}`;
+}
+
+/** Catalog page for a feature, when FEATURES_PUBLIC_URL is set. */
+export function featurePageUrl(config: Config, name: string): string | undefined {
+  return catalogUrl(config, `/features/${featureSlug(name)}`);
 }
 
 export function githubRepoWebUrl(gitHttpsUrl: string): string {

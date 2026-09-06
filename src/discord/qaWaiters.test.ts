@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cancelAllThreadWaiters, deliverThreadAnswer, waitForThreadAnswer } from "./qaWaiters.js";
+import { cancelAllQuestionWaiters, deliverQuestionAnswer, waitForQuestionAnswer } from "./qaWaiters.js";
 
 test("first waiter receives the delivered answer", async () => {
-  const pending = waitForThreadAnswer("thread-1", 1000);
-  assert.equal(deliverThreadAnswer("thread-1", "ship it"), true);
+  const pending = waitForQuestionAnswer(1, 1000);
+  assert.equal(deliverQuestionAnswer(1, "ship it"), true);
   assert.equal(await pending, "ship it");
-  assert.equal(deliverThreadAnswer("thread-1", "late"), false);
+  assert.equal(deliverQuestionAnswer(1, "late"), false);
 });
 
-test("cancelAllThreadWaiters rejects the pending waiter", async () => {
-  const pending = waitForThreadAnswer("thread-stop", 1000);
-  cancelAllThreadWaiters();
+test("cancelAllQuestionWaiters rejects the pending waiter", async () => {
+  const pending = waitForQuestionAnswer(2, 1000);
+  cancelAllQuestionWaiters();
   await assert.rejects(pending, /Pipeline stopped/);
-  assert.equal(deliverThreadAnswer("thread-stop", "too late"), false);
+  assert.equal(deliverQuestionAnswer(2, "too late"), false);
 });

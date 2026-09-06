@@ -276,6 +276,14 @@ export class FeatureStore {
     return row ? mapFeature(row) : undefined;
   }
 
+  setGithubBranch(featureId: number, branch: string): Feature {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET github_branch = ?, updated_at = ? WHERE id = ?")
+      .run(branch, nowIso(), featureId);
+    return this.requireFeature(featureId);
+  }
+
   setGithubPr(
     featureId: number,
     info: { branch: string; number: number; url: string },
@@ -470,23 +478,12 @@ export class FeatureStore {
       .run(nowIso(), featureId);
   }
 
-  getFeatureByThreadId(threadId: string): Feature | undefined {
-    const row = this.db
-      .prepare("SELECT * FROM features WHERE discord_thread_id = ?")
-      .get(threadId) as FeatureRow | undefined;
-    return row ? mapFeature(row) : undefined;
-  }
-
   /**
-   * Record the first thread answer for the current pending question.
-   * Returns the feature when this message wins, otherwise undefined.
+   * Record the first answer for the current pending question.
+   * Returns the feature when this interaction wins, otherwise undefined.
    */
-  recordFirstThreadAnswer(
-    threadId: string,
-    messageId: string,
-    text: string,
-  ): Feature | undefined {
-    const feature = this.getFeatureByThreadId(threadId);
+  recordFirstAnswer(featureId: number, interactionId: string, text: string): Feature | undefined {
+    const feature = this.getFeatureById(featureId);
     if (!feature || feature.pendingQuestion === null || feature.answerMessageId !== null) {
       return undefined;
     }
@@ -500,7 +497,7 @@ export class FeatureStore {
            SET answer_message_id = ?, pending_answer = ?, updated_at = ?
            WHERE id = ? AND answer_message_id IS NULL AND pending_question IS NOT NULL`,
         )
-        .run(messageId, answer, updatedAt, feature.id);
+        .run(interactionId, answer, updatedAt, feature.id);
       this.db
         .prepare("INSERT INTO notes (feature_id, text, created_at) VALUES (?, ?, ?)")
         .run(feature.id, answer, updatedAt);
@@ -574,12 +571,9 @@ export class FeatureStore {
     return Number(row.total);
   }
 
-  /** Remove a feature that is not yet implemented, plus notes, attachments, and channel-latest pointers. */
+  /** Remove a feature plus notes, attachments, and channel-latest pointers. Does not revert git. */
   deleteFeature(featureId: number): Feature {
     const feature = this.requireFeature(featureId);
-    if (feature.state === "accepted") {
-      throw new UserFacingError(`Implemented features cannot be deleted. "${feature.name}" already merged.`);
-    }
     const lock = this.getPipelineLock();
     this.db.exec("BEGIN");
     try {

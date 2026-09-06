@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ThreadWaitCancelledError } from "../discord/qaWaiters.js";
+import { QuestionWaitCancelledError } from "../discord/qaWaiters.js";
 import type { Feature } from "../features/store.js";
 import { isPipelineStopError, PipelineStoppedError, shouldHaltPipeline } from "./halt.js";
 
@@ -19,7 +19,7 @@ test("shouldHaltPipeline is false only while plan/implement/test work is active"
 
 test("isPipelineStopError covers abort, waiter cancel, and stop", () => {
   assert.equal(isPipelineStopError(new PipelineStoppedError()), true);
-  assert.equal(isPipelineStopError(new ThreadWaitCancelledError()), true);
+  assert.equal(isPipelineStopError(new QuestionWaitCancelledError()), true);
   const abort = new Error("This operation was aborted");
   abort.name = "AbortError";
   assert.equal(isPipelineStopError(abort), true);

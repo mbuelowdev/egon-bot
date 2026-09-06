@@ -45,6 +45,10 @@ test("formatPlanStarted prefixes the planning emoji", () => {
     formatPlanStarted("Dash *HUD*"),
     `${PHASE_EMOJI.planning} Started planning **Dash \\*HUD\\***. Progress will be posted in this channel.`,
   );
+  assert.equal(
+    formatPlanStarted("Dash HUD", "https://egon.example/features/dash-hud"),
+    `${PHASE_EMOJI.planning} Started planning [**Dash HUD**](<https://egon.example/features/dash-hud>). Progress will be posted in this channel.`,
+  );
 });
 
 test("formatPlanningStart lists notes and escapes formatting chars", () => {
@@ -61,6 +65,10 @@ test("formatPlanningStart lists notes and escapes formatting chars", () => {
       "- \\- already a bullet and a newline",
       "- 1\\. numbered",
     ].join("\n"),
+  );
+  assert.equal(
+    formatPlanningStart("Dash HUD", [], "https://egon.example/features/dash-hud"),
+    `${PHASE_EMOJI.planning} Planning [**Dash HUD**](<https://egon.example/features/dash-hud>).`,
   );
 });
 
@@ -160,6 +168,10 @@ test("formatNoteAdded includes the note text", () => {
     formatNoteAdded("Jump", "jump has to be higher"),
     "Added a note to **Jump**.\n*jump has to be higher*",
   );
+  assert.equal(
+    formatNoteAdded("Jump", "jump has to be higher", undefined, "https://egon.example/features/jump"),
+    "Added a note to [**Jump**](<https://egon.example/features/jump>).\n*jump has to be higher*",
+  );
 });
 
 test("formatNoteAdded includes the asset path when an image was added", () => {
@@ -180,6 +192,10 @@ test("formatPivoting includes the change request", () => {
   assert.equal(
     formatPivoting("Jump", "make the HUD smaller"),
     "Pivoting **Jump**. Re-entering implement and test.\n*make the HUD smaller*",
+  );
+  assert.equal(
+    formatPivoting("Jump", "make the HUD smaller", undefined, "https://egon.example/features/jump"),
+    "Pivoting [**Jump**](<https://egon.example/features/jump>). Re-entering implement and test.\n*make the HUD smaller*",
   );
 });
 

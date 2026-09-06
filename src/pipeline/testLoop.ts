@@ -1,14 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "discord.js";
-import { catalogUrl, type Config } from "../config.js";
+import { featurePageUrl, type Config } from "../config.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { featurePaths, type TestReport } from "../cursor/testReport.js";
 import { runTester } from "../cursor/tester.js";
 import { postFiles } from "../discord/channel.js";
-import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureStore } from "../features/store.js";
-import { formatReviewReady, formatTestReport, formatTestingStart } from "../format.js";
+import { formatFeatureName, formatReviewReady, formatTestReport, formatTestingStart } from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
 import { exportDebugWeb } from "../godot/export.js";
 import { serveExportDir } from "../godot/serve.js";
@@ -25,7 +24,7 @@ async function notifyReadyForReview(
   outcome: string,
   nextStep: string,
 ): Promise<void> {
-  const catalog = catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+  const catalog = featurePageUrl(ctx.config, feature.name);
   await ctx.notify(
     [
       outcome,
@@ -116,7 +115,7 @@ export async function runExportTestLoop(ctx: {
     }
 
     if (!announcedTesting) {
-      const catalog = catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+      const catalog = featurePageUrl(ctx.config, feature.name);
       await ctx.notify(formatTestingStart(feature.name, catalog));
       announcedTesting = true;
     }
@@ -126,7 +125,7 @@ export async function runExportTestLoop(ctx: {
     if (haltIfNeeded(feature)) {
       return;
     }
-    await postTesterArtifacts(ctx, latest.id, latest.discordThreadId, report);
+    await postTesterArtifacts(ctx, latest.id, report);
 
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
     if (haltIfNeeded(feature)) {
@@ -138,7 +137,7 @@ export async function runExportTestLoop(ctx: {
       await notifyReadyForReview(
         ctx,
         feature,
-        `**${feature.name}** passed every acceptance criterion.`,
+        `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} passed every acceptance criterion.`,
         "Merge on GitHub, or /egon-pivot to steer the implementer.",
       );
       return;
@@ -149,7 +148,7 @@ export async function runExportTestLoop(ctx: {
       await notifyReadyForReview(
         ctx,
         feature,
-        `**${feature.name}** still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
+        `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
         "Merge on GitHub, or /egon-pivot to continue.",
       );
       return;
@@ -162,7 +161,6 @@ export async function runExportTestLoop(ctx: {
 async function postTesterArtifacts(
   ctx: { client: Client; config: Config; notify: (content: string) => Promise<void> },
   featureId: number,
-  threadId: string | null,
   report: TestReport,
 ): Promise<void> {
   const paths = featurePaths(ctx.config.dataDir, featureId);
@@ -172,9 +170,8 @@ async function postTesterArtifacts(
         .map((name) => join(paths.screenshotsDir, name))
     : [];
   const summary = formatTestReport(report);
-  const target = threadId ?? ctx.config.discordChannelId;
   try {
-    await postFiles(ctx.client, target, files, summary);
+    await postFiles(ctx.client, ctx.config.discordChannelId, files, summary);
   } catch (error) {
     console.error("failed to post tester artifacts", error);
     await ctx.notify(summary);

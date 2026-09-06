@@ -38,15 +38,15 @@ test("plan takes the pipeline lock and rejects a second plan", () => {
   store.close();
 });
 
-test("first thread answer is persisted once", () => {
+test("first question answer is persisted once", () => {
   const store = openStore();
   const feature = store.createFeature("qa", "channel-1");
-  store.setDiscordIds(feature.id, { messageId: "m1", threadId: "t1" });
+  store.setDiscordIds(feature.id, { messageId: "m1" });
   store.setPendingQuestion(feature.id, "What size?");
-  const first = store.recordFirstThreadAnswer("t1", "a1", "yes, do that");
+  const first = store.recordFirstAnswer(feature.id, "a1", "yes, do that");
   assert.equal(first?.answerMessageId, "a1");
   assert.equal(first?.pendingAnswer, "yes, do that");
-  const second = store.recordFirstThreadAnswer("t1", "a2", "another");
+  const second = store.recordFirstAnswer(feature.id, "a2", "another");
   assert.equal(second, undefined);
   assert.equal(store.listOpenFeatures()[0]?.noteCount, 1);
   store.close();
@@ -68,13 +68,15 @@ test("agent ids and pending question round-trip", () => {
 test("github PR fields round-trip and lookup", () => {
   const store = openStore();
   const feature = store.createFeature("dash", "channel-1");
+  store.setGithubBranch(feature.id, "egon/dash-20260906T173633Z");
+  assert.equal(store.getFeatureById(feature.id)?.githubBranch, "egon/dash-20260906T173633Z");
   store.setGithubPr(feature.id, {
-    branch: "egon/dash",
+    branch: "egon/dash-20260906T173633Z",
     number: 12,
     url: "https://github.com/org/game/pull/12",
   });
   const loaded = store.getFeatureById(feature.id);
-  assert.equal(loaded?.githubBranch, "egon/dash");
+  assert.equal(loaded?.githubBranch, "egon/dash-20260906T173633Z");
   assert.equal(loaded?.githubPrNumber, 12);
   assert.equal(loaded?.githubPrUrl, "https://github.com/org/game/pull/12");
   assert.equal(store.getFeatureByPrNumber(12)?.id, feature.id);
@@ -194,14 +196,14 @@ test("deleteFeature removes planned features and releases the lock", () => {
   store.close();
 });
 
-test("deleteFeature refuses accepted features", () => {
+test("deleteFeature removes accepted features from the catalog", () => {
   const store = openStore();
   const feature = store.createFeature("hud", "channel-1");
   store.startPlanning(feature.id);
   store.transition(feature.id, "implementing");
   store.transition(feature.id, "accepted");
-  assert.throws(() => store.deleteFeature(feature.id), /Implemented features cannot be deleted/);
-  assert.equal(store.getFeatureById(feature.id)?.state, "accepted");
+  store.deleteFeature(feature.id);
+  assert.equal(store.getFeatureById(feature.id), undefined);
   store.close();
 });
 

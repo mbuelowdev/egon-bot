@@ -12,7 +12,7 @@ import { loadFeatureAgentLog } from "../cursor/agentLog.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubPullRequestEvent, verifyGithubSignature, type GithubPrEvent } from "./webhook.js";
 
-/** Shared catalog password for deleting features that are not yet implemented. */
+/** Shared catalog password for deleting features from the catalog. */
 export const CATALOG_DELETE_PASSWORD = "ente123";
 
 export type CatalogServerOptions = {
@@ -174,10 +174,6 @@ async function handleRequest(
       send(res, 403, "Wrong password", "text/plain; charset=utf-8");
       return;
     }
-    if (feature.state === "accepted") {
-      send(res, 409, `Implemented features cannot be deleted. "${feature.name}" already merged.`, "text/plain; charset=utf-8");
-      return;
-    }
     if (options.beforeDelete) {
       await options.beforeDelete(feature);
     }
@@ -192,7 +188,7 @@ async function handleRequest(
       throw error;
     }
     rmSync(featurePaths(options.config.dataDir, feature.id).root, { recursive: true, force: true });
-    if (prNumber !== null && feature.state !== "rejected") {
+    if (prNumber !== null && feature.state !== "rejected" && feature.state !== "accepted") {
       const close = options.closePullRequest ?? ((number) => closePullRequest(options.config, number));
       try {
         await close(prNumber);

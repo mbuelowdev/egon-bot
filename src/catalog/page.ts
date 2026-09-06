@@ -567,8 +567,7 @@ export function indexPage(
     const pr = feature.githubPrUrl
       ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(githubPrCaption(feature, "PR"))}</a>`
       : "";
-    const actions =
-      feature.state === "accepted" ? "" : `<div class="card-actions">${deleteButton(slug)}</div>`;
+    const actions = `<div class="card-actions">${deleteButton(slug)}</div>`;
     return `<article class="card">
       <h3><a href="/features/${encodeURIComponent(slug)}">${escapeHtml(feature.name)}</a></h3>
       <div class="meta">${escapeHtml(feature.state)}${pr}</div>
@@ -665,7 +664,7 @@ export function featurePage(
       <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>${escapeHtml(feature.name)}</h1>
       ${pr}
-      ${feature.state === "accepted" ? "" : `<p class="links">${deleteButton(slug)}</p>`}
+      <p class="links">${deleteButton(slug)}</p>
     </header>
     <main>
       ${notesSection}

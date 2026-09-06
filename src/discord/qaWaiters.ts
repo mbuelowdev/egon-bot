@@ -6,51 +6,51 @@ type Waiter = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
-const waiters = new Map<string, Waiter>();
+const waiters = new Map<number, Waiter>();
 
-export class ThreadWaitCancelledError extends Error {
+export class QuestionWaitCancelledError extends Error {
   constructor(message = "Pipeline stopped") {
     super(message);
-    this.name = "ThreadWaitCancelledError";
+    this.name = "QuestionWaitCancelledError";
   }
 }
 
-export function waitForThreadAnswer(
-  threadId: string,
+export function waitForQuestionAnswer(
+  featureId: number,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<string> {
-  const existing = waiters.get(threadId);
+  const existing = waiters.get(featureId);
   if (existing) {
     clearTimeout(existing.timeout);
-    existing.reject(new Error("Superseded by a newer question in this thread"));
-    waiters.delete(threadId);
+    existing.reject(new Error("Superseded by a newer question"));
+    waiters.delete(featureId);
   }
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      waiters.delete(threadId);
-      reject(new Error("Timed out waiting for a Discord mention-answer"));
+      waiters.delete(featureId);
+      reject(new Error("Timed out waiting for a Discord answer"));
     }, timeoutMs);
-    waiters.set(threadId, { resolve, reject, timeout });
+    waiters.set(featureId, { resolve, reject, timeout });
   });
 }
 
-export function deliverThreadAnswer(threadId: string, answer: string): boolean {
-  const waiter = waiters.get(threadId);
+export function deliverQuestionAnswer(featureId: number, answer: string): boolean {
+  const waiter = waiters.get(featureId);
   if (!waiter) {
     return false;
   }
   clearTimeout(waiter.timeout);
-  waiters.delete(threadId);
+  waiters.delete(featureId);
   waiter.resolve(answer);
   return true;
 }
 
-export function cancelAllThreadWaiters(reason = "Pipeline stopped"): void {
+export function cancelAllQuestionWaiters(reason = "Pipeline stopped"): void {
   const pending = [...waiters.values()];
   waiters.clear();
   for (const waiter of pending) {
     clearTimeout(waiter.timeout);
-    waiter.reject(new ThreadWaitCancelledError(reason));
+    waiter.reject(new QuestionWaitCancelledError(reason));
   }
 }
 

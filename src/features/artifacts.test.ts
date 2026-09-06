@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Config } from "../config.js";
 import { FeatureStore } from "./store.js";
-import { copyFeatureAssets, featureAssetDir, plannedAssetPath, safeAssetFileName } from "./artifacts.js";
+import {
+  copyFeatureAssets,
+  featureAssetDir,
+  featureBranchName,
+  newFeatureBranchName,
+  plannedAssetPath,
+  safeAssetFileName,
+} from "./artifacts.js";
 
 test("safeAssetFileName keeps a simple name and strips path junk", () => {
   assert.equal(safeAssetFileName("hud.png", "x.png"), "hud.png");
@@ -79,4 +86,24 @@ test("plannedAssetPath matches copyFeatureAssets dest names", () => {
     plannedAssetPath(feature.name, attachments, second.id),
     join("assets", "egon", "dash-hud", `hud-${String(second.id)}.png`),
   );
+});
+
+test("newFeatureBranchName stamps UTC time down to seconds", () => {
+  assert.equal(
+    newFeatureBranchName("dash-hud", new Date("2026-09-06T17:36:33.847Z")),
+    "egon/dash-hud-20260906T173633Z",
+  );
+  assert.notEqual(
+    newFeatureBranchName("dash-hud", new Date("2026-09-06T17:36:33Z")),
+    newFeatureBranchName("dash-hud", new Date("2026-09-06T17:36:34Z")),
+  );
+});
+
+test("featureBranchName prefers the stored github branch", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  assert.equal(featureBranchName(feature), "egon/dash-hud");
+  const named = store.setGithubBranch(feature.id, "egon/dash-hud-20260906T173633Z");
+  store.close();
+  assert.equal(featureBranchName(named), "egon/dash-hud-20260906T173633Z");
 });

@@ -100,13 +100,13 @@ export function formatReviewReady(name: string, pageUrl?: string, prUrl?: string
 }
 
 /** Confirmation after /egon-plan. */
-export function formatPlanStarted(name: string): string {
-  return `${PHASE_EMOJI.planning} Started planning **${escapedFeatureName(name)}**. Progress will be posted in this channel.`;
+export function formatPlanStarted(name: string, pageUrl?: string): string {
+  return `${PHASE_EMOJI.planning} Started planning ${formatFeatureName(name, pageUrl)}. Progress will be posted in this channel.`;
 }
 
 /** Channel line when a plan run starts, with collected notes listed below. */
-export function formatPlanningStart(name: string, notes: string[]): string {
-  const title = `${PHASE_EMOJI.planning} Planning **${escapedFeatureName(name)}**.`;
+export function formatPlanningStart(name: string, notes: string[], pageUrl?: string): string {
+  const title = `${PHASE_EMOJI.planning} Planning ${formatFeatureName(name, pageUrl)}.`;
   return clipDiscordMessage([title, ...notes.map(formatNoteBullet)].join("\n"));
 }
 
@@ -126,14 +126,14 @@ function formatQuotedUserText(title: string, text: string, assetPath?: string): 
 }
 
 /** Confirmation after /egon-add or /egon-add-to-feature. */
-export function formatNoteAdded(name: string, text: string, assetPath?: string): string {
-  return formatQuotedUserText(`Added a note to **${escapedFeatureName(name)}**.`, text, assetPath);
+export function formatNoteAdded(name: string, text: string, assetPath?: string, pageUrl?: string): string {
+  return formatQuotedUserText(`Added a note to ${formatFeatureName(name, pageUrl)}.`, text, assetPath);
 }
 
 /** Confirmation after /egon-pivot. */
-export function formatPivoting(name: string, text: string, assetPath?: string): string {
+export function formatPivoting(name: string, text: string, assetPath?: string, pageUrl?: string): string {
   return formatQuotedUserText(
-    `Pivoting **${escapedFeatureName(name)}**. Re-entering implement and test.`,
+    `Pivoting ${formatFeatureName(name, pageUrl)}. Re-entering implement and test.`,
     text,
     assetPath,
   );

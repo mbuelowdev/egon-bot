@@ -45,15 +45,15 @@ function testConfig(gameRepoDir: string) {
 test("createFeatureBranch starts from origin/master", async () => {
   const { work } = initBareAndClone();
   const config = testConfig(work);
-  const branch = await createFeatureBranch(config, "dash-hud");
-  assert.equal(branch, "egon/dash-hud");
-  assert.equal(git(work, ["rev-parse", "--abbrev-ref", "HEAD"]), "egon/dash-hud");
+  const branch = await createFeatureBranch(config, "egon/dash-hud-20260906T173633Z");
+  assert.equal(branch, "egon/dash-hud-20260906T173633Z");
+  assert.equal(git(work, ["rev-parse", "--abbrev-ref", "HEAD"]), "egon/dash-hud-20260906T173633Z");
 });
 
 test("commitAndPush no-ops on a clean tree and pushes when dirty", async () => {
   const { work } = initBareAndClone();
   const config = testConfig(work);
-  await createFeatureBranch(config, "dash");
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
   assert.equal(await commitAndPush(config, "empty"), false);
   mkdirSync(join(work, "docs", "features", "dash"), { recursive: true });
   writeFileSync(join(work, "docs", "features", "dash", "SPEC.md"), "# Dash\n");
@@ -64,15 +64,29 @@ test("commitAndPush no-ops on a clean tree and pushes when dirty", async () => {
 test("checkoutDefaultBranch returns to master", async () => {
   const { work } = initBareAndClone();
   const config = testConfig(work);
-  await createFeatureBranch(config, "dash");
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
   await checkoutDefaultBranch(config);
   assert.equal(git(work, ["rev-parse", "--abbrev-ref", "HEAD"]), "master");
+});
+
+test("commitAndPush succeeds when an older same-slug branch already exists", async () => {
+  const { work } = initBareAndClone();
+  const config = testConfig(work);
+  await createFeatureBranch(config, "egon/dash-20260906T173000Z");
+  mkdirSync(join(work, "docs", "features", "dash"), { recursive: true });
+  writeFileSync(join(work, "docs", "features", "dash", "SPEC.md"), "# Old\n");
+  assert.equal(await commitAndPush(config, "egon: spec dash old"), true);
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
+  mkdirSync(join(work, "docs", "features", "dash"), { recursive: true });
+  writeFileSync(join(work, "docs", "features", "dash", "SPEC.md"), "# New\n");
+  assert.equal(await commitAndPush(config, "egon: spec dash new"), true);
+  assert.equal(git(work, ["rev-parse", "--abbrev-ref", "HEAD"]), "egon/dash-20260906T173633Z");
 });
 
 test("discardUncommittedWork drops tracked and untracked edits", async () => {
   const { work } = initBareAndClone();
   const config = testConfig(work);
-  await createFeatureBranch(config, "dash");
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
   writeFileSync(join(work, "README.md"), "dirty\n");
   writeFileSync(join(work, "scratch.txt"), "tmp\n");
   await discardUncommittedWork(config);

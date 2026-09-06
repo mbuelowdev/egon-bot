@@ -1,4 +1,4 @@
-import { type Client, type Message } from "discord.js";
+import { type Client, type Message, type MessageCreateOptions } from "discord.js";
 import { noLinkPreview } from "./preview.js";
 
 const DISCORD_LIMIT = 2000;
@@ -7,6 +7,7 @@ export async function postToChannel(
   client: Client,
   channelId: string,
   content: string,
+  options?: { components?: MessageCreateOptions["components"] },
 ): Promise<Message> {
   const channel = await client.channels.fetch(channelId);
   if (!channel || !channel.isTextBased() || channel.isDMBased()) {
@@ -14,8 +15,18 @@ export async function postToChannel(
   }
   const chunks = splitContent(content);
   let last: Message | undefined;
-  for (const chunk of chunks) {
-    last = await channel.send(noLinkPreview({ content: chunk }));
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (chunk === undefined) {
+      continue;
+    }
+    const isLast = i === chunks.length - 1;
+    last = await channel.send(
+      noLinkPreview({
+        content: chunk,
+        ...(isLast && options?.components !== undefined ? { components: options.components } : {}),
+      }),
+    );
   }
   if (!last) {
     throw new Error("Failed to post Discord message");

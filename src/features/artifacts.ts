@@ -88,6 +88,19 @@ export function copyFeatureAssets(
   return copied;
 }
 
+/** UTC stamp down to seconds, e.g. `20260906T173633Z`. */
+export function branchTimestamp(date: Date = new Date()): string {
+  const iso = date.toISOString();
+  return `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
+}
+
+export function newFeatureBranchName(slug: string, now: Date = new Date()): string {
+  return `egon/${slug}-${branchTimestamp(now)}`;
+}
+
 export function featureBranchName(feature: Feature): string {
+  if (feature.githubBranch) {
+    return feature.githubBranch;
+  }
   return `egon/${featureSlug(feature.name)}`;
 }

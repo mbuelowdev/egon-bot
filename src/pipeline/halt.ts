@@ -1,4 +1,4 @@
-import { ThreadWaitCancelledError } from "../discord/qaWaiters.js";
+import { QuestionWaitCancelledError } from "../discord/qaWaiters.js";
 import { isStoppablePipelineState } from "../features/state.js";
 import type { Feature } from "../features/store.js";
 
@@ -17,7 +17,7 @@ export function isPipelineStopError(error: unknown): boolean {
   if (error instanceof PipelineStoppedError) {
     return true;
   }
-  if (error instanceof ThreadWaitCancelledError) {
+  if (error instanceof QuestionWaitCancelledError) {
     return true;
   }
   return error instanceof Error && error.name === "AbortError";

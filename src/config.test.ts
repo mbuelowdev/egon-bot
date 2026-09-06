@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catalogUrl, githubRepoWebUrl, loadConfig } from "./config.js";
+import { catalogUrl, featurePageUrl, githubRepoWebUrl, loadConfig } from "./config.js";
 
 const validEnv: NodeJS.ProcessEnv = {
   DISCORD_TOKEN: "token",
@@ -66,6 +66,12 @@ test("catalogUrl strips trailing slash on FEATURES_PUBLIC_URL", () => {
   const config = loadConfig({ ...validEnv, FEATURES_PUBLIC_URL: "https://egon.example/" });
   assert.equal(config.featuresPublicUrl, "https://egon.example");
   assert.equal(catalogUrl(config, "/features/dash"), "https://egon.example/features/dash");
+});
+
+test("featurePageUrl slugs the feature name onto the catalog", () => {
+  const config = loadConfig({ ...validEnv, FEATURES_PUBLIC_URL: "https://egon.example/" });
+  assert.equal(featurePageUrl(config, "Dash HUD"), "https://egon.example/features/dash-hud");
+  assert.equal(featurePageUrl(loadConfig(validEnv), "Dash HUD"), undefined);
 });
 
 test("githubRepoWebUrl strips .git from the clone URL", () => {
