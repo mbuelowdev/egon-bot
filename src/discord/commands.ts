@@ -4,6 +4,8 @@ import {
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
   type Client,
+  type MessageCreateOptions,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import { catalogUrl, type Config } from "../config.js";
 import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
@@ -13,6 +15,7 @@ import { assertImageContentType, saveFeatureImage } from "../features/saveImage.
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { formatNoteAdded, formatPlanStarted } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
+import { addNoteButtonRow, deleteNoteButtonRow } from "./noteButton.js";
 import { discordLink, noLinkPreview } from "./preview.js";
 
 export type CommandContext = {
@@ -43,11 +46,15 @@ function command(
 
 /** Result of a slash command. Follows up if the interaction was already replied to. */
 export async function replyCommand(
-  interaction: ChatInputCommandInteraction,
+  interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
   content: string,
-  options?: { ephemeral?: boolean },
+  options?: { ephemeral?: boolean; components?: MessageCreateOptions["components"] },
 ): Promise<void> {
-  const payload = noLinkPreview({ content, ephemeral: options?.ephemeral ?? false });
+  const payload = noLinkPreview({
+    content,
+    ephemeral: options?.ephemeral ?? false,
+    components: options?.components,
+  });
   if (interaction.replied || interaction.deferred) {
     await interaction.followUp(payload);
     return;
@@ -55,15 +62,16 @@ export async function replyCommand(
   await interaction.reply(payload);
 }
 
-async function addNoteWithOptionalImage(
-  interaction: ChatInputCommandInteraction,
+export async function addNoteAndReply(
+  interaction: ChatInputCommandInteraction | ModalSubmitInteraction,
   store: FeatureStore,
   config: Config,
   feature: Feature,
+  text: string,
+  attachment?: { name: string; url: string; contentType: string | null } | null,
 ): Promise<void> {
-  const text = interaction.options.getString("text", true);
-  const attachment = interaction.options.getAttachment("image");
   let assetPath: string | undefined;
+  let attachmentId: number | undefined;
   if (attachment) {
     assertImageContentType(attachment.contentType);
     await interaction.deferReply();
@@ -77,10 +85,29 @@ async function addNoteWithOptionalImage(
         contentType: attachment.contentType,
       },
     });
+    attachmentId = saved.id;
     assetPath = plannedAssetPath(feature.name, store.listAttachments(feature.id), saved.id);
   }
-  store.addNote(feature.id, text);
-  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath));
+  const note = store.addNote(feature.id, text);
+  const components =
+    feature.state === "collecting" ? [deleteNoteButtonRow(note.id, attachmentId)] : undefined;
+  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath), { components });
+}
+
+async function addNoteWithOptionalImage(
+  interaction: ChatInputCommandInteraction,
+  store: FeatureStore,
+  config: Config,
+  feature: Feature,
+): Promise<void> {
+  await addNoteAndReply(
+    interaction,
+    store,
+    config,
+    feature,
+    interaction.options.getString("text", true),
+    interaction.options.getAttachment("image"),
+  );
 }
 
 function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
@@ -123,6 +150,7 @@ export const COMMANDS: RegisteredCommand[] = [
       await replyCommand(
         interaction,
         `Created **${feature.name}** (${feature.state}). It is now the latest feature in this channel.`,
+        { components: [addNoteButtonRow(feature.id)] },
       );
     },
   ),

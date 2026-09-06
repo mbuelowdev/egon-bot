@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { featurePaths } from "../cursor/testReport.js";
-import { assertImageContentType, saveFeatureImage } from "./saveImage.js";
+import { assertImageContentType, removeAttachmentFile, saveFeatureImage } from "./saveImage.js";
 import { FeatureStore, UserFacingError } from "./store.js";
 
 test("assertImageContentType allows raster images and rejects others", () => {
@@ -60,5 +60,21 @@ test("saveFeatureImage rejects a failed download", async () => {
     /Could not download/,
   );
   assert.equal(store.listAttachments(feature.id).length, 0);
+  store.close();
+});
+
+test("removeAttachmentFile deletes the stored image", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-image-rm-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
+  const dir = featurePaths(dataDir, feature.id).attachmentsDir;
+  mkdirSync(dir, { recursive: true });
+  const storedName = "abc.png";
+  const filePath = join(dir, storedName);
+  writeFileSync(filePath, "png");
+  removeAttachmentFile(dataDir, feature.id, storedName);
+  assert.equal(existsSync(filePath), false);
+  removeAttachmentFile(dataDir, feature.id, storedName);
+  removeAttachmentFile(dataDir, feature.id, "../escape.png");
   store.close();
 });

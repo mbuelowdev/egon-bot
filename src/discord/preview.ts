@@ -22,6 +22,7 @@ export type NoLinkPreviewOptions = {
   content?: string;
   ephemeral?: boolean;
   files?: MessageCreateOptions["files"];
+  components?: MessageCreateOptions["components"];
 };
 
 export function noLinkPreview(options: NoLinkPreviewOptions): {
@@ -29,11 +30,13 @@ export function noLinkPreview(options: NoLinkPreviewOptions): {
   flags: typeof SUPPRESS_LINK_PREVIEW;
   ephemeral?: boolean;
   files?: MessageCreateOptions["files"];
+  components?: MessageCreateOptions["components"];
 } {
   return {
     flags: SUPPRESS_LINK_PREVIEW,
     ...(options.content !== undefined ? { content: options.content } : {}),
     ...(options.ephemeral !== undefined ? { ephemeral: options.ephemeral } : {}),
     ...(options.files !== undefined ? { files: options.files } : {}),
+    ...(options.components !== undefined ? { components: options.components } : {}),
   };
 }

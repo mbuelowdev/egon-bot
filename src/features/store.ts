@@ -33,6 +33,13 @@ export type Feature = {
   updatedAt: string;
 };
 
+export type FeatureNote = {
+  id: number;
+  featureId: number;
+  text: string;
+  createdAt: string;
+};
+
 export type FeatureAttachment = {
   id: number;
   featureId: number;
@@ -169,7 +176,7 @@ export class FeatureStore {
     return row ? mapFeature(row) : undefined;
   }
 
-  addNote(featureId: number, text: string): void {
+  addNote(featureId: number, text: string): FeatureNote {
     const trimmed = text.trim();
     if (trimmed === "") {
       throw new UserFacingError("Note text cannot be empty.");
@@ -179,10 +186,16 @@ export class FeatureStore {
       throw new UserFacingError("Feature not found.");
     }
     const createdAt = nowIso();
-    this.db
+    const result = this.db
       .prepare("INSERT INTO notes (feature_id, text, created_at) VALUES (?, ?, ?)")
       .run(featureId, trimmed, createdAt);
     this.db.prepare("UPDATE features SET updated_at = ? WHERE id = ?").run(createdAt, featureId);
+    return {
+      id: Number(result.lastInsertRowid),
+      featureId,
+      text: trimmed,
+      createdAt,
+    };
   }
 
   listNotes(featureId: number): string[] {
@@ -225,6 +238,53 @@ export class FeatureStore {
       storedName,
       createdAt,
     };
+  }
+
+  /**
+   * Remove a note (and optional image from the same /egon-add) while the feature is collecting.
+   * Returns undefined when the note is already gone.
+   */
+  deleteCollectingAddition(
+    noteId: number,
+    attachmentId?: number,
+  ): { feature: Feature; attachment?: FeatureAttachment } | undefined {
+    const note = this.getNoteById(noteId);
+    const orphanAttachment =
+      note === undefined && attachmentId !== undefined
+        ? this.getAttachmentById(attachmentId)
+        : undefined;
+    const owner = note ?? orphanAttachment;
+    if (!owner) {
+      return undefined;
+    }
+    const feature = this.requireFeature(owner.featureId);
+    if (feature.state !== "collecting") {
+      throw new UserFacingError(
+        `Notes can only be deleted while collecting. "${feature.name}" is ${feature.state}.`,
+      );
+    }
+    let attachment: FeatureAttachment | undefined = orphanAttachment;
+    if (attachment === undefined && attachmentId !== undefined) {
+      const found = this.getAttachmentById(attachmentId);
+      if (found && found.featureId === feature.id) {
+        attachment = found;
+      }
+    }
+    this.db.exec("BEGIN");
+    try {
+      if (note) {
+        this.db.prepare("DELETE FROM notes WHERE id = ?").run(noteId);
+      }
+      if (attachment) {
+        this.db.prepare("DELETE FROM attachments WHERE id = ?").run(attachment.id);
+      }
+      this.db.prepare("UPDATE features SET updated_at = ? WHERE id = ?").run(nowIso(), feature.id);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return { feature, attachment };
   }
 
   listAttachments(featureId: number): FeatureAttachment[] {
@@ -598,6 +658,52 @@ export class FeatureStore {
       throw error;
     }
     return feature;
+  }
+
+  private getNoteById(noteId: number): FeatureNote | undefined {
+    const row = this.db
+      .prepare("SELECT id, feature_id, text, created_at FROM notes WHERE id = ?")
+      .get(noteId) as
+      | { id: number | bigint; feature_id: number | bigint; text: string; created_at: string }
+      | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: Number(row.id),
+      featureId: Number(row.feature_id),
+      text: row.text,
+      createdAt: row.created_at,
+    };
+  }
+
+  private getAttachmentById(attachmentId: number): FeatureAttachment | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, feature_id, filename, mime_type, stored_name, created_at
+         FROM attachments WHERE id = ?`,
+      )
+      .get(attachmentId) as
+      | {
+          id: number | bigint;
+          feature_id: number | bigint;
+          filename: string;
+          mime_type: string;
+          stored_name: string;
+          created_at: string;
+        }
+      | undefined;
+    if (!row) {
+      return undefined;
+    }
+    return {
+      id: Number(row.id),
+      featureId: Number(row.feature_id),
+      filename: row.filename,
+      mimeType: row.mime_type,
+      storedName: row.stored_name,
+      createdAt: row.created_at,
+    };
   }
 
   private requireFeature(featureId: number): Feature {

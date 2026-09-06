@@ -1,12 +1,22 @@
 import {
+  type ButtonInteraction,
   type Client,
   type Interaction,
   type Message,
+  type ModalSubmitInteraction,
 } from "discord.js";
 import type { Config } from "../config.js";
+import { removeAttachmentFile } from "../features/saveImage.js";
 import { UserFacingError, type FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
-import { COMMAND_BY_NAME, type CommandContext } from "./commands.js";
+import { addNoteAndReply, COMMAND_BY_NAME, type CommandContext } from "./commands.js";
+import {
+  ADD_NOTE_TEXT_INPUT_ID,
+  addNoteModal,
+  parseAddNoteCustomId,
+  parseAddNoteModalCustomId,
+  parseDeleteNoteCustomId,
+} from "./noteButton.js";
 import { noLinkPreview } from "./preview.js";
 import { deliverThreadAnswer } from "./qaWaiters.js";
 import { isInConfiguredChannel, isWinningMention } from "./threads.js";
@@ -48,25 +58,37 @@ async function replyError(interaction: Interaction, content: string): Promise<vo
   await interaction.reply(noLinkPreview({ content, ephemeral: true }));
 }
 
-export async function handleInteraction(
-  interaction: Interaction,
-  ctx: BotContext,
-): Promise<void> {
-  if (!interaction.isChatInputCommand()) {
-    return;
-  }
+async function ensureConfiguredChannel(interaction: Interaction, ctx: BotContext): Promise<boolean> {
   const parentId = await parentChannelId(interaction);
   if (
-    !isInConfiguredChannel(
+    isInConfiguredChannel(
       interaction.channelId ?? "",
       parentId,
       ctx.config.discordChannelId,
     )
   ) {
-    await replyError(
-      interaction,
-      "This bot only accepts commands in the configured channel.",
-    );
+    return true;
+  }
+  await replyError(interaction, "This bot only accepts commands in the configured channel.");
+  return false;
+}
+
+export async function handleInteraction(
+  interaction: Interaction,
+  ctx: BotContext,
+): Promise<void> {
+  if (interaction.isButton()) {
+    await handleButton(interaction, ctx);
+    return;
+  }
+  if (interaction.isModalSubmit()) {
+    await handleModalSubmit(interaction, ctx);
+    return;
+  }
+  if (!interaction.isChatInputCommand()) {
+    return;
+  }
+  if (!(await ensureConfiguredChannel(interaction, ctx))) {
     return;
   }
   const command = COMMAND_BY_NAME.get(interaction.commandName);
@@ -83,6 +105,84 @@ export async function handleInteraction(
   };
   try {
     await command.handle(commandCtx);
+  } catch (error) {
+    if (error instanceof UserFacingError) {
+      await replyError(interaction, error.message);
+      return;
+    }
+    console.error(error);
+    await replyError(interaction, "Something went wrong.");
+  }
+}
+
+async function handleButton(interaction: ButtonInteraction, ctx: BotContext): Promise<void> {
+  const addFeatureId = parseAddNoteCustomId(interaction.customId);
+  const deleteTarget = parseDeleteNoteCustomId(interaction.customId);
+  if (addFeatureId === undefined && deleteTarget === undefined) {
+    return;
+  }
+  if (!(await ensureConfiguredChannel(interaction, ctx))) {
+    return;
+  }
+  if (addFeatureId !== undefined) {
+    const feature = ctx.store.getFeatureById(addFeatureId);
+    if (!feature) {
+      await replyError(interaction, "Feature not found.");
+      return;
+    }
+    await interaction.showModal(addNoteModal(feature.id, feature.name));
+    return;
+  }
+  if (deleteTarget === undefined) {
+    return;
+  }
+  await interaction.deferUpdate();
+  try {
+    const removed = ctx.store.deleteCollectingAddition(deleteTarget.noteId, deleteTarget.attachmentId);
+    if (removed?.attachment) {
+      removeAttachmentFile(
+        ctx.config.dataDir,
+        removed.feature.id,
+        removed.attachment.storedName,
+      );
+    }
+  } catch (error) {
+    if (error instanceof UserFacingError) {
+      await interaction.followUp(noLinkPreview({ content: error.message, ephemeral: true }));
+      return;
+    }
+    console.error(error);
+    await interaction.followUp(noLinkPreview({ content: "Something went wrong.", ephemeral: true }));
+    return;
+  }
+  try {
+    await interaction.message.delete();
+  } catch (error) {
+    console.error("could not delete note confirmation message", error);
+  }
+}
+
+async function handleModalSubmit(interaction: ModalSubmitInteraction, ctx: BotContext): Promise<void> {
+  const featureId = parseAddNoteModalCustomId(interaction.customId);
+  if (featureId === undefined) {
+    return;
+  }
+  if (!(await ensureConfiguredChannel(interaction, ctx))) {
+    return;
+  }
+  const feature = ctx.store.getFeatureById(featureId);
+  if (!feature) {
+    await replyError(interaction, "Feature not found.");
+    return;
+  }
+  try {
+    await addNoteAndReply(
+      interaction,
+      ctx.store,
+      ctx.config,
+      feature,
+      interaction.fields.getTextInputValue(ADD_NOTE_TEXT_INPUT_ID),
+    );
   } catch (error) {
     if (error instanceof UserFacingError) {
       await replyError(interaction, error.message);

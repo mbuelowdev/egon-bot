@@ -179,6 +179,43 @@ test("add and list attachments", () => {
   store.close();
 });
 
+test("deleteCollectingAddition removes a note and optional image", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  const keep = store.addNote(feature.id, "keep this");
+  const gone = store.addNote(feature.id, "wrong note");
+  const image = store.addAttachment(feature.id, {
+    filename: "oops.png",
+    mimeType: "image/png",
+    storedName: "oops.png",
+  });
+  const extra = store.addAttachment(feature.id, {
+    filename: "keep.png",
+    mimeType: "image/png",
+    storedName: "keep.png",
+  });
+  const removed = store.deleteCollectingAddition(gone.id, image.id);
+  assert.equal(removed?.feature.id, feature.id);
+  assert.equal(removed?.attachment?.id, image.id);
+  assert.deepEqual(store.listNotes(feature.id), ["keep this"]);
+  assert.equal(store.listAttachments(feature.id).length, 1);
+  assert.equal(store.listAttachments(feature.id)[0]?.id, extra.id);
+  assert.equal(store.deleteCollectingAddition(gone.id), undefined);
+  assert.equal(store.deleteCollectingAddition(keep.id)?.attachment, undefined);
+  assert.deepEqual(store.listNotes(feature.id), []);
+  store.close();
+});
+
+test("deleteCollectingAddition rejects planned features", () => {
+  const store = openStore();
+  const feature = store.createFeature("hud", "channel-1");
+  const note = store.addNote(feature.id, "need a HUD");
+  store.startPlanning(feature.id);
+  assert.throws(() => store.deleteCollectingAddition(note.id), /Only collecting features|while collecting/);
+  assert.deepEqual(store.listNotes(feature.id), ["need a HUD"]);
+  store.close();
+});
+
 test("deleteCollectingFeature rejects planned features", () => {
   const store = openStore();
   const feature = store.createFeature("hud", "channel-1");

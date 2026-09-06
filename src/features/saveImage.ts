@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { extname, join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, extname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { featurePaths } from "../cursor/testReport.js";
 import { UserFacingError, type FeatureAttachment, type FeatureStore } from "./store.js";
@@ -62,4 +62,13 @@ export async function saveFeatureImage(
   writeFileSync(join(dir, storedName), buffer);
   const filename = options.image.name.trim() === "" ? storedName : options.image.name;
   return options.store.addAttachment(options.featureId, { filename, mimeType, storedName });
+}
+
+/** Remove a stored Discord image. Ignores missing files and rejects path-like names. */
+export function removeAttachmentFile(dataDir: string, featureId: number, storedName: string): void {
+  const name = basename(storedName);
+  if (name === "" || name !== storedName) {
+    return;
+  }
+  rmSync(join(featurePaths(dataDir, featureId).attachmentsDir, name), { force: true });
 }
