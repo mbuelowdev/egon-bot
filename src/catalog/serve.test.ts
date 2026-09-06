@@ -111,6 +111,8 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.match(indexHtml, /href="https:\/\/lets-vibe-together\.mbuelow\.dev"/);
     assert.match(indexHtml, /Game repo/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game"/);
+    assert.match(indexHtml, />Upload assets</);
+    assert.match(indexHtml, /href="https:\/\/discord\.mbuelow\.dev"/);
     assert.match(indexHtml, /PR #7/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
     assert.match(indexHtml, /data-delete-slug="wall-run"/);

@@ -8,6 +8,7 @@ import type { Config } from "../config.js";
 import { FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { beginAgentWatch } from "../cursor/agentWatch.js";
+import { PHASE_EMOJI } from "../format.js";
 import { handleInteraction } from "./handlers.js";
 import { SUPPRESS_LINK_PREVIEW } from "./preview.js";
 
@@ -115,7 +116,7 @@ test("command result is the public reply", async () => {
   });
   assert.deepEqual(interaction.replies, [
     {
-      content: "Added a note to **Jump**.",
+      content: "Added a note to **Jump**.\n*jump has to be higher*",
       ephemeral: false,
       flags: SUPPRESS_LINK_PREVIEW,
     },
@@ -146,7 +147,10 @@ test("egon-add with an image downloads it for Cursor", async () => {
     globalThis.fetch = originalFetch;
   }
   assert.equal(interaction.deferred, true);
-  assert.match(contentOf(interaction.followUps[0]), /Image saved for Cursor/);
+  assert.equal(
+    contentOf(interaction.followUps[0]),
+    "Added a note to **Jump**.\n*jump has to be higher*\nassets/egon/jump/hud.png",
+  );
   assert.equal(store.listNotes(feature.id)[0], "jump has to be higher");
   const attachments = store.listAttachments(feature.id);
   assert.equal(attachments.length, 1);
@@ -203,7 +207,10 @@ test("egon-plan without name uses the channel latest feature", async () => {
     store: store as unknown as FeatureStore,
     pipeline: pipeline as unknown as Pipeline,
   });
-  assert.match(contentOf(interaction.replies[0]), /Started planning \*\*Dash\*\*/);
+  assert.equal(
+    contentOf(interaction.replies[0]),
+    `${PHASE_EMOJI.planning} Started planning **Dash**. Progress will be posted in this channel.`,
+  );
   assert.equal(interaction.followUps.length, 0);
   assert.equal(plannedId, 7);
 });
@@ -229,7 +236,10 @@ test("egon-plan with a name still targets that feature", async () => {
     store: store as unknown as FeatureStore,
     pipeline: pipeline as unknown as Pipeline,
   });
-  assert.match(contentOf(interaction.replies[0]), /Started planning \*\*Wall run\*\*/);
+  assert.equal(
+    contentOf(interaction.replies[0]),
+    `${PHASE_EMOJI.planning} Started planning **Wall run**. Progress will be posted in this channel.`,
+  );
   assert.equal(interaction.followUps.length, 0);
 });
 

@@ -4,7 +4,7 @@ const DISCORD_MESSAGE_LIMIT = 2000;
 export const PHASE_EMOJI = {
   planning: "📋",
   implementing: "🛠️",
-  testing: "🧪",
+  testing: "🔍",
   review: "👀",
   stop: "🛑",
 } as const;
@@ -28,14 +28,43 @@ function formatNoteBullet(note: string): string {
   return `- ${body}`;
 }
 
-/** Channel line when a plan run starts, with collected notes listed below. */
-export function formatPlanningStart(name: string, notes: string[]): string {
-  const title = `${PHASE_EMOJI.planning} Planning **${escapeDiscordMarkdown(flattenDiscordLine(name))}**.`;
-  const text = [title, ...notes.map(formatNoteBullet)].join("\n");
+function clipDiscordMessage(text: string): string {
   if (text.length <= DISCORD_MESSAGE_LIMIT) {
     return text;
   }
   return `${text.slice(0, DISCORD_MESSAGE_LIMIT - 1)}…`;
+}
+
+function escapedFeatureName(name: string): string {
+  return escapeDiscordMarkdown(flattenDiscordLine(name));
+}
+
+/** Confirmation after /egon-plan. */
+export function formatPlanStarted(name: string): string {
+  return `${PHASE_EMOJI.planning} Started planning **${escapedFeatureName(name)}**. Progress will be posted in this channel.`;
+}
+
+/** Channel line when a plan run starts, with collected notes listed below. */
+export function formatPlanningStart(name: string, notes: string[]): string {
+  const title = `${PHASE_EMOJI.planning} Planning **${escapedFeatureName(name)}**.`;
+  return clipDiscordMessage([title, ...notes.map(formatNoteBullet)].join("\n"));
+}
+
+function italicDiscord(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line === "" ? "" : `*${line}*`))
+    .join("\n");
+}
+
+/** Confirmation after /egon-add or /egon-add-to-feature. */
+export function formatNoteAdded(name: string, text: string, assetPath?: string): string {
+  const title = `Added a note to **${escapedFeatureName(name)}**.`;
+  const lines = [title, italicDiscord(escapeDiscordMarkdown(text.trim()))];
+  if (assetPath !== undefined && assetPath !== "") {
+    lines.push(escapeDiscordMarkdown(assetPath));
+  }
+  return clipDiscordMessage(lines.join("\n"));
 }
 
 /** Compact count: 1500 → 1.5k, 1_200_000 → 1.2M. */

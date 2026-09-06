@@ -31,6 +31,36 @@ export function safeAssetFileName(filename: string, fallback: string): string {
   return basename(fallback);
 }
 
+function nextAssetDestName(attachment: FeatureAttachment, used: Set<string>): string {
+  let name = safeAssetFileName(attachment.filename, attachment.storedName);
+  if (!/[A-Za-z0-9]/.test(name)) {
+    name = attachment.storedName;
+  }
+  if (used.has(name.toLowerCase())) {
+    const ext = extname(name);
+    const stem = ext === "" ? name : name.slice(0, -ext.length);
+    name = `${stem}-${String(attachment.id)}${ext}`;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+/** Game-repo relative path this attachment will have after copyFeatureAssets. */
+export function plannedAssetPath(
+  featureName: string,
+  attachments: FeatureAttachment[],
+  attachmentId: number,
+): string | undefined {
+  const used = new Set<string>();
+  for (const attachment of attachments) {
+    const name = nextAssetDestName(attachment, used);
+    if (attachment.id === attachmentId) {
+      return join(featureAssetDir(featureSlug(featureName)), name);
+    }
+  }
+  return undefined;
+}
+
 /** Copy Discord images into the game repo so the implementer can open them in cwd. */
 export function copyFeatureAssets(
   config: Config,
@@ -51,16 +81,7 @@ export function copyFeatureAssets(
     if (!existsSync(src)) {
       continue;
     }
-    let name = safeAssetFileName(attachment.filename, attachment.storedName);
-    if (!/[A-Za-z0-9]/.test(name)) {
-      name = attachment.storedName;
-    }
-    if (used.has(name.toLowerCase())) {
-      const ext = extname(name);
-      const stem = ext === "" ? name : name.slice(0, -ext.length);
-      name = `${stem}-${String(attachment.id)}${ext}`;
-    }
-    used.add(name.toLowerCase());
+    const name = nextAssetDestName(attachment, used);
     copyFileSync(src, join(destDir, name));
     copied.push(join(featureAssetDir(slug), name));
   }

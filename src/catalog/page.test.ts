@@ -14,6 +14,15 @@ const links = {
 
 const emptyStats = { tokens: 1_200_000, implemented: 3, durationMs: 90_000_000 };
 
+test("catalog pages use a Discord-like dark palette", () => {
+  const html = indexPage([], [], emptyStats, links);
+  assert.match(html, /--paper: #313338/);
+  assert.match(html, /--panel: #2b2d31/);
+  assert.match(html, /--accent: #5865f2/);
+  assert.match(html, /--danger: #ed4245/);
+  assert.doesNotMatch(html, /--amber:/);
+});
+
 test("index page shows lifetime token, feature, and agent-time stats", () => {
   const html = indexPage([], [], emptyStats, links);
   assert.match(html, /1\.2M/);
@@ -23,7 +32,7 @@ test("index page shows lifetime token, feature, and agent-time stats", () => {
   assert.match(html, /lifetime agent time/);
 });
 
-test("index page links to the live game, repo, and each feature PR", () => {
+test("index page links to the live game, repo, file sharing, and each feature PR", () => {
   const store = new FeatureStore(":memory:");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
@@ -38,6 +47,9 @@ test("index page links to the live game, repo, and each feature PR", () => {
   assert.match(html, />Play the game</);
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together"/);
   assert.match(html, />Game repo</);
+  assert.match(html, /href="https:\/\/discord\.mbuelow\.dev"/);
+  assert.match(html, />Upload assets</);
+  assert.match(html, /Host sprites, audio, and other files on the sharing service/);
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together\/pull\/12"/);
   assert.match(html, /PR #12/);
   assert.match(html, /href="\/features\/dash-hud#agent-log"/);

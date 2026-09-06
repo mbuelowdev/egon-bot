@@ -7,9 +7,11 @@ import {
 } from "discord.js";
 import { catalogUrl, type Config } from "../config.js";
 import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
+import { plannedAssetPath } from "../features/artifacts.js";
 import { featureSlug } from "../features/slug.js";
 import { assertImageContentType, saveFeatureImage } from "../features/saveImage.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
+import { formatNoteAdded, formatPlanStarted } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { discordLink, noLinkPreview } from "./preview.js";
 
@@ -61,10 +63,11 @@ async function addNoteWithOptionalImage(
 ): Promise<void> {
   const text = interaction.options.getString("text", true);
   const attachment = interaction.options.getAttachment("image");
+  let assetPath: string | undefined;
   if (attachment) {
     assertImageContentType(attachment.contentType);
     await interaction.deferReply();
-    await saveFeatureImage({
+    const saved = await saveFeatureImage({
       dataDir: config.dataDir,
       store,
       featureId: feature.id,
@@ -74,10 +77,10 @@ async function addNoteWithOptionalImage(
         contentType: attachment.contentType,
       },
     });
+    assetPath = plannedAssetPath(feature.name, store.listAttachments(feature.id), saved.id);
   }
   store.addNote(feature.id, text);
-  const extra = attachment ? " Image saved for Cursor." : "";
-  await replyCommand(interaction, `Added a note to **${feature.name}**.${extra}`);
+  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath));
 }
 
 function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
@@ -214,10 +217,7 @@ export const COMMANDS: RegisteredCommand[] = [
         throw new UserFacingError(`No feature named "${name}".`);
       }
       const planned = store.startPlanning(feature.id);
-      await replyCommand(
-        interaction,
-        `Started planning **${planned.name}**. Progress will be posted in this channel.`,
-      );
+      await replyCommand(interaction, formatPlanStarted(planned.name));
       void pipeline.startPlan(planned.id).catch((error: unknown) => {
         console.error("plan pipeline failed", error);
       });

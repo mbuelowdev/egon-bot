@@ -17,13 +17,17 @@ export type CatalogLifetimeStats = {
 
 const STYLES = `
 :root {
-  --ink: #f4efe4;
-  --paper: #161410;
-  --panel: #211c16;
-  --line: #3a3228;
-  --amber: #e2a136;
-  --muted: #a89880;
-  --pass: #8fbf7a;
+  --ink: #dbdee1;
+  --header: #f2f3f5;
+  --paper: #313338;
+  --panel: #2b2d31;
+  --elevated: #1e1f22;
+  --line: #3f4147;
+  --accent: #5865f2;
+  --accent-hover: #7983f5;
+  --muted: #949ba4;
+  --pass: #23a559;
+  --danger: #ed4245;
 }
 * { box-sizing: border-box; }
 html { color-scheme: dark; }
@@ -31,10 +35,10 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 500px at 10% -10%, #2a2118 0%, transparent 55%),
+    radial-gradient(1200px 500px at 10% -10%, #5865f220 0%, transparent 55%),
     var(--paper);
   color: var(--ink);
-  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
   line-height: 1.5;
 }
 header, main { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem; }
@@ -44,9 +48,9 @@ header { padding-bottom: 0; }
   font-size: 0.75rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--amber);
+  color: var(--accent);
 }
-h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; }
+h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; color: var(--header); }
 .lede { color: var(--muted); margin: 0 0 0.85rem; max-width: 40rem; }
 .links {
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
@@ -66,6 +70,7 @@ h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; }
 .stats li {
   background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 0.85rem 1rem;
 }
 .stats strong {
@@ -73,7 +78,7 @@ h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; }
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   font-size: 1.35rem;
   font-weight: 600;
-  color: var(--amber);
+  color: var(--header);
   letter-spacing: 0.02em;
 }
 .stats span {
@@ -88,43 +93,45 @@ h2 {
   font-size: 0.85rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--amber);
+  color: var(--muted);
   border-bottom: 1px solid var(--line);
   padding-bottom: 0.4rem;
 }
-a { color: var(--amber); }
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
 .grid { display: grid; gap: 0.85rem; }
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 2px;
+  border-radius: 8px;
   padding: 1rem 1.1rem;
 }
-.card:hover { border-color: var(--amber); }
-.card h3 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.card:hover { background: #35373c; border-color: var(--accent); }
+.card h3 { margin: 0 0 0.25rem; font-size: 1.25rem; color: var(--header); }
 .card h3 a { color: inherit; text-decoration: none; }
-.card h3 a:hover { color: var(--amber); }
+.card h3 a:hover { color: var(--accent-hover); }
 .meta {
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   font-size: 0.8rem;
   color: var(--muted);
 }
 .empty { color: var(--muted); font-style: italic; }
-.spec h1, .spec h2, .spec h3 { color: var(--ink); border: 0; letter-spacing: 0; text-transform: none; font-family: inherit; }
+.spec h1, .spec h2, .spec h3 { color: var(--header); border: 0; letter-spacing: 0; text-transform: none; font-family: inherit; }
 .spec h2 { font-size: 1.2rem; margin-top: 1.6rem; }
 .spec ol, .notes { padding-left: 1.25rem; }
 .spec code {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 0.9em;
-  background: #00000040;
+  background: var(--elevated);
   padding: 0.1em 0.35em;
+  border-radius: 4px;
 }
 .shots {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0.75rem;
 }
-.shots figure { margin: 0; background: #000; border: 1px solid var(--line); }
+.shots figure { margin: 0; background: var(--elevated); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .shots img { display: block; width: 100%; height: auto; }
 .shots figcaption { padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--muted); }
 .back { display: inline-block; margin-bottom: 1.25rem; }
@@ -137,17 +144,23 @@ a { color: var(--amber); }
   text-transform: uppercase;
   text-decoration: none;
   border: 1px solid var(--line);
+  border-radius: 4px;
   padding: 0.2rem 0.55rem;
-  color: var(--amber);
+  color: var(--accent);
   background: transparent;
   cursor: pointer;
 }
-.card-actions a:hover, .card-actions button:hover, .log-jump:hover { border-color: var(--amber); }
-[data-delete-slug] { color: #e07a6a; }
+.card-actions a:hover, .card-actions button:hover, .log-jump:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+[data-delete-slug] { color: var(--danger); }
+[data-delete-slug]:hover { border-color: var(--danger); color: var(--danger); }
 .log-run {
   border: 1px solid var(--line);
-  background: #00000028;
+  background: var(--elevated);
   margin: 0 0 0.85rem;
+  border-radius: 8px;
 }
 .log-run > summary {
   cursor: pointer;
@@ -164,10 +177,10 @@ a { color: var(--amber); }
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--amber);
+  color: var(--accent);
 }
 .log-msg { padding: 0.85rem 1rem; border-top: 1px solid var(--line); }
-.log-msg.user { background: #e2a13614; }
+.log-msg.user { background: #5865f214; }
 .log-label {
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   font-size: 0.68rem;
@@ -195,9 +208,9 @@ a { color: var(--amber); }
 }
 .log-msg.thinking > summary { font-style: italic; }
 .log-msg.tool .tool-body { padding: 0 1rem 0.85rem; margin: 0; }
-.log-status-error { color: #e07a6a; }
-.log-status-running { color: var(--amber); }
-.log-status-stuck { color: #e07a6a; }
+.log-status-error { color: var(--danger); }
+.log-status-running { color: var(--accent); }
+.log-status-stuck { color: var(--danger); }
 `;
 
 const DELETE_SCRIPT = `<script>
@@ -451,11 +464,13 @@ export function indexPage(
     `<header>
       <div class="kicker">Egon</div>
       <h1>Feature log</h1>
-      <p class="lede">Ideas still being collected, specs the planner wrote, and proof screenshots the tester took. Implementation lands through GitHub pull requests.</p>
+      <p class="lede">Ideas still being collected, specs the planner wrote, and proof screenshots the tester took. Implementation lands through GitHub pull requests. Host sprites, audio, and other files on the sharing service, then paste the URL in a Discord note so the implementer can pull them in.</p>
       <p class="links">
         <a href="${escapeHtml(links.gamePublicUrl)}" target="_blank" rel="noopener noreferrer">Play the game</a>
         ·
         <a href="${escapeHtml(links.gameRepoUrl)}" target="_blank" rel="noopener noreferrer">Game repo</a>
+        ·
+        <a href="https://discord.mbuelow.dev" target="_blank" rel="noopener noreferrer">Upload assets</a>
       </p>
       <ul class="stats">
         <li><strong>${escapeHtml(formatTokenCount(stats.tokens))}</strong><span>lifetime tokens used</span></li>

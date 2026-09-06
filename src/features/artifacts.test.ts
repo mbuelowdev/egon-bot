@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Config } from "../config.js";
 import { FeatureStore } from "./store.js";
-import { copyFeatureAssets, featureAssetDir, safeAssetFileName } from "./artifacts.js";
+import { copyFeatureAssets, featureAssetDir, plannedAssetPath, safeAssetFileName } from "./artifacts.js";
 
 test("safeAssetFileName keeps a simple name and strips path junk", () => {
   assert.equal(safeAssetFileName("hud.png", "x.png"), "hud.png");
@@ -54,4 +54,29 @@ test("copyFeatureAssets writes Discord images into assets/egon/{slug}/", () => {
   );
   assert.equal(first.filename, "hud.png");
   assert.equal(featureAssetDir("dash-hud"), join("assets", "egon", "dash-hud"));
+});
+
+test("plannedAssetPath matches copyFeatureAssets dest names", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  const first = store.addAttachment(feature.id, {
+    filename: "hud.png",
+    mimeType: "image/png",
+    storedName: "111.png",
+  });
+  const second = store.addAttachment(feature.id, {
+    filename: "hud.png",
+    mimeType: "image/png",
+    storedName: "222.png",
+  });
+  const attachments = store.listAttachments(feature.id);
+  store.close();
+  assert.equal(
+    plannedAssetPath(feature.name, attachments, first.id),
+    join("assets", "egon", "dash-hud", "hud.png"),
+  );
+  assert.equal(
+    plannedAssetPath(feature.name, attachments, second.id),
+    join("assets", "egon", "dash-hud", `hud-${String(second.id)}.png`),
+  );
 });
