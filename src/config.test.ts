@@ -53,7 +53,7 @@ test("loadConfig applies documented defaults", () => {
   assert.equal(config.dataDir, "/data");
   assert.equal(config.webServePort, 8080);
   assert.equal(config.featuresHttpPort, 10001);
-  assert.equal(config.featuresPublicUrl, undefined);
+  assert.equal(config.featuresPublicUrl, "https://egon.mbuelow.dev");
   assert.equal(config.cursorAdminApiKey, undefined);
   assert.equal(config.cursorOrganizationId, undefined);
   assert.equal(config.githubToken, "ghp_test");
@@ -68,10 +68,14 @@ test("catalogUrl strips trailing slash on FEATURES_PUBLIC_URL", () => {
   assert.equal(catalogUrl(config, "/features/dash"), "https://egon.example/features/dash");
 });
 
+test("catalogUrl uses the default public catalog when FEATURES_PUBLIC_URL is unset", () => {
+  assert.equal(catalogUrl(loadConfig(validEnv)), "https://egon.mbuelow.dev/");
+});
+
 test("featurePageUrl slugs the feature name onto the catalog", () => {
   const config = loadConfig({ ...validEnv, FEATURES_PUBLIC_URL: "https://egon.example/" });
   assert.equal(featurePageUrl(config, "Dash HUD"), "https://egon.example/features/dash-hud");
-  assert.equal(featurePageUrl(loadConfig(validEnv), "Dash HUD"), undefined);
+  assert.equal(featurePageUrl(loadConfig(validEnv), "Dash HUD"), "https://egon.mbuelow.dev/features/dash-hud");
 });
 
 test("githubRepoWebUrl strips .git from the clone URL", () => {

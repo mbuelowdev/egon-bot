@@ -29,7 +29,7 @@ export type Config = {
   dataDir: string;
   webServePort: number;
   featuresHttpPort: number;
-  featuresPublicUrl: string | undefined;
+  featuresPublicUrl: string;
   gamePublicUrl: string;
   cursorAdminApiKey: string | undefined;
   cursorOrganizationId: string | undefined;
@@ -80,7 +80,7 @@ function optionalPort(env: NodeJS.ProcessEnv, key: string, fallback: number): nu
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cursorAdminApiKey = env.CURSOR_ADMIN_API_KEY?.trim();
   const cursorOrganizationId = env.CURSOR_ORGANIZATION_ID?.trim();
-  const featuresPublicUrl = env.FEATURES_PUBLIC_URL?.trim();
+  const featuresPublicUrl = optional(env, "FEATURES_PUBLIC_URL", "https://egon.mbuelow.dev");
   const gamePublicUrl = optional(env, "GAME_PUBLIC_URL", "https://lets-vibe-together.mbuelow.dev");
   return {
     discordToken: required(env, "DISCORD_TOKEN"),
@@ -100,7 +100,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir: optional(env, "DATA_DIR", "/data"),
     webServePort: optionalPort(env, "WEB_SERVE_PORT", 8080),
     featuresHttpPort: optionalPort(env, "FEATURES_HTTP_PORT", 10001),
-    featuresPublicUrl: featuresPublicUrl ? featuresPublicUrl.replace(/\/+$/, "") : undefined,
+    featuresPublicUrl: featuresPublicUrl.replace(/\/+$/, ""),
     gamePublicUrl: gamePublicUrl.replace(/\/+$/, ""),
     cursorAdminApiKey: cursorAdminApiKey ? cursorAdminApiKey : undefined,
     cursorOrganizationId: cursorOrganizationId ? cursorOrganizationId : undefined,
@@ -115,7 +115,7 @@ export function catalogUrl(config: Config, path = "/"): string | undefined {
   return `${config.featuresPublicUrl}${suffix}`;
 }
 
-/** Catalog page for a feature, when FEATURES_PUBLIC_URL is set. */
+/** Catalog page for a feature. Uses FEATURES_PUBLIC_URL, or https://egon.mbuelow.dev. */
 export function featurePageUrl(config: Config, name: string): string | undefined {
   return catalogUrl(config, `/features/${featureSlug(name)}`);
 }

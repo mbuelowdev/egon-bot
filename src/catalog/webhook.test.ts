@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
-import { renderMarkdown } from "./markdown.js";
+import { decorateHexColors, renderMarkdown } from "./markdown.js";
 import { parseGithubPullRequestEvent, verifyGithubSignature } from "./webhook.js";
 
 test("renderMarkdown turns headings, lists, and bold into HTML", () => {
@@ -16,6 +16,21 @@ test("renderMarkdown escapes HTML", () => {
   const html = renderMarkdown("<script>alert(1)</script>");
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test("renderMarkdown shows a color dot next to hex colors", () => {
+  const html = renderMarkdown("Use **#ababab** and `#fff` plus #23a559");
+  assert.match(
+    html,
+    /#ababab<span class="color-dot" style="background:#ababab" aria-hidden="true"><\/span>/,
+  );
+  assert.match(html, /<code>#fff<span class="color-dot" style="background:#fff" aria-hidden="true"><\/span><\/code>/);
+  assert.match(html, /#23a559<span class="color-dot" style="background:#23a559"/);
+});
+
+test("decorateHexColors ignores short fragments and HTML entities", () => {
+  assert.equal(decorateHexColors("PR #12 and &#39;ok&#39;"), "PR #12 and &#39;ok&#39;");
+  assert.equal(decorateHexColors("#gggggg not hex"), "#gggggg not hex");
 });
 
 test("verifyGithubSignature accepts a matching HMAC", () => {

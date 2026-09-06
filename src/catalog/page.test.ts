@@ -158,7 +158,13 @@ test("feature page PR is a GitHub-icon button", () => {
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together\/pull\/12"/);
   assert.match(html, /PR #12/);
   assert.match(html, /<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(html, /class="feature-actions"/);
+  assert.match(
+    html,
+    /class="feature-actions">[\s\S]*class="github-pr"[\s\S]*data-delete-slug="dash-hud"/,
+  );
   assert.doesNotMatch(html, /<p class="meta"><a href="https:\/\/github\.com/);
+  assert.doesNotMatch(html, /<p class="links">[\s\S]*data-delete-slug/);
 });
 
 test("feature page lists collected notes with HTML escaped", () => {
@@ -179,6 +185,50 @@ test("feature page lists collected notes with HTML escaped", () => {
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /id="agent-log"/);
   assert.match(html, /No agent log yet/);
+});
+
+test("feature page shows a circular color dot next to hex colors in notes and spec", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-hex-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Palette", "channel-1");
+  store.addNote(feature.id, "primary is #ababab");
+  mkdirSync(join(dataDir, "features", String(feature.id)), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(feature.id), "SPEC.md"), "Accent `#5865f2`");
+  const html = featurePage(
+    { dataDir } as Config,
+    store.getFeatureById(feature.id)!,
+    store.listNotes(feature.id),
+  );
+  store.close();
+  assert.match(html, /\.color-dot \{/);
+  assert.match(html, /border-radius: 50%/);
+  assert.match(
+    html,
+    /primary is #ababab<span class="color-dot" style="background:#ababab" aria-hidden="true"><\/span>/,
+  );
+  assert.match(
+    html,
+    /<code>#5865f2<span class="color-dot" style="background:#5865f2" aria-hidden="true"><\/span><\/code>/,
+  );
+});
+
+test("feature page opens proof screenshots in a lightbox", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-shot-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  mkdirSync(join(dataDir, "features", String(feature.id), "screenshots"), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "01.png"), "png");
+  const html = featurePage({ dataDir } as Config, store.getFeatureById(feature.id)!);
+  store.close();
+  assert.match(html, /<h2>Proof<\/h2>/);
+  assert.match(html, /\/features\/dash-hud\/screenshots\/01\.png/);
+  assert.match(html, /cursor: zoom-in/);
+  assert.match(html, /overlay\.className = "lightbox"/);
+  assert.match(html, /background: #000000b8/);
+  assert.match(html, /querySelectorAll\("\.shots img"\)/);
+  assert.match(html, /event\.target !== img/);
+  assert.match(html, /classList\.add\("is-open"\)/);
+  assert.match(html, /classList\.remove\("is-open"\)/);
 });
 
 test("feature page shows Discord reference images", () => {

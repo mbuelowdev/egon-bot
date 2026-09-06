@@ -7,6 +7,14 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+const HEX_COLOR = /#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g;
+
+export function decorateHexColors(html: string): string {
+  return html.replaceAll(HEX_COLOR, (hex) => {
+    return `${hex}<span class="color-dot" style="background:${hex}" aria-hidden="true"></span>`;
+  });
+}
+
 export function renderMarkdown(markdown: string): string {
   const escaped = escapeHtml(markdown);
   const lines = escaped.replaceAll("\r\n", "\n").split("\n");
@@ -21,9 +29,9 @@ export function renderMarkdown(markdown: string): string {
   };
 
   const inline = (text: string): string =>
-    text
-      .replaceAll(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replaceAll(/`([^`]+)`/g, "<code>$1</code>");
+    decorateHexColors(
+      text.replaceAll(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replaceAll(/`([^`]+)`/g, "<code>$1</code>"),
+    );
 
   for (const line of lines) {
     const heading = line.match(/^(#{1,3})\s+(.+)$/);

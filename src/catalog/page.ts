@@ -7,7 +7,7 @@ import { featurePaths } from "../cursor/testReport.js";
 import { formatDuration, formatTokenCount } from "../format.js";
 import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureAttachment } from "../features/store.js";
-import { escapeHtml, renderMarkdown } from "./markdown.js";
+import { decorateHexColors, escapeHtml, renderMarkdown } from "./markdown.js";
 
 export type CatalogLifetimeStats = {
   tokens: number;
@@ -158,14 +158,46 @@ a:hover { color: var(--accent-hover); }
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
+.color-dot {
+  display: inline-block;
+  width: 0.72em;
+  height: 0.72em;
+  margin: 0 0.1em 0 0.28em;
+  border-radius: 50%;
+  vertical-align: -0.08em;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.45);
+}
 .shots {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 0.75rem;
 }
 .shots figure { margin: 0; background: var(--elevated); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.shots img { display: block; width: 100%; height: auto; }
+.shots img { display: block; width: 100%; height: auto; cursor: zoom-in; }
 .shots figcaption { padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--muted); }
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: #000000b8;
+  cursor: zoom-out;
+}
+.lightbox.is-open { display: flex; }
+.lightbox img {
+  max-width: min(96vw, 1400px);
+  max-height: 92vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 48px #00000080;
+  cursor: default;
+}
 .card-actions { margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .card-actions a, .card-actions button, .log-jump, .github-pr {
   display: inline-block;
@@ -185,11 +217,18 @@ a:hover { color: var(--accent-hover); }
   border-color: var(--accent);
   color: var(--accent-hover);
 }
+.feature-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.85rem;
+  justify-self: start;
+}
 .github-pr {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  margin: 0.15rem 0 0.85rem;
   padding-left: 0.45rem;
 }
 .github-pr svg {
@@ -305,6 +344,39 @@ const DELETE_SCRIPT = `<script>
 })();
 </script>`;
 
+const LIGHTBOX_SCRIPT = `<script>
+(() => {
+  const shots = document.querySelectorAll(".shots img");
+  if (shots.length === 0) {
+    return;
+  }
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  const img = document.createElement("img");
+  overlay.appendChild(img);
+  document.body.appendChild(overlay);
+  const close = () => {
+    overlay.classList.remove("is-open");
+    img.removeAttribute("src");
+    img.removeAttribute("alt");
+  };
+  overlay.addEventListener("click", (event) => {
+    if (event.target !== img) {
+      close();
+    }
+  });
+  for (const shot of shots) {
+    shot.addEventListener("click", () => {
+      img.src = shot.currentSrc || shot.src;
+      img.alt = shot.alt;
+      overlay.classList.add("is-open");
+    });
+  }
+})();
+</script>`;
+
 const AGENT_LOG_SCRIPT = `<script>
 (() => {
   const runs = document.querySelectorAll("details.log-run[data-run-id]");
@@ -362,6 +434,7 @@ function layout(title: string, body: string): string {
 <body>
 ${body}
 ${DELETE_SCRIPT}
+${LIGHTBOX_SCRIPT}
 ${AGENT_LOG_SCRIPT}
 </body>
 </html>`;
@@ -654,7 +727,7 @@ export function featurePage(
       ? ""
       : `<section>
         <h2>Notes</h2>
-        <ul class="notes">${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>
+        <ul class="notes">${notes.map((note) => `<li>${decorateHexColors(escapeHtml(note))}</li>`).join("")}</ul>
       </section>`;
   return layout(
     feature.name,
@@ -663,8 +736,7 @@ export function featurePage(
       <div class="kicker">${escapeHtml(feature.state)}</div>
       <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>${escapeHtml(feature.name)}</h1>
-      ${pr}
-      <p class="links">${deleteButton(slug)}</p>
+      <div class="feature-actions">${pr}${deleteButton(slug)}</div>
     </header>
     <main>
       ${notesSection}

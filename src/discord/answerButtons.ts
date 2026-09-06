@@ -37,6 +37,39 @@ function isChoiceIndex(value: number): value is 1 | 2 | 3 {
   return value === 1 || value === 2 || value === 3;
 }
 
+/** Drop repeated `1.` / `2)` prefixes so choices are not numbered twice. */
+function stripLeadingListNumbers(text: string): string {
+  let current = text.trim();
+  while (true) {
+    const match = current.match(/^(\d+)[.)]\s+(.*)$/);
+    if (!match) {
+      return current;
+    }
+    const n = Number(match[1]);
+    if (!isChoiceIndex(n)) {
+      return current;
+    }
+    current = (match[2] ?? "").trim();
+  }
+}
+
+function rewriteNumberedChoiceLines(question: string): string {
+  return question
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/^(\s*)(\d+)[.)]\s*(.*)$/);
+      if (!match) {
+        return line;
+      }
+      const n = Number(match[2]);
+      if (!isChoiceIndex(n)) {
+        return line;
+      }
+      return `${match[1]}${String(n)}. ${stripLeadingListNumbers(match[3] ?? "")}`;
+    })
+    .join("\n");
+}
+
 /** Pull consecutive `1.` / `2.` / `3.` options out of a question body. */
 export function parseNumberedChoices(question: string): string[] {
   const found = new Map<number, string>();
@@ -49,7 +82,7 @@ export function parseNumberedChoices(question: string): string[] {
     if (!isChoiceIndex(n)) {
       continue;
     }
-    found.set(n, (match[2] ?? "").trim());
+    found.set(n, stripLeadingListNumbers(match[2] ?? ""));
   }
   const choices: string[] = [];
   for (let i = 1; i <= MAX_NUMBERED_CHOICES; i++) {
@@ -70,7 +103,7 @@ export function normalizeChoices(value: unknown): string[] {
     if (typeof item !== "string") {
       continue;
     }
-    const trimmed = item.trim();
+    const trimmed = stripLeadingListNumbers(item);
     if (trimmed === "") {
       continue;
     }
@@ -84,11 +117,12 @@ export function normalizeChoices(value: unknown): string[] {
 
 /** Append numbered choices when the question does not already list them. */
 export function formatQuestionBody(question: string, choices: readonly string[]): string {
-  if (parseNumberedChoices(question).length > 0 || choices.length === 0) {
-    return question;
+  const rewritten = rewriteNumberedChoiceLines(question);
+  if (parseNumberedChoices(rewritten).length > 0 || choices.length === 0) {
+    return rewritten;
   }
-  const lines = choices.map((choice, index) => `${String(index + 1)}. ${choice}`);
-  return `${question}\n${lines.join("\n")}`;
+  const lines = choices.map((choice, index) => `${String(index + 1)}. ${stripLeadingListNumbers(choice)}`);
+  return `${rewritten}\n${lines.join("\n")}`;
 }
 
 export function formatChoiceAnswer(question: string, choice: 1 | 2 | 3): string {

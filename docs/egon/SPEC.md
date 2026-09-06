@@ -86,7 +86,7 @@ Optional with defaults:
 - `DATA_DIR` — default `/data`
 - `WEB_SERVE_PORT` — local Godot export server (`127.0.0.1`)
 - `FEATURES_HTTP_PORT` — public catalog + webhook server, default `10001` (`0.0.0.0`)
-- `FEATURES_PUBLIC_URL` — public base URL for Discord catalog links and the GitHub webhook URL
+- `FEATURES_PUBLIC_URL` — public base URL for Discord catalog links and the GitHub webhook URL, default `https://egon.mbuelow.dev`
 - `CURSOR_ADMIN_API_KEY` — optional; official remaining-usage % via Admin pooled-usage
 
 On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}-{YYYYMMDDTHHMMSSZ}`; humans merge that PR on GitHub.
@@ -218,7 +218,7 @@ Catalog reads SQLite plus `$DATA_DIR/features/{id}/` so it does not depend on wh
 
 ## Docker (final image, built incrementally)
 
-Single service. Long-running Node bot as PID 1 (or a tiny supervisord only if xvfb is needed). Persist `/data` and optionally `/game`. Clone from `GAME_REPO_HTTPS_URL` at boot. No Cursor IDE. Chromium, Godot CLI, git, and a pinned `gh` binary belong in the image. Publish `FEATURES_HTTP_PORT`.
+Single service. Long-running Node bot as PID 1 (or a tiny supervisord only if xvfb is needed). Persist `/data` and optionally `/game`. Clone from `GAME_REPO_HTTPS_URL` at boot. No Cursor IDE. Chromium, Godot CLI, git, a small agent CLI toolkit (`python3`, `jq`, `ripgrep`, `xxd`, and similar), and a pinned `gh` binary belong in the image. Publish `FEATURES_HTTP_PORT`.
 
 ```
 /app          bot source

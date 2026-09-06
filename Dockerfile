@@ -21,8 +21,26 @@ RUN apt-get update \
     git \
     ca-certificates \
     curl \
+    wget \
     unzip \
+    zip \
     xz-utils \
+    bzip2 \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python-is-python3 \
+    xxd \
+    jq \
+    ripgrep \
+    fd-find \
+    file \
+    patch \
+    make \
+    tree \
+    less \
+    procps \
+    bubblewrap \
     xvfb \
     xauth \
     libfontconfig1 \
@@ -34,6 +52,7 @@ RUN apt-get update \
     libxi6 \
     libxinerama1 \
     libxrandr2 \
+  && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \

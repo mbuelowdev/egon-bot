@@ -22,7 +22,7 @@ async function notifyReadyForReview(
   },
   feature: Feature,
   outcome: string,
-  nextStep: string,
+  nextStep?: string,
 ): Promise<void> {
   const catalog = featurePageUrl(ctx.config, feature.name);
   await ctx.notify(
@@ -31,7 +31,7 @@ async function notifyReadyForReview(
       formatReviewReady(feature.name, catalog, feature.githubPrUrl ?? undefined),
       nextStep,
     ]
-      .filter((line) => line !== "")
+      .filter((line) => line !== undefined && line !== "")
       .join("\n"),
   );
 }
@@ -138,7 +138,6 @@ export async function runExportTestLoop(ctx: {
         ctx,
         feature,
         `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} passed every acceptance criterion.`,
-        "Merge on GitHub, or /egon-pivot to steer the implementer.",
       );
       return;
     }

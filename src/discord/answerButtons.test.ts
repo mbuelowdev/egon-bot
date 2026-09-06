@@ -21,17 +21,30 @@ test("parseNumberedChoices reads consecutive 1. 2. 3. lines", () => {
   assert.deepEqual(parseNumberedChoices("No options here"), []);
   assert.deepEqual(parseNumberedChoices("1. only"), ["only"]);
   assert.deepEqual(parseNumberedChoices("2. skipped one"), []);
+  assert.deepEqual(
+    parseNumberedChoices("Pick:\n1. 1. Bright cyan\n2. 2. Hot magenta\n3. 3. Lime green"),
+    ["Bright cyan", "Hot magenta", "Lime green"],
+  );
 });
 
 test("formatQuestionBody appends choices when the question has none", () => {
   assert.equal(formatQuestionBody("Height?", ["low", "high"]), "Height?\n1. low\n2. high");
   assert.equal(formatQuestionBody("1. already\n2. listed", ["x"]), "1. already\n2. listed");
   assert.equal(formatQuestionBody("open question", []), "open question");
+  assert.equal(
+    formatQuestionBody("Spawn bounding box color?", ["1. Bright cyan", "2. Hot magenta", "3. Lime green"]),
+    "Spawn bounding box color?\n1. Bright cyan\n2. Hot magenta\n3. Lime green",
+  );
+  assert.equal(
+    formatQuestionBody("Pick:\n1. 1. Bright cyan\n2. 2. Hot magenta", []),
+    "Pick:\n1. Bright cyan\n2. Hot magenta",
+  );
 });
 
 test("normalizeChoices keeps up to three non-empty strings", () => {
   assert.deepEqual(normalizeChoices([" a ", "", "b", 3, "c", "d"]), ["a", "b", "c"]);
   assert.deepEqual(normalizeChoices("1, 2, 3"), []);
+  assert.deepEqual(normalizeChoices(["1. Bright cyan", "2) Hot magenta"]), ["Bright cyan", "Hot magenta"]);
 });
 
 test("numbered buttons plus Answer other round-trip custom ids", () => {
@@ -67,6 +80,10 @@ test("formatChoiceAnswer uses the matching numbered line", () => {
   assert.equal(formatChoiceAnswer(question, 1), "1. Jump high");
   assert.equal(formatChoiceAnswer(question, 2), "2. Stay low");
   assert.equal(formatChoiceAnswer("no list", 1), "1");
+  assert.equal(
+    formatChoiceAnswer("Pick:\n1. 1. Bright cyan\n2. 2. Hot magenta\n3. 3. Lime green", 3),
+    "3. Lime green",
+  );
 });
 
 test("answer modal custom id and title round-trip", () => {

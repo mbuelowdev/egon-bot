@@ -108,7 +108,7 @@ test("formatTestingStart puts the catalog link on the feature name", () => {
   );
 });
 
-test("formatTestReport prefixes the testing emoji and aligns a monospace table", () => {
+test("formatTestReport posts overall PASS without criteria", () => {
   const text = formatTestReport({
     overallPass: true,
     criteria: [
@@ -117,35 +117,16 @@ test("formatTestReport prefixes the testing emoji and aligns a monospace table",
     ],
     raw: "",
   });
-  assert.equal(
-    text,
-    [
-      `${PHASE_EMOJI.testing} **PASS**`,
-      "```",
-      "#  Result  Criterion",
-      "1  PASS    canvas visible",
-      "2  PASS    player jumps",
-      "```",
-    ].join("\n"),
-  );
+  assert.equal(text, `${PHASE_EMOJI.testing} **PASS**`);
 });
 
-test("formatTestReport marks FAIL and flattens criterion text", () => {
+test("formatTestReport posts overall FAIL without criteria", () => {
   const text = formatTestReport({
     overallPass: false,
     criteria: [{ index: 1, status: "FAIL", text: "hud **broken**\nand wrapped" }],
     raw: "",
   });
-  assert.equal(
-    text,
-    [
-      `${PHASE_EMOJI.testing} **FAIL**`,
-      "```",
-      "#  Result  Criterion",
-      "1  FAIL    hud **broken** and wrapped",
-      "```",
-    ].join("\n"),
-  );
+  assert.equal(text, `${PHASE_EMOJI.testing} **FAIL**`);
 });
 
 test("formatReviewReady links PR to GitHub and the feature name to the catalog", () => {

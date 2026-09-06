@@ -61,36 +61,10 @@ export function formatTestingStart(name: string, pageUrl?: string): string {
   return `${PHASE_EMOJI.testing} Testing started for ${formatFeatureName(name, pageUrl)}`;
 }
 
-function sanitizeCodeCell(text: string): string {
-  return flattenDiscordLine(text).replaceAll("```", "'''");
-}
-
-function formatMonospaceTable(rows: string[][]): string {
-  const columnCount = Math.max(0, ...rows.map((row) => row.length));
-  const widths = Array.from({ length: columnCount }, (_, col) =>
-    Math.max(0, ...rows.map((row) => row[col]?.length ?? 0)),
-  );
-  return rows
-    .map((row) =>
-      row
-        .map((cell, col) => (col === columnCount - 1 ? cell : cell.padEnd(widths[col] ?? 0)))
-        .join("  "),
-    )
-    .join("\n");
-}
-
-/** Tester summary. Discord has no markdown tables, so this uses a monospace grid. */
+/** Tester summary: overall PASS/FAIL only. Criteria live on the catalog. */
 export function formatTestReport(report: TestReport): string {
   const overall = report.overallPass ? "PASS" : "FAIL";
-  const table = formatMonospaceTable([
-    ["#", "Result", "Criterion"],
-    ...report.criteria.map((item) => [
-      String(item.index),
-      item.status,
-      sanitizeCodeCell(item.text),
-    ]),
-  ]);
-  return clipDiscordMessage(`${PHASE_EMOJI.testing} **${overall}**\n\`\`\`\n${table}\n\`\`\``);
+  return `${PHASE_EMOJI.testing} **${overall}**`;
 }
 
 /** Channel line when a PR is ready for review. */
