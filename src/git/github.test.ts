@@ -4,10 +4,12 @@ import { loadConfig, type Config } from "../config.js";
 import {
   closePullRequest,
   createDraftPr,
+  deployRunDurationMinutes,
   isClosedUnmergedView,
   isMergedView,
   markPrReady,
   viewPullRequest,
+  waitForDeployWorkflow,
   type ExecGh,
 } from "./github.js";
 
@@ -119,5 +121,83 @@ test("closed without merge is rejected, not accepted", () => {
       isDraft: false,
     }),
     true,
+  );
+});
+
+const deployListRow = {
+  databaseId: 44,
+  status: "completed",
+  conclusion: "success",
+  headSha: "abc123",
+  url: "https://github.com/org/game/actions/runs/44",
+  displayTitle: "Bump deployment.json",
+  createdAt: "2026-09-06T18:00:00Z",
+  updatedAt: "2026-09-06T18:04:00Z",
+};
+
+test("waitForDeployWorkflow returns a completed run matching HEAD", async () => {
+  const calls: string[][] = [];
+  const execGh: ExecGh = async (_cwd, args) => {
+    calls.push(args);
+    return { stdout: JSON.stringify([deployListRow]), stderr: "" };
+  };
+  const run = await waitForDeployWorkflow(
+    config,
+    { headSha: "abc123", appearTimeoutMs: 0, pollMs: 0 },
+    execGh,
+  );
+  assert.equal(run.id, 44);
+  assert.equal(run.conclusion, "success");
+  assert.equal(calls[0]?.[1], "list");
+});
+
+test("waitForDeployWorkflow watches an in-progress run then reads the result", async () => {
+  const calls: string[][] = [];
+  const execGh: ExecGh = async (_cwd, args) => {
+    calls.push(args);
+    if (args[1] === "list") {
+      return {
+        stdout: JSON.stringify([{ ...deployListRow, status: "in_progress", conclusion: "" }]),
+        stderr: "",
+      };
+    }
+    if (args[1] === "watch") {
+      return { stdout: "", stderr: "" };
+    }
+    return {
+      stdout: JSON.stringify({ ...deployListRow, startedAt: "2026-09-06T18:00:30Z" }),
+      stderr: "",
+    };
+  };
+  const run = await waitForDeployWorkflow(config, { headSha: "abc123", pollMs: 0 }, execGh);
+  assert.equal(run.id, 44);
+  assert.deepEqual(
+    calls.map((args) => args[1]),
+    ["list", "watch", "view"],
+  );
+});
+
+test("waitForDeployWorkflow times out when no matching run appears", async () => {
+  const execGh: ExecGh = async () => ({ stdout: "[]", stderr: "" });
+  await assert.rejects(
+    () => waitForDeployWorkflow(config, { headSha: "missing", appearTimeoutMs: 0, pollMs: 0 }, execGh),
+    /Timed out waiting for Build and deploy/,
+  );
+});
+
+test("deployRunDurationMinutes rounds up to at least one minute", () => {
+  assert.equal(
+    deployRunDurationMinutes({
+      id: 1,
+      status: "completed",
+      conclusion: "success",
+      headSha: "a",
+      url: "https://example",
+      displayTitle: "x",
+      createdAt: "2026-09-06T18:00:00Z",
+      startedAt: "2026-09-06T18:00:00Z",
+      updatedAt: "2026-09-06T18:03:20Z",
+    }),
+    3,
   );
 });

@@ -83,6 +83,7 @@ type FakeInteraction = {
   deferUpdate: () => Promise<void>;
   editReply: (payload: ReplyPayload) => Promise<void>;
   showModal: (modal: FakeModal) => Promise<void>;
+  fetchReply: () => Promise<{ id: string }>;
 };
 
 function contentOf(payload: ReplyPayload | undefined): string {
@@ -165,6 +166,9 @@ function fakeCommand(overrides: Partial<FakeInteraction> = {}): FakeInteraction 
     async showModal(modal: FakeModal) {
       interaction.modals.push(modal);
     },
+    async fetchReply() {
+      return { id: message.id };
+    },
     ...overrides,
   };
   return interaction;
@@ -190,6 +194,25 @@ function fakeModal(customId: string, text: string, overrides: Partial<FakeIntera
   });
 }
 
+function fakeClientWithMessage(message: FakeMessage): Client {
+  return {
+    channels: {
+      fetch: async () => ({
+        isTextBased: () => true,
+        isDMBased: () => false,
+        messages: {
+          fetch: async (id: string) => {
+            if (id !== message.id) {
+              throw new Error(`unknown message ${id}`);
+            }
+            return message;
+          },
+        },
+      }),
+    },
+  } as unknown as Client;
+}
+
 test("egon-new-feature includes an Add note button", async () => {
   const store = new FeatureStore(":memory:");
   const interaction = fakeCommand({ commandName: "egon-new-feature" });
@@ -202,6 +225,7 @@ test("egon-new-feature includes an Add note button", async () => {
     "Created **Jump** (collecting). It is now the latest feature in this channel.",
   );
   assert.equal(parseAddNoteCustomId(deleteCustomId(interaction.replies[0]) ?? ""), feature.id);
+  assert.equal(feature.addNoteMessageId, "m1");
   store.close();
 });
 
@@ -524,6 +548,33 @@ test("wrong-channel commands stay ephemeral", async () => {
   assert.equal(interaction.followUps.length, 0);
 });
 
+test("egon-plan removes the Add note button", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash", "chan");
+  store.setAddNoteMessageId(feature.id, "m-created");
+  const created: FakeMessage = {
+    id: "m-created",
+    deleted: false,
+    edits: [],
+    async delete() {
+      created.deleted = true;
+    },
+    async edit(payload: unknown) {
+      created.edits.push(payload);
+    },
+  };
+  const interaction = fakeCommand({ commandName: "egon-plan" });
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    store,
+    client: fakeClientWithMessage(created),
+    pipeline: { startPlan: async () => undefined } as unknown as Pipeline,
+  });
+  assert.deepEqual(created.edits, [{ components: [] }]);
+  assert.equal(store.getFeatureById(feature.id)?.state, "planning");
+  store.close();
+});
+
 test("Add note button opens a modal for that feature", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Jump", "chan");
@@ -532,7 +583,7 @@ test("Add note button opens a modal for that feature", async () => {
   assert.equal(interaction.modals.length, 1);
   const modal = interaction.modals[0]?.toJSON();
   assert.equal(modal?.custom_id, `egon-add-note-modal:${String(feature.id)}`);
-  assert.equal(modal?.title, "Note: Jump");
+  assert.equal(modal?.title, "Specifics: Jump");
   assert.equal(interaction.replies.length, 0);
   store.close();
 });
@@ -547,6 +598,40 @@ test("Add note modal stores the note and posts a public reply", async () => {
     {
       content: "Added a note to **Jump**.\n*jump has to be higher*",
       ephemeral: false,
+      flags: SUPPRESS_LINK_PREVIEW,
+    },
+  ]);
+  store.close();
+});
+
+test("Add note button is rejected after planning starts", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.startPlanning(feature.id);
+  const interaction = fakeButton(`egon-add-note:${String(feature.id)}`);
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(interaction.modals.length, 0);
+  assert.deepEqual(interaction.replies, [
+    {
+      content: "Cannot add a note after planning has started. **Jump** is planning.",
+      ephemeral: true,
+      flags: SUPPRESS_LINK_PREVIEW,
+    },
+  ]);
+  store.close();
+});
+
+test("Add note modal is rejected after planning starts", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.startPlanning(feature.id);
+  const interaction = fakeModal(`egon-add-note-modal:${String(feature.id)}`, "too late");
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.deepEqual(store.listNotes(feature.id), []);
+  assert.deepEqual(interaction.replies, [
+    {
+      content: "Cannot add a note after planning has started. **Jump** is planning.",
+      ephemeral: true,
       flags: SUPPRESS_LINK_PREVIEW,
     },
   ]);

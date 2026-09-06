@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
 import { decorateHexColors, renderMarkdown } from "./markdown.js";
-import { parseGithubPullRequestEvent, verifyGithubSignature } from "./webhook.js";
+import { parseGithubPullRequestEvent, parseGithubWebhookEvent, verifyGithubSignature } from "./webhook.js";
 
 test("renderMarkdown turns headings, lists, and bold into HTML", () => {
   const html = renderMarkdown("# Title\n\n**Acceptance criteria**\n\n1. Click play\n2. See HUD\n");
@@ -62,4 +62,75 @@ test("parseGithubPullRequestEvent maps merged and closed", () => {
     { kind: "ignore" },
   );
   assert.deepEqual(parseGithubPullRequestEvent("ping", {}), { kind: "ignore" });
+});
+
+test("parseGithubWebhookEvent maps a successful Build and deploy run", () => {
+  assert.deepEqual(
+    parseGithubWebhookEvent("workflow_run", {
+      action: "completed",
+      workflow: { path: ".github/workflows/build-and-deploy.yml", name: "Build and deploy" },
+      workflow_run: {
+        id: 88,
+        name: "Build and deploy",
+        conclusion: "success",
+        head_branch: "master",
+        html_url: "https://github.com/org/game/actions/runs/88",
+        display_title: "Bump deployment.json",
+        run_started_at: "2026-09-06T18:00:00Z",
+        updated_at: "2026-09-06T18:03:20Z",
+        head_commit: { message: "Bump deployment.json" },
+      },
+    }),
+    {
+      kind: "deployed",
+      runId: 88,
+      headBranch: "master",
+      commitMessage: "Bump deployment.json",
+      htmlUrl: "https://github.com/org/game/actions/runs/88",
+      durationMinutes: 3,
+    },
+  );
+});
+
+test("parseGithubWebhookEvent maps a failed deploy and ignores other workflows", () => {
+  assert.deepEqual(
+    parseGithubWebhookEvent("workflow_run", {
+      action: "completed",
+      workflow_run: {
+        id: 9,
+        name: "Build and deploy",
+        conclusion: "failure",
+        head_branch: "master",
+        html_url: "https://github.com/org/game/actions/runs/9",
+        display_title: "broken",
+        run_started_at: "2026-09-06T18:00:00Z",
+        updated_at: "2026-09-06T18:01:00Z",
+      },
+    }),
+    {
+      kind: "deploy_failed",
+      runId: 9,
+      headBranch: "master",
+      commitMessage: "broken",
+      htmlUrl: "https://github.com/org/game/actions/runs/9",
+      durationMinutes: 1,
+    },
+  );
+  assert.deepEqual(
+    parseGithubWebhookEvent("workflow_run", {
+      action: "completed",
+      workflow_run: {
+        id: 1,
+        name: "CI",
+        conclusion: "success",
+        head_branch: "master",
+        html_url: "https://github.com/org/game/actions/runs/1",
+      },
+    }),
+    { kind: "ignore" },
+  );
+  assert.deepEqual(
+    parseGithubWebhookEvent("workflow_run", { action: "in_progress", workflow_run: { id: 1 } }),
+    { kind: "ignore" },
+  );
 });

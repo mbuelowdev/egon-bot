@@ -171,3 +171,184 @@ export function isMergedView(view: PullRequestView): boolean {
 export function isClosedUnmergedView(view: PullRequestView): boolean {
   return view.state.toUpperCase() === "CLOSED" && !isMergedView(view);
 }
+
+export const DEPLOY_WORKFLOW_FILE = "build-and-deploy.yml";
+
+export type DeployWorkflowRun = {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  headSha: string;
+  url: string;
+  displayTitle: string;
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string | null;
+};
+
+export type WaitForDeployOptions = {
+  headSha?: string;
+  createdAfterIso?: string;
+  appearTimeoutMs?: number;
+  pollMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+};
+
+function parseDeployRun(raw: unknown): DeployWorkflowRun | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+  const row = raw as {
+    databaseId?: unknown;
+    status?: unknown;
+    conclusion?: unknown;
+    headSha?: unknown;
+    url?: unknown;
+    displayTitle?: unknown;
+    createdAt?: unknown;
+    startedAt?: unknown;
+    updatedAt?: unknown;
+  };
+  if (typeof row.databaseId !== "number" || typeof row.url !== "string") {
+    return undefined;
+  }
+  return {
+    id: row.databaseId,
+    status: typeof row.status === "string" ? row.status : "",
+    conclusion: typeof row.conclusion === "string" ? row.conclusion : null,
+    headSha: typeof row.headSha === "string" ? row.headSha : "",
+    url: row.url,
+    displayTitle: typeof row.displayTitle === "string" ? row.displayTitle : "",
+    createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
+    startedAt: typeof row.startedAt === "string" ? row.startedAt : null,
+    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null,
+  };
+}
+
+function parseDeployRunList(stdout: string): DeployWorkflowRun[] {
+  try {
+    const parsed = JSON.parse(stdout) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.flatMap((row) => {
+      const run = parseDeployRun(row);
+      return run ? [run] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function deployRunDurationMinutes(run: DeployWorkflowRun, nowMs = Date.now()): number {
+  const start = Date.parse(run.startedAt ?? run.createdAt);
+  const end = run.status.toLowerCase() === "completed" ? Date.parse(run.updatedAt ?? "") : nowMs;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return 1;
+  }
+  return Math.max(1, Math.round((end - start) / 60_000));
+}
+
+export async function listDeployWorkflowRuns(
+  config: Config,
+  execGh: ExecGh = defaultExecGh,
+): Promise<DeployWorkflowRun[]> {
+  const result = await execGh(
+    config.gameRepoDir,
+    [
+      "run",
+      "list",
+      "--workflow",
+      DEPLOY_WORKFLOW_FILE,
+      "--branch",
+      config.gameRepoBranch,
+      "--limit",
+      "10",
+      "--json",
+      "databaseId,status,conclusion,headSha,url,displayTitle,createdAt,updatedAt",
+    ],
+    ghEnv(config),
+  );
+  return parseDeployRunList(result.stdout);
+}
+
+export async function viewDeployWorkflowRun(
+  config: Config,
+  runId: number,
+  execGh: ExecGh = defaultExecGh,
+): Promise<DeployWorkflowRun> {
+  const result = await execGh(
+    config.gameRepoDir,
+    [
+      "run",
+      "view",
+      String(runId),
+      "--json",
+      "databaseId,status,conclusion,headSha,url,displayTitle,createdAt,startedAt,updatedAt",
+    ],
+    ghEnv(config),
+  );
+  const run = parseDeployRun(JSON.parse(result.stdout) as unknown);
+  if (!run) {
+    throw new Error(`Unexpected gh run view JSON: ${result.stdout}`);
+  }
+  return run;
+}
+
+function runMatchesWait(run: DeployWorkflowRun, options: WaitForDeployOptions): boolean {
+  if (options.headSha !== undefined && options.headSha !== "") {
+    return run.headSha === options.headSha;
+  }
+  if (options.createdAfterIso !== undefined && options.createdAfterIso !== "") {
+    const created = Date.parse(run.createdAt);
+    const after = Date.parse(options.createdAfterIso);
+    return Number.isFinite(created) && Number.isFinite(after) && created >= after;
+  }
+  return true;
+}
+
+async function defaultSleep(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/** Wait until the game's Build and deploy workflow for this SHA (or newest run) finishes. */
+export async function waitForDeployWorkflow(
+  config: Config,
+  options: WaitForDeployOptions = {},
+  execGh: ExecGh = defaultExecGh,
+): Promise<DeployWorkflowRun> {
+  const appearTimeoutMs = options.appearTimeoutMs ?? 5 * 60_000;
+  const pollMs = options.pollMs ?? 10_000;
+  const sleep = options.sleep ?? defaultSleep;
+  const deadline = Date.now() + appearTimeoutMs;
+  let run: DeployWorkflowRun | undefined;
+  for (;;) {
+    const runs = await listDeployWorkflowRuns(config, execGh);
+    run = runs.find((candidate) => runMatchesWait(candidate, options));
+    if (run) {
+      break;
+    }
+    if (pollMs <= 0 || Date.now() >= deadline) {
+      throw new Error("Timed out waiting for Build and deploy to start");
+    }
+    await sleep(pollMs);
+  }
+  if (!run) {
+    throw new Error("Timed out waiting for Build and deploy to start");
+  }
+  if (run.status.toLowerCase() !== "completed") {
+    try {
+      await execGh(
+        config.gameRepoDir,
+        ["run", "watch", String(run.id), "--exit-status"],
+        ghEnv(config),
+      );
+    } catch {
+      // --exit-status fails when the workflow failed; still read the conclusion.
+    }
+    run = await viewDeployWorkflowRun(config, run.id, execGh);
+  }
+  return run;
+}

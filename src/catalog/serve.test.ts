@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { loadConfig } from "../config.js";
 import { FeatureStore } from "../features/store.js";
 import { serveCatalog, stopCatalogServer, CATALOG_DELETE_PASSWORD } from "./serve.js";
-import type { GithubPrEvent } from "./webhook.js";
+import type { GithubWebhookEvent } from "./webhook.js";
 
 async function freePort(): Promise<number> {
   const probe = createServer();
@@ -84,7 +84,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     DATA_DIR: dataDir,
     FEATURES_HTTP_PORT: String(port),
   });
-  const events: GithubPrEvent[] = [];
+  const events: GithubWebhookEvent[] = [];
   await serveCatalog({
     store,
     config,
@@ -118,6 +118,20 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.match(indexHtml, /data-delete-slug="wall-run"/);
     assert.match(indexHtml, /data-delete-slug="dash-hud"/);
     assert.match(indexHtml, /data-delete-slug="jump"/);
+    assert.match(indexHtml, /rel="icon" href="\/favicon.ico"/);
+
+    const favicon = await fetch(`http://127.0.0.1:${String(port)}/favicon.ico`);
+    assert.equal(favicon.status, 200);
+    assert.equal(favicon.headers.get("content-type"), "image/x-icon");
+    assert.ok((await favicon.arrayBuffer()).byteLength > 0);
+
+    const faviconPng = await fetch(`http://127.0.0.1:${String(port)}/favicon.png`);
+    assert.equal(faviconPng.status, 200);
+    assert.equal(faviconPng.headers.get("content-type"), "image/png");
+
+    const appleIcon = await fetch(`http://127.0.0.1:${String(port)}/apple-touch-icon.png`);
+    assert.equal(appleIcon.status, 200);
+    assert.equal(appleIcon.headers.get("content-type"), "image/png");
 
     const idea = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
     const ideaHtml = await idea.text();
@@ -158,12 +172,82 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.equal(webhook.status, 204);
     assert.deepEqual(events, [{ kind: "merged", number: 9 }]);
 
+    const deployBody = Buffer.from(
+      JSON.stringify({
+        action: "completed",
+        workflow: { path: ".github/workflows/build-and-deploy.yml" },
+        workflow_run: {
+          id: 88,
+          name: "Build and deploy",
+          conclusion: "success",
+          head_branch: "master",
+          html_url: "https://github.com/org/game/actions/runs/88",
+          display_title: "Bump",
+          run_started_at: "2026-09-06T18:00:00Z",
+          updated_at: "2026-09-06T18:02:00Z",
+          head_commit: { message: "Bump" },
+        },
+      }),
+    );
+    const deployDigest = createHmac("sha256", "whsec").update(deployBody).digest("hex");
+    const deployWebhook = await fetch(`http://127.0.0.1:${String(port)}/github/webhook`, {
+      method: "POST",
+      headers: {
+        "X-Hub-Signature-256": `sha256=${deployDigest}`,
+        "X-GitHub-Event": "workflow_run",
+      },
+      body: deployBody,
+    });
+    assert.equal(deployWebhook.status, 204);
+    assert.equal(events.at(-1)?.kind, "deployed");
+
     const bad = await fetch(`http://127.0.0.1:${String(port)}/github/webhook`, {
       method: "POST",
       headers: { "X-Hub-Signature-256": "sha256=nope", "X-GitHub-Event": "pull_request" },
       body,
     });
     assert.equal(bad.status, 401);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("catalog index lists a planning feature before SPEC.md exists", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-planning-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+  });
+  try {
+    const index = await fetch(`http://127.0.0.1:${String(port)}/`);
+    const indexHtml = await index.text();
+    assert.equal(index.status, 200);
+    assert.match(indexHtml, /Dash HUD/);
+    assert.match(indexHtml, />planning</);
+    assert.match(indexHtml, /href="\/features\/dash-hud"/);
+
+    const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
+    assert.equal(detail.status, 200);
+    assert.match(await detail.text(), /No spec on file yet/);
   } finally {
     await stopCatalogServer();
     store.close();
@@ -266,6 +350,69 @@ test("catalog deletes collecting, planned, and implemented features after the sh
     assert.doesNotMatch(indexHtml, /Wall run/);
     assert.doesNotMatch(indexHtml, /Dash HUD/);
     assert.doesNotMatch(indexHtml, /Jump/);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("catalog syncs a merged PR into Implemented before rendering", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-sync-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("2d scene with background and player circle", "channel-1");
+  store.startPlanning(feature.id);
+  store.transition(feature.id, "implementing");
+  store.transition(feature.id, "awaiting_review");
+  store.setGithubPr(feature.id, {
+    branch: "egon/2d-scene",
+    number: 4,
+    url: "https://github.com/mbuelowdev/lets-vibe-together/pull/4",
+  });
+  mkdirSync(join(dataDir, "features", String(feature.id)), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(feature.id), "SPEC.md"), "# Scene\n");
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  let synced = 0;
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+    syncGithub: async () => {
+      synced += 1;
+      const current = store.getFeatureById(feature.id);
+      if (current && current.state !== "accepted") {
+        store.transition(feature.id, "accepted");
+      }
+    },
+  });
+  try {
+    const index = await fetch(`http://127.0.0.1:${String(port)}/`);
+    const indexHtml = await index.text();
+    assert.equal(index.status, 200);
+    assert.equal(synced, 1);
+    assert.match(indexHtml, /Implemented/);
+    assert.match(indexHtml, /2d scene with background and player circle/);
+    assert.doesNotMatch(indexHtml, />awaiting_review</);
+    assert.equal(store.getFeatureById(feature.id)?.state, "accepted");
+
+    const detail = await fetch(
+      `http://127.0.0.1:${String(port)}/features/2d-scene-with-background-and-player-circle`,
+    );
+    assert.equal(detail.status, 200);
+    assert.equal(synced, 2);
+    assert.match(await detail.text(), />accepted</);
   } finally {
     await stopCatalogServer();
     store.close();

@@ -30,6 +30,7 @@ async function main(): Promise<void> {
     store,
     config,
     onGithubEvent: (event) => pipeline.handleGithubEvent(event),
+    syncGithub: () => pipeline.catchUpOpenPrs(),
     beforeDelete: (feature) => pipeline.interruptIfLocked(feature.id),
   });
 

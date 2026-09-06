@@ -12,18 +12,19 @@ test("add note button and modal custom ids round-trip", () => {
   const button = addNoteButtonRow(7).toJSON().components[0];
   assert.ok(button && button.type === ComponentType.Button);
   assert.equal(button.style, ButtonStyle.Primary);
-  assert.equal(button.label, "Add note");
+  assert.equal(button.label, "Add specifics");
   assert.equal(parseAddNoteCustomId(button.custom_id ?? ""), 7);
   assert.equal(parseAddNoteCustomId("egon-add-note-modal:7"), undefined);
 
   const modal = addNoteModal(7, "Jump").toJSON();
   assert.equal(parseAddNoteModalCustomId(modal.custom_id ?? ""), 7);
-  assert.equal(modal.title, "Note: Jump");
+  assert.equal(modal.title, "Specifics: Jump");
+  assert.equal(modal.components[0]?.components[0]?.label, "Specifics");
 });
 
 test("add note modal title stays within Discord's limit", () => {
   const title = addNoteModal(1, "x".repeat(80)).toJSON().title ?? "";
   assert.ok(title.length <= 45);
-  assert.equal(title.startsWith("Note: "), true);
+  assert.equal(title.startsWith("Specifics: "), true);
   assert.equal(title.endsWith("…"), true);
 });

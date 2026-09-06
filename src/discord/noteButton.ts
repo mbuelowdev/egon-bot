@@ -28,7 +28,7 @@ export function addNoteButtonRow(featureId: number): ActionRowBuilder<ButtonBuil
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${ADD_NOTE_CUSTOM_ID_PREFIX}${String(featureId)}`)
-      .setLabel("Add note")
+      .setLabel("Add specifics")
       .setStyle(ButtonStyle.Primary),
   );
 }
@@ -49,7 +49,7 @@ export function parseAddNoteModalCustomId(customId: string): number | undefined 
 
 function modalTitle(featureName: string): string {
   const trimmed = featureName.trim() === "" ? "feature" : featureName.trim();
-  const prefix = "Note: ";
+  const prefix = "Specifics: ";
   if (prefix.length + trimmed.length <= MODAL_TITLE_LIMIT) {
     return `${prefix}${trimmed}`;
   }
@@ -59,7 +59,7 @@ function modalTitle(featureName: string): string {
 export function addNoteModal(featureId: number, featureName: string): ModalBuilder {
   const text = new TextInputBuilder()
     .setCustomId(ADD_NOTE_TEXT_INPUT_ID)
-    .setLabel("Note")
+    .setLabel("Specifics")
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
     .setMaxLength(2000);

@@ -3,6 +3,35 @@ import { noLinkPreview } from "./preview.js";
 
 const DISCORD_LIMIT = 2000;
 
+export async function clearMessageComponents(
+  client: Client,
+  channelId: string,
+  messageId: string,
+): Promise<void> {
+  const channel = await client.channels.fetch(channelId);
+  if (!channel || !channel.isTextBased() || channel.isDMBased()) {
+    throw new Error("Configured Discord channel is not a guild text channel");
+  }
+  const message = await channel.messages.fetch(messageId);
+  await message.edit({ components: [] });
+}
+
+/** Strip the Add specifics button from the /egon-new-feature reply. Missing or deleted messages are ignored. */
+export async function removeAddNoteButton(
+  client: Client,
+  channelId: string,
+  messageId: string | null | undefined,
+): Promise<void> {
+  if (!messageId) {
+    return;
+  }
+  try {
+    await clearMessageComponents(client, channelId, messageId);
+  } catch (error) {
+    console.error("failed to remove Add specifics button", error);
+  }
+}
+
 export async function postToChannel(
   client: Client,
   channelId: string,

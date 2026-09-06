@@ -21,6 +21,7 @@ export type Feature = {
   state: FeatureState;
   discordMessageId: string | null;
   discordThreadId: string | null;
+  addNoteMessageId: string | null;
   answerMessageId: string | null;
   plannerAgentId: string | null;
   implementerAgentId: string | null;
@@ -29,6 +30,7 @@ export type Feature = {
   githubBranch: string | null;
   githubPrNumber: number | null;
   githubPrUrl: string | null;
+  deployAnnounced: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -55,6 +57,7 @@ type FeatureRow = {
   state: string;
   discord_message_id: string | null;
   discord_thread_id: string | null;
+  add_note_message_id: string | null;
   answer_message_id: string | null;
   planner_agent_id: string | null;
   implementer_agent_id: string | null;
@@ -63,6 +66,7 @@ type FeatureRow = {
   github_branch: string | null;
   github_pr_number: number | bigint | null;
   github_pr_url: string | null;
+  deploy_announced: number | bigint | null;
   created_at: string;
   updated_at: string;
 };
@@ -81,6 +85,7 @@ function mapFeature(row: FeatureRow): Feature {
     state: row.state,
     discordMessageId: row.discord_message_id,
     discordThreadId: row.discord_thread_id,
+    addNoteMessageId: row.add_note_message_id,
     answerMessageId: row.answer_message_id,
     plannerAgentId: row.planner_agent_id,
     implementerAgentId: row.implementer_agent_id,
@@ -92,6 +97,7 @@ function mapFeature(row: FeatureRow): Feature {
         ? null
         : Number(row.github_pr_number),
     githubPrUrl: row.github_pr_url,
+    deployAnnounced: Number(row.deploy_announced ?? 1) !== 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -276,6 +282,61 @@ export class FeatureStore {
     return row ? mapFeature(row) : undefined;
   }
 
+  listPendingDeployFeatures(): Feature[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM features
+         WHERE state = 'accepted' AND COALESCE(deploy_announced, 1) = 0
+         ORDER BY updated_at DESC`,
+      )
+      .all() as FeatureRow[];
+    return rows.map(mapFeature);
+  }
+
+  markPendingDeployAnnounce(featureId: number): Feature {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET deploy_announced = 0, updated_at = ? WHERE id = ?")
+      .run(nowIso(), featureId);
+    return this.requireFeature(featureId);
+  }
+
+  markFeaturesDeployAnnounced(featureIds: number[]): void {
+    if (featureIds.length === 0) {
+      return;
+    }
+    const placeholders = featureIds.map(() => "?").join(", ");
+    this.db
+      .prepare(`UPDATE features SET deploy_announced = 1 WHERE id IN (${placeholders})`)
+      .run(...featureIds);
+  }
+
+  /** Returns false if this GitHub Actions run was already used for a Discord deploy notice. */
+  claimDeployRun(runId: number): boolean {
+    const current = this.getKv("last_deploy_run_id");
+    if (current === String(runId)) {
+      return false;
+    }
+    this.setKv("last_deploy_run_id", String(runId));
+    return true;
+  }
+
+  private getKv(key: string): string | undefined {
+    const row = this.db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value;
+  }
+
+  private setKv(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO kv (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, value);
+  }
+
   setGithubBranch(featureId: number, branch: string): Feature {
     this.requireFeature(featureId);
     this.db
@@ -424,6 +485,13 @@ export class FeatureStore {
       feature: this.requireFeature(lock.feature.id),
       releasedLock: next === "collecting",
     };
+  }
+
+  setAddNoteMessageId(featureId: number, messageId: string): void {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET add_note_message_id = ?, updated_at = ? WHERE id = ?")
+      .run(messageId, nowIso(), featureId);
   }
 
   setDiscordIds(
@@ -650,7 +718,15 @@ export class FeatureStore {
     this.ensureColumn("features", "github_branch", "TEXT");
     this.ensureColumn("features", "github_pr_number", "INTEGER");
     this.ensureColumn("features", "github_pr_url", "TEXT");
+    this.ensureColumn("features", "add_note_message_id", "TEXT");
+    this.ensureColumn("features", "deploy_announced", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("agent_run_tokens", "duration_ms", "INTEGER");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
   }
 
   private ensureColumn(table: string, column: string, type: string): void {

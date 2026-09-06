@@ -14,7 +14,7 @@ Humans talk in one Discord channel, then drive the pipeline with slash commands.
 4. A local Cursor **implementer** edits the game repo on that branch. The agent does not commit or push. After a successful implementer run the bot commits, pushes, and **un-drafts** the PR (spec-only commits stay draft).
 5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status.
 6. Bugs go back to the same implementer. The bot commits and pushes each fix. Export and test again until overall PASS or the retry cap.
-7. Power users merge the PR on GitHub. `/egon-pivot` steers the implementer without converting the PR back to draft. GitHub notifies the bot via webhook; the bot posts `Feature {name} merged to master.` in Discord.
+7. Power users merge the PR on GitHub. `/egon-pivot` steers the implementer without converting the PR back to draft. GitHub notifies the bot via webhook so it can clean up. After the game's **Build and deploy** GitHub Action succeeds, the bot posts a Discord notice like ssh-docker-deployment (`Successfully deployed`, play URL, version, commit).
 
 ```mermaid
 flowchart TD
@@ -45,7 +45,7 @@ flowchart TD
   tester -->|bug report| impl
   tester -->|screenshots| bot
   bot --> catalog
-  gh -->|webhook merged| bot
+  gh -->|webhook merge and deploy| bot
   humans -->|merge on GitHub| gh
 ```
 
@@ -74,7 +74,7 @@ Required:
 - `DISCORD_GUILD_ID` — register guild slash commands here (instant, not global)
 - `CURSOR_API_KEY` — Cursor SDK
 - `GAME_REPO_HTTPS_URL` — git remote of the single game repo (e.g. `https://github.com/org/game.git`)
-- `GITHUB_TOKEN` — fine-grained PAT for `gh` and git HTTPS (clone, fetch, push, create draft PR, mark ready, view on boot catch-up). Needs **Contents: Read and write** and **Pull requests: Read and write** on the game repo.
+- `GITHUB_TOKEN` — fine-grained PAT for `gh` and git HTTPS (clone, fetch, push, create draft PR, mark ready, view on boot catch-up, watch **Build and deploy**). Needs **Contents: Read and write**, **Pull requests: Read and write**, and **Actions: Read** on the game repo.
 - `GITHUB_WEBHOOK_SECRET` — HMAC secret for `POST /github/webhook`
 
 Optional with defaults:
@@ -91,7 +91,7 @@ Optional with defaults:
 
 On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}-{YYYYMMDDTHHMMSSZ}`; humans merge that PR on GitHub.
 
-Configure a GitHub repository webhook on the game repo: URL `{FEATURES_PUBLIC_URL}/github/webhook`, content type JSON, secret `GITHUB_WEBHOOK_SECRET`, event **Pull requests**.
+Configure a GitHub repository webhook on the game repo: URL `{FEATURES_PUBLIC_URL}/github/webhook`, content type JSON, secret `GITHUB_WEBHOOK_SECRET`, events **Pull requests** and **Workflow runs**.
 
 ## Discord commands
 
@@ -112,7 +112,7 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 
 There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Discord.
 
-`/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none.
+`/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none. `/egon-new-feature` includes an **Add specifics** button (modal) for that feature; `/egon-plan` removes it.
 
 Optional `image` on `/egon-add`, `/egon-add-to-feature`, and `/egon-pivot` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only, except `/egon-pivot` with an image attaches that new file as vision on the implementer follow-up. Text remains required; extra images are additional `/egon-add` or `/egon-pivot` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
 
@@ -201,15 +201,25 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 
 **`/egon-retry`:** valid while the pipeline lock is held in a plan/implement/test state, `awaiting_review`, or `rejected`. Cancels the in-flight Cursor run if any, keeps feature state (or re-enters `pivoting` from review/rejected), and continues the chain. Does not discard uncommitted work.
 
-**Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock, post `Feature {name} merged to master.` Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`. The catalog keeps the feature and labels the PR **closed**. Delete from the catalog removes it and closes the PR if it is still open.
+**Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock. Do **not** post a merge notice. Then wait for the game repo's **Build and deploy** workflow (the same reusable action as lets-vibe-together). On success, post a Discord notice in the vibe channel:
 
-Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepted feature that already has a PR number (catch up if a webhook arrived while the process was down).
+```
+**✅ Successfully deployed: {feature name}**
+- **Source code**: <game repo>
+- **Deployed to**: <$GAME_PUBLIC_URL>
+- **Metadata**: Version {deployment.json version}, built in ~Nmin.
+- **Commit**: {workflow title}
+```
+
+If no pending feature (manual deploy), use `owner/repo` as the title. A `workflow_run` webhook for that workflow is an alternate path to the same notice (idempotent per Actions run id). Workflow failure posts `Deploy failed` with a link to the run; the feature stays pending so a re-run can still announce success. Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`. The catalog keeps the feature and labels the PR **closed**. Delete from the catalog removes it and closes the PR if it is still open.
+
+Do **not** poll GitHub on an interval. After a merge (webhook, boot catch-up, or catalog page load), wait on that deploy workflow with `gh run watch`. On boot and when serving the catalog index or a feature page, one `gh pr view` per non-accepted feature that already has a PR number (catch up if a webhook arrived while the process was down, or never arrived). Coalesce overlapping catch-ups and skip a repeat within 10 seconds. Plus a deploy wait if any accepted feature still needs a deploy notice.
 
 ## Feature catalog
 
 A public HTTP server (separate from the Godot debug server) binds `0.0.0.0:$FEATURES_HTTP_PORT`:
 
-- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Every card (and its detail page) has a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Delete removes the feature from the catalog only — it does not revert git. If the feature still has an open GitHub PR, delete closes it (`gh pr close`). A closed-unmerged PR stays in Planned labeled **PR #N (closed)** until someone deletes it.
+- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (every other state, including in-progress planning before a spec exists), and Implemented (`accepted`), with links to detail. Every card (and its detail page) has a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Delete removes the feature from the catalog only — it does not revert git. If the feature still has an open GitHub PR, delete closes it (`gh pr close`). A closed-unmerged PR stays in Planned labeled **PR #N (closed)** until someone deletes it.
 - Detail `/features/{slug}`: name, state, PR link, collected notes, Discord reference images, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Images are served at `/features/{slug}/attachments/{file}`.
 - Persist each planner / implementer / tester run under `$DATA_DIR/features/{id}/agent-log.jsonl`. The file is written when the run starts (prompt) and updated as stream events arrive, so a catalog refresh shows in-flight output — not only the finished run. A running entry that has gone silent is marked possibly stuck. If that file is missing, the catalog hydrates from the Cursor agent store using `plannerAgentId` / `implementerAgentId`.
 - `POST /github/webhook` as above.

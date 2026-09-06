@@ -7,7 +7,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && mkdir -p dist/catalog && cp src/catalog/favicon.ico src/catalog/favicon.png src/catalog/apple-touch-icon.png dist/catalog/",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "tsx --test src/config.test.ts src/format.test.ts src/catalog/*.test.ts src/discord/*.test.ts src/features/*.test.ts src/cursor/*.test.ts src/git/*.test.ts src/godot/*.test.ts src/pipeline/*.test.ts"

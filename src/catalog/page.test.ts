@@ -16,6 +16,9 @@ const emptyStats = { tokens: 1_200_000, implemented: 3, durationMs: 90_000_000 }
 
 test("catalog pages use a Discord-like dark palette", () => {
   const html = indexPage([], [], emptyStats, links);
+  assert.match(html, /rel="icon" href="\/favicon.ico"/);
+  assert.match(html, /rel="icon" type="image\/png" href="\/favicon.png"/);
+  assert.match(html, /rel="apple-touch-icon" href="\/apple-touch-icon.png"/);
   assert.match(html, /--paper: #313338/);
   assert.match(html, /--panel: #2b2d31/);
   assert.match(html, /--accent: #5865f2/);

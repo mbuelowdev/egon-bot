@@ -132,6 +132,13 @@ async function handleButton(interaction: ButtonInteraction, ctx: BotContext): Pr
       await replyError(interaction, "Feature not found.");
       return;
     }
+    if (feature.state !== "collecting") {
+      await replyError(
+        interaction,
+        `Cannot add a note after planning has started. **${escapeDiscordMarkdown(feature.name)}** is ${feature.state}.`,
+      );
+      return;
+    }
     await interaction.showModal(addNoteModal(feature.id, feature.name));
     return;
   }
@@ -151,6 +158,13 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction, ctx: BotCo
     const feature = ctx.store.getFeatureById(addFeatureId);
     if (!feature) {
       await replyError(interaction, "Feature not found.");
+      return;
+    }
+    if (feature.state !== "collecting") {
+      await replyError(
+        interaction,
+        `Cannot add a note after planning has started. **${escapeDiscordMarkdown(feature.name)}** is ${feature.state}.`,
+      );
       return;
     }
     try {

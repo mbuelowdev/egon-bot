@@ -1,11 +1,11 @@
 import type { Client } from "discord.js";
-import { featurePageUrl, type Config } from "../config.js";
+import { featurePageUrl, githubRepoSlug, githubRepoWebUrl, type Config } from "../config.js";
 import { cancelActiveAgentRun, clearAgentCancel } from "../cursor/activeRun.js";
 import { StuckAgentError } from "../cursor/agentWatch.js";
 import { postPlannerQuestion } from "../cursor/askUsersTool.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { runPlanner } from "../cursor/planner.js";
-import { postToChannel } from "../discord/channel.js";
+import { postToChannel, removeAddNoteButton } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
 import { cancelAllQuestionWaiters, waitForQuestionAnswer } from "../discord/qaWaiters.js";
 import {
@@ -19,23 +19,26 @@ import { saveFeatureImage, type IncomingImage } from "../features/saveImage.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
-import { formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
-import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
+import { formatDeployFailure, formatDeploySuccess, formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
+import { cleanupAfterMerge, ensureDeploymentBump, readOriginDeploymentVersion } from "../git/accept.js";
 import {
   createDraftPr,
+  deployRunDurationMinutes,
   isClosedUnmergedView,
   isMergedView,
   markPrReady,
   viewPullRequest,
+  waitForDeployWorkflow,
 } from "../git/github.js";
 import {
   checkoutDefaultBranch,
   commitAndPush,
   createFeatureBranch,
   discardUncommittedWork,
+  git,
 } from "../git/workingTree.js";
 import { stopWebServer } from "../godot/serve.js";
-import type { GithubPrEvent } from "../catalog/webhook.js";
+import type { GithubWebhookEvent } from "../catalog/webhook.js";
 import { isPipelineStopError, shouldHaltPipeline } from "./halt.js";
 import { runExportTestLoop } from "./testLoop.js";
 
@@ -45,7 +48,7 @@ export type Pipeline = {
   pivot: (text: string, image?: IncomingImage) => Promise<string>;
   retry: () => Promise<string>;
   stop: () => Promise<string>;
-  handleGithubEvent: (event: GithubPrEvent) => Promise<void>;
+  handleGithubEvent: (event: GithubWebhookEvent) => Promise<void>;
   catchUpOpenPrs: () => Promise<void>;
   interruptIfLocked: (featureId: number) => Promise<void>;
 };
@@ -57,6 +60,8 @@ export function createPipeline(ctx: {
 }): Pipeline {
   let queue: Promise<void> = Promise.resolve();
   let jobAbort: AbortController | undefined;
+  let catchUpInFlight: Promise<void> | undefined;
+  let lastCatchUpAt = 0;
 
   const enqueue = (job: () => Promise<void>): Promise<void> => {
     const run = queue.then(job, job);
@@ -120,6 +125,7 @@ export function createPipeline(ctx: {
       }
 
       if (feature.state === "planning") {
+        await removeAddNoteButton(ctx.client, ctx.config.discordChannelId, feature.addNoteMessageId);
         if (!options.resume) {
           const branch = newFeatureBranchName(featureSlug(feature.name));
           await createFeatureBranch(ctx.config, branch);
@@ -288,8 +294,12 @@ export function createPipeline(ctx: {
     }
   };
 
-  const handleGithubEvent = async (event: GithubPrEvent): Promise<void> => {
+  const handleGithubEvent = async (event: GithubWebhookEvent): Promise<void> => {
     if (event.kind === "ignore") {
+      return;
+    }
+    if (event.kind === "deployed" || event.kind === "deploy_failed") {
+      await announceDeployOutcome(event);
       return;
     }
     const feature = ctx.store.getFeatureByPrNumber(event.number);
@@ -303,7 +313,13 @@ export function createPipeline(ctx: {
       }
       await checkoutDefaultBranch(ctx.config);
       await cleanupAfterMerge(ctx.config, ctx.store, feature.id);
-      await notify(`Feature ${formatFeatureName(feature.name, featureCatalogUrl(feature))} merged to master.`);
+      let headSha: string | undefined;
+      try {
+        headSha = await git(ctx.config.gameRepoDir, ["rev-parse", "HEAD"]);
+      } catch (error) {
+        console.error("failed to read HEAD after merge", error);
+      }
+      void waitAndAnnounceDeploy(headSha);
       return;
     }
     if (feature.state === "accepted" || feature.state === "rejected") {
@@ -313,6 +329,80 @@ export function createPipeline(ctx: {
     await notify(
       `PR for ${formatFeatureName(feature.name, featureCatalogUrl(feature))} was closed without merging. Use /egon-retry or /egon-pivot to continue.`,
     );
+  };
+
+  const deployTitle = (features: Feature[]): string => {
+    if (features.length === 0) {
+      return githubRepoSlug(ctx.config.gameRepoHttpsUrl);
+    }
+    return features.map((item) => formatFeatureName(item.name, featureCatalogUrl(item))).join(", ");
+  };
+
+  const announceDeployOutcome = async (
+    event: Extract<GithubWebhookEvent, { kind: "deployed" | "deploy_failed" }>,
+  ): Promise<void> => {
+    if (event.headBranch !== "" && event.headBranch !== ctx.config.gameRepoBranch) {
+      return;
+    }
+    if (!ctx.store.claimDeployRun(event.runId)) {
+      return;
+    }
+    const pending = ctx.store.listPendingDeployFeatures();
+    const title = deployTitle(pending);
+    if (event.kind === "deployed") {
+      ctx.store.markFeaturesDeployAnnounced(pending.map((item) => item.id));
+      let version: string | undefined;
+      try {
+        version = await readOriginDeploymentVersion(ctx.config);
+      } catch (error) {
+        console.error("failed to read deployment.json version", error);
+      }
+      await notify(
+        formatDeploySuccess({
+          title,
+          repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
+          gameUrl: ctx.config.gamePublicUrl,
+          version,
+          durationMinutes: event.durationMinutes,
+          commitMessage: event.commitMessage,
+        }),
+      );
+      return;
+    }
+    await notify(
+      formatDeployFailure({
+        title,
+        repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
+        gameUrl: ctx.config.gamePublicUrl,
+        durationMinutes: event.durationMinutes,
+        commitMessage: event.commitMessage,
+        workflowUrl: event.htmlUrl,
+      }),
+    );
+  };
+
+  const waitAndAnnounceDeploy = async (headSha?: string, createdAfterIso?: string): Promise<void> => {
+    try {
+      const run = await waitForDeployWorkflow(ctx.config, {
+        headSha,
+        createdAfterIso: headSha ? undefined : createdAfterIso,
+      });
+      const kind =
+        run.conclusion === "success" ? "deployed" : run.conclusion === "failure" ? "deploy_failed" : undefined;
+      if (!kind) {
+        return;
+      }
+      await announceDeployOutcome({
+        kind,
+        runId: run.id,
+        headBranch: ctx.config.gameRepoBranch,
+        commitMessage: run.displayTitle,
+        htmlUrl: run.url,
+        durationMinutes: deployRunDurationMinutes(run),
+      });
+    } catch (error) {
+      console.error("failed to wait for game deploy", error);
+    }
   };
 
   return {
@@ -439,22 +529,45 @@ export function createPipeline(ctx: {
         .join("\n");
     },
     handleGithubEvent,
-    catchUpOpenPrs: async () => {
-      for (const feature of ctx.store.listFeaturesAwaitingGithub()) {
-        if (feature.githubPrNumber === null) {
-          continue;
-        }
-        try {
-          const view = await viewPullRequest(ctx.config, feature.githubPrNumber);
-          if (isMergedView(view)) {
-            await handleGithubEvent({ kind: "merged", number: feature.githubPrNumber });
-          } else if (isClosedUnmergedView(view)) {
-            await handleGithubEvent({ kind: "closed", number: feature.githubPrNumber });
-          }
-        } catch (error) {
-          console.error(`github catch-up failed for PR #${String(feature.githubPrNumber)}`, error);
-        }
+    catchUpOpenPrs: () => {
+      if (catchUpInFlight) {
+        return catchUpInFlight;
       }
+      if (lastCatchUpAt !== 0 && Date.now() - lastCatchUpAt < 10_000) {
+        return Promise.resolve();
+      }
+      catchUpInFlight = (async () => {
+        try {
+          for (const feature of ctx.store.listFeaturesAwaitingGithub()) {
+            if (feature.githubPrNumber === null) {
+              continue;
+            }
+            try {
+              const view = await viewPullRequest(ctx.config, feature.githubPrNumber);
+              if (isMergedView(view)) {
+                await handleGithubEvent({ kind: "merged", number: feature.githubPrNumber });
+              } else if (isClosedUnmergedView(view)) {
+                await handleGithubEvent({ kind: "closed", number: feature.githubPrNumber });
+              }
+            } catch (error) {
+              console.error(`github catch-up failed for PR #${String(feature.githubPrNumber)}`, error);
+            }
+          }
+          const pending = ctx.store.listPendingDeployFeatures();
+          if (pending.length > 0) {
+            const oldest = pending[pending.length - 1];
+            const updated = oldest ? Date.parse(oldest.updatedAt) : Number.NaN;
+            const after = Number.isFinite(updated)
+              ? new Date(updated - 10 * 60_000).toISOString()
+              : undefined;
+            void waitAndAnnounceDeploy(undefined, after);
+          }
+        } finally {
+          lastCatchUpAt = Date.now();
+          catchUpInFlight = undefined;
+        }
+      })();
+      return catchUpInFlight;
     },
     interruptIfLocked: async (featureId: number) => {
       const lock = ctx.store.getPipelineLock();

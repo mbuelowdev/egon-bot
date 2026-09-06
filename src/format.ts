@@ -73,6 +73,48 @@ export function formatReviewReady(name: string, pageUrl?: string, prUrl?: string
   return `${PHASE_EMOJI.review} ${pr} ready for review: ${formatFeatureName(name, pageUrl)}.`;
 }
 
+export type DeployNotice = {
+  title: string;
+  repoUrl: string;
+  gameUrl: string;
+  version?: string;
+  durationMinutes: number;
+  commitMessage: string;
+};
+
+/** Discord notice matching ssh-docker-deployment's notify-discord.sh. */
+export function formatDeploySuccess(notice: DeployNotice): string {
+  return clipDiscordMessage(
+    [
+      `**✅ Successfully deployed: ${notice.title}**`,
+      `- **Source code**: ${discordLink(notice.repoUrl)}`,
+      `- **Deployed to**: ${discordLink(notice.gameUrl)}`,
+      `- **Metadata**: ${deployMetadata(notice)}`,
+      `- **Commit**: ${flattenDiscordLine(escapeDiscordMarkdown(notice.commitMessage))}`,
+    ].join("\n"),
+  );
+}
+
+/** Discord notice when the game's Build and deploy workflow fails. */
+export function formatDeployFailure(notice: DeployNotice & { workflowUrl: string }): string {
+  return clipDiscordMessage(
+    [
+      `**❌ Deploy failed: ${notice.title}**`,
+      `- **Workflow**: ${discordLink(notice.workflowUrl)}`,
+      `- **Commit**: ${flattenDiscordLine(escapeDiscordMarkdown(notice.commitMessage))}`,
+    ].join("\n"),
+  );
+}
+
+function deployMetadata(notice: DeployNotice): string {
+  const parts: string[] = [];
+  if (notice.version !== undefined && notice.version !== "") {
+    parts.push(`Version ${flattenDiscordLine(escapeDiscordMarkdown(notice.version))}`);
+  }
+  parts.push(`built in ~${String(Math.max(1, notice.durationMinutes))}min.`);
+  return parts.join(", ");
+}
+
 /** Confirmation after /egon-plan. */
 export function formatPlanStarted(name: string, pageUrl?: string): string {
   return `${PHASE_EMOJI.planning} Started planning ${formatFeatureName(name, pageUrl)}. Progress will be posted in this channel.`;

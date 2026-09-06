@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catalogUrl, featurePageUrl, githubRepoWebUrl, loadConfig } from "./config.js";
+import { catalogUrl, featurePageUrl, githubRepoSlug, githubRepoWebUrl, loadConfig } from "./config.js";
 
 const validEnv: NodeJS.ProcessEnv = {
   DISCORD_TOKEN: "token",
@@ -82,5 +82,12 @@ test("githubRepoWebUrl strips .git from the clone URL", () => {
   assert.equal(
     githubRepoWebUrl("https://github.com/mbuelowdev/lets-vibe-together.git"),
     "https://github.com/mbuelowdev/lets-vibe-together",
+  );
+});
+
+test("githubRepoSlug is owner/repo", () => {
+  assert.equal(
+    githubRepoSlug("https://github.com/mbuelowdev/lets-vibe-together.git"),
+    "mbuelowdev/lets-vibe-together",
   );
 });

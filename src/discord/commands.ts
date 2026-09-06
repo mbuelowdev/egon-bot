@@ -14,6 +14,7 @@ import { assertImageContentType, saveFeatureImage } from "../features/saveImage.
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { formatFeatureName, formatNoteAdded, formatPlanStarted } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
+import { removeAddNoteButton } from "./channel.js";
 import { addNoteButtonRow } from "./noteButton.js";
 import { discordLink, noLinkPreview } from "./preview.js";
 
@@ -150,6 +151,12 @@ export const COMMANDS: RegisteredCommand[] = [
         `Created ${formatFeatureName(feature.name, featurePageUrl(config, feature.name))} (${feature.state}). It is now the latest feature in this channel.`,
         { components: [addNoteButtonRow(feature.id)] },
       );
+      try {
+        const posted = await interaction.fetchReply();
+        store.setAddNoteMessageId(feature.id, posted.id);
+      } catch (error) {
+        console.error("failed to remember Add specifics message", error);
+      }
     },
   ),
   command(
@@ -230,7 +237,7 @@ export const COMMANDS: RegisteredCommand[] = [
           .setRequired(false)
           .setMaxLength(100),
       ),
-    async ({ interaction, store, pipeline, config }) => {
+    async ({ interaction, store, pipeline, config, client }) => {
       const name = interaction.options.getString("name")?.trim() ?? "";
       const feature =
         name === ""
@@ -243,6 +250,7 @@ export const COMMANDS: RegisteredCommand[] = [
         throw new UserFacingError(`No feature named "${name}".`);
       }
       const planned = store.startPlanning(feature.id);
+      await removeAddNoteButton(client, config.discordChannelId, planned.addNoteMessageId);
       await replyCommand(
         interaction,
         formatPlanStarted(planned.name, featurePageUrl(config, planned.name)),

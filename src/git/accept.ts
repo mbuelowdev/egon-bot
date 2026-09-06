@@ -11,7 +11,7 @@ import { git } from "./workingTree.js";
 
 const execFileAsync = promisify(execFile);
 
-async function originDeploymentVersion(config: Config): Promise<string | undefined> {
+export async function readOriginDeploymentVersion(config: Config): Promise<string | undefined> {
   try {
     const raw = await git(config.gameRepoDir, [
       "show",
@@ -27,7 +27,7 @@ export async function ensureDeploymentBump(config: Config): Promise<string> {
   const path = join(config.gameRepoDir, "deployment.json");
   const raw = existsSync(path) ? readFileSync(path, "utf8") : "{}";
   const local = readDeploymentVersion(raw);
-  const origin = await originDeploymentVersion(config);
+  const origin = await readOriginDeploymentVersion(config);
   if (local && origin && versionIncreased(local, origin)) {
     return local;
   }
@@ -56,5 +56,6 @@ export async function cleanupAfterMerge(
   if (feature && feature.state !== "accepted") {
     store.transition(featureId, "accepted");
   }
+  store.markPendingDeployAnnounce(featureId);
   store.releasePipelineLock();
 }

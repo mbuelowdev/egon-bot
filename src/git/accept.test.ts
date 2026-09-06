@@ -30,6 +30,7 @@ test("cleanupAfterMerge marks accepted, releases the lock, and keeps proof files
   });
   await cleanupAfterMerge(config, store, feature.id);
   assert.equal(store.getFeatureById(feature.id)?.state, "accepted");
+  assert.equal(store.getFeatureById(feature.id)?.deployAnnounced, false);
   assert.equal(store.getPipelineLock(), undefined);
   assert.equal(existsSync(join(root, "SPEC.md")), true);
   assert.equal(existsSync(join(root, "screenshots", "01.png")), true);

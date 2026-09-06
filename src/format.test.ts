@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   escapeDiscordMarkdown,
+  formatDeployFailure,
+  formatDeploySuccess,
   formatDuration,
   formatFeatureName,
   formatImplementationStart,
@@ -191,5 +193,43 @@ test("formatPivoting escapes player text", () => {
   assert.equal(
     formatPivoting("Dash *HUD*", "make it **bigger**"),
     "Pivoting **Dash \\*HUD\\***. Re-entering implement and test.\n*make it \\*\\*bigger\\*\\**",
+  );
+});
+
+test("formatDeploySuccess matches the ssh-docker-deployment notice", () => {
+  assert.equal(
+    formatDeploySuccess({
+      title: "Dash HUD",
+      repoUrl: "https://github.com/org/game",
+      gameUrl: "https://game.example",
+      version: "0.0.3",
+      durationMinutes: 4,
+      commitMessage: "Bump deployment.json",
+    }),
+    [
+      "**✅ Successfully deployed: Dash HUD**",
+      "- **Source code**: <https://github.com/org/game>",
+      "- **Deployed to**: <https://game.example>",
+      "- **Metadata**: Version 0.0.3, built in ~4min.",
+      "- **Commit**: Bump deployment.json",
+    ].join("\n"),
+  );
+});
+
+test("formatDeployFailure links the workflow run", () => {
+  assert.equal(
+    formatDeployFailure({
+      title: "org/game",
+      repoUrl: "https://github.com/org/game",
+      gameUrl: "https://game.example",
+      durationMinutes: 2,
+      commitMessage: "broken",
+      workflowUrl: "https://github.com/org/game/actions/runs/9",
+    }),
+    [
+      "**❌ Deploy failed: org/game**",
+      "- **Workflow**: <https://github.com/org/game/actions/runs/9>",
+      "- **Commit**: broken",
+    ].join("\n"),
   );
 });

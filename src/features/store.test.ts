@@ -58,10 +58,12 @@ test("agent ids and pending question round-trip", () => {
   store.setPlannerAgentId(feature.id, "planner-1");
   store.setImplementerAgentId(feature.id, "impl-1");
   store.setPendingQuestion(feature.id, "Which font?");
+  store.setAddNoteMessageId(feature.id, "created-msg");
   const loaded = store.getFeatureById(feature.id);
   assert.equal(loaded?.plannerAgentId, "planner-1");
   assert.equal(loaded?.implementerAgentId, "impl-1");
   assert.equal(loaded?.pendingQuestion, "Which font?");
+  assert.equal(loaded?.addNoteMessageId, "created-msg");
   store.close();
 });
 
@@ -86,6 +88,26 @@ test("github PR fields round-trip and lookup", () => {
   store.transition(feature.id, "accepted");
   assert.equal(store.listFeaturesAwaitingGithub().length, 0);
   assert.equal(store.countAcceptedFeatures(), 1);
+  store.close();
+});
+
+test("pending deploy announce is claimed once per GitHub Actions run", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  store.transition(feature.id, "planning");
+  store.transition(feature.id, "implementing");
+  store.transition(feature.id, "accepted");
+  assert.equal(store.getFeatureById(feature.id)?.deployAnnounced, true);
+  assert.equal(store.listPendingDeployFeatures().length, 0);
+  store.markPendingDeployAnnounce(feature.id);
+  assert.equal(store.getFeatureById(feature.id)?.deployAnnounced, false);
+  assert.equal(store.listPendingDeployFeatures()[0]?.id, feature.id);
+  assert.equal(store.claimDeployRun(99), true);
+  assert.equal(store.claimDeployRun(99), false);
+  assert.equal(store.claimDeployRun(100), true);
+  store.markFeaturesDeployAnnounced([feature.id]);
+  assert.equal(store.listPendingDeployFeatures().length, 0);
+  assert.equal(store.getFeatureById(feature.id)?.deployAnnounced, true);
   store.close();
 });
 

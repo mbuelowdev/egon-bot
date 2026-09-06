@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { githubRepoWebUrl, type Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { featureSlug } from "../features/slug.js";
@@ -10,30 +11,39 @@ import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
 import { loadFeatureAgentLog } from "../cursor/agentLog.js";
 import { featurePage, indexPage } from "./page.js";
-import { parseGithubPullRequestEvent, verifyGithubSignature, type GithubPrEvent } from "./webhook.js";
+import { parseGithubWebhookEvent, verifyGithubSignature, type GithubWebhookEvent } from "./webhook.js";
 
 /** Shared catalog password for deleting features from the catalog. */
 export const CATALOG_DELETE_PASSWORD = "ente123";
 
+const catalogDir = dirname(fileURLToPath(import.meta.url));
+const FAVICON_PATHS: Record<string, string> = {
+  "/favicon.ico": "favicon.ico",
+  "/favicon.png": "favicon.png",
+  "/apple-touch-icon.png": "apple-touch-icon.png",
+};
+
 export type CatalogServerOptions = {
   store: FeatureStore;
   config: Config;
-  onGithubEvent: (event: GithubPrEvent) => Promise<void>;
+  onGithubEvent: (event: GithubWebhookEvent) => Promise<void>;
+  /** Sync merged/closed PRs from GitHub before rendering catalog pages. */
+  syncGithub?: () => Promise<void>;
   beforeDelete?: (feature: Feature) => Promise<void>;
   closePullRequest?: (prNumber: number) => Promise<void>;
 };
 
 let server: Server | undefined;
 
-function catalogSections(
-  store: FeatureStore,
-  config: Config,
-): { collecting: Feature[]; planned: Feature[]; implemented: Feature[] } {
+function catalogSections(store: FeatureStore): {
+  collecting: Feature[];
+  planned: Feature[];
+  implemented: Feature[];
+} {
   const collecting: Feature[] = [];
   const planned: Feature[] = [];
   const implemented: Feature[] = [];
   for (const feature of store.listAllFeatures()) {
-    const specPath = featurePaths(config.dataDir, feature.id).specPath;
     if (feature.state === "accepted") {
       implemented.push(feature);
       continue;
@@ -42,9 +52,7 @@ function catalogSections(
       collecting.push(feature);
       continue;
     }
-    if (existsSync(specPath)) {
-      planned.push(feature);
-    }
+    planned.push(feature);
   }
   return { collecting, planned, implemented };
 }
@@ -90,6 +98,17 @@ function parsePassword(raw: Buffer): string | undefined {
     return undefined;
   }
   return undefined;
+}
+
+async function syncGithub(options: CatalogServerOptions): Promise<void> {
+  if (!options.syncGithub) {
+    return;
+  }
+  try {
+    await options.syncGithub();
+  } catch (error) {
+    console.error("github catch-up before catalog failed", error);
+  }
 }
 
 function sendFile(res: ServerResponse, filePath: string): void {
@@ -154,7 +173,7 @@ async function handleRequest(
       send(res, 400, "Invalid JSON", "text/plain; charset=utf-8");
       return;
     }
-    const event = parseGithubPullRequestEvent(eventName, payload);
+    const event = parseGithubWebhookEvent(eventName, payload);
     if (event.kind !== "ignore") {
       await options.onGithubEvent(event);
     }
@@ -205,8 +224,15 @@ async function handleRequest(
     return;
   }
 
+  const faviconName = FAVICON_PATHS[urlPath];
+  if (faviconName) {
+    sendFile(res, join(catalogDir, faviconName));
+    return;
+  }
+
   if (urlPath === "/") {
-    const { collecting, planned, implemented } = catalogSections(options.store, options.config);
+    await syncGithub(options);
+    const { collecting, planned, implemented } = catalogSections(options.store);
     send(
       res,
       200,
@@ -231,6 +257,7 @@ async function handleRequest(
 
   const detail = urlPath.match(/^\/features\/([^/]+)\/?$/);
   if (detail && detail[1]) {
+    await syncGithub(options);
     const feature = findFeatureBySlug(options.store, detail[1]);
     if (!feature) {
       send(res, 404, "Not found", "text/plain; charset=utf-8");

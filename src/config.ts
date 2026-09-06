@@ -123,3 +123,10 @@ export function featurePageUrl(config: Config, name: string): string | undefined
 export function githubRepoWebUrl(gitHttpsUrl: string): string {
   return gitHttpsUrl.replace(/\.git$/i, "").replace(/\/+$/, "");
 }
+
+/** owner/repo from an HTTPS GitHub git URL. */
+export function githubRepoSlug(gitHttpsUrl: string): string {
+  const web = githubRepoWebUrl(gitHttpsUrl);
+  const match = web.match(/github\.com\/([^/]+\/[^/]+)$/i);
+  return match?.[1] ?? web;
+}
