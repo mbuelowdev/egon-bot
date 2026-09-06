@@ -7,7 +7,7 @@ import { runPlanner } from "../cursor/planner.js";
 import { postToChannel } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
 import { cancelAllThreadWaiters, waitForThreadAnswer } from "../discord/qaWaiters.js";
-import { copyFeatureSpec, featureBranchName } from "../features/artifacts.js";
+import { copyFeatureAssets, copyFeatureSpec, featureBranchName } from "../features/artifacts.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
@@ -116,6 +116,7 @@ export function createPipeline(ctx: {
         if (!options.resume) {
           await createFeatureBranch(ctx.config, featureSlug(feature.name));
         }
+        copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
         if (haltIfNeeded()) {
           return;
         }
@@ -210,6 +211,7 @@ export function createPipeline(ctx: {
       }
 
       if (feature.state === "implementing") {
+        copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
         await notify(
           [`${PHASE_EMOJI.implementing} Implementation started for **${feature.name}**.`, ...extraLinks(feature)]
             .filter((line) => line !== "")

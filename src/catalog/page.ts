@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Config } from "../config.js";
 import type { AgentLogEntry, AgentLogStep, AgentRole } from "../cursor/agentLog.js";
 import { hangingToolName, logEntryStuckKind } from "../cursor/agentWatch.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { formatDuration, formatTokenCount } from "../format.js";
 import { featureSlug } from "../features/slug.js";
-import type { Feature } from "../features/store.js";
+import type { Feature, FeatureAttachment } from "../features/store.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
 
 export type CatalogLifetimeStats = {
@@ -475,6 +476,7 @@ export function featurePage(
   feature: Feature,
   notes: string[] = [],
   agentLog: AgentLogEntry[] = [],
+  attachments: FeatureAttachment[] = [],
 ): string {
   const slug = featureSlug(feature.name);
   const paths = featurePaths(config.dataDir, feature.id);
@@ -493,6 +495,21 @@ export function featurePage(
             </figure>`,
           )
           .join("")}</div>`;
+  const refs = attachments.filter((item) => existsSync(join(paths.attachmentsDir, item.storedName)));
+  const refsGallery =
+    refs.length === 0
+      ? ""
+      : `<section>
+        <h2>Reference images</h2>
+        <div class="shots">${refs
+          .map(
+            (item) => `<figure>
+              <img src="/features/${encodeURIComponent(slug)}/attachments/${encodeURIComponent(item.storedName)}" alt="${escapeHtml(item.filename)}">
+              <figcaption>${escapeHtml(item.filename)}</figcaption>
+            </figure>`,
+          )
+          .join("")}</div>
+      </section>`;
   const pr = feature.githubPrUrl
     ? `<p class="meta"><a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${feature.githubPrNumber !== null ? `PR #${String(feature.githubPrNumber)}` : "GitHub pull request"}</a></p>`
     : "";
@@ -514,6 +531,7 @@ export function featurePage(
     </header>
     <main>
       ${notesSection}
+      ${refsGallery}
       <section>
         <h2>Spec</h2>
         <div class="spec">${renderMarkdown(spec)}</div>

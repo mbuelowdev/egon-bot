@@ -29,6 +29,16 @@ test("catalog lists collecting, planned, and implemented features with spec and 
   const store = new FeatureStore(":memory:");
   const collecting = store.createFeature("Wall run", "channel-1");
   store.addNote(collecting.id, "hold jump against a wall");
+  const collectingShot = store.addAttachment(collecting.id, {
+    filename: "wall.png",
+    mimeType: "image/png",
+    storedName: "wall-ref.png",
+  });
+  mkdirSync(join(dataDir, "features", String(collecting.id), "attachments"), { recursive: true });
+  writeFileSync(
+    join(dataDir, "features", String(collecting.id), "attachments", collectingShot.storedName),
+    "ref-png",
+  );
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
   const specDir = join(dataDir, "features", String(planned.id));
@@ -112,6 +122,12 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.equal(idea.status, 200);
     assert.match(ideaHtml, /hold jump against a wall/);
     assert.match(ideaHtml, /collecting/);
+    assert.match(ideaHtml, /Reference images/);
+    assert.match(ideaHtml, /wall\.png/);
+
+    const ref = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/attachments/wall-ref.png`);
+    assert.equal(ref.status, 200);
+    assert.equal(await ref.text(), "ref-png");
 
     const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
     const detailHtml = await detail.text();

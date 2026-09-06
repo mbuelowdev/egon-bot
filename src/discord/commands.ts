@@ -8,6 +8,7 @@ import {
 import { catalogUrl, type Config } from "../config.js";
 import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
 import { featureSlug } from "../features/slug.js";
+import { assertImageContentType, saveFeatureImage } from "../features/saveImage.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { discordLink, noLinkPreview } from "./preview.js";
@@ -50,6 +51,33 @@ export async function replyCommand(
     return;
   }
   await interaction.reply(payload);
+}
+
+async function addNoteWithOptionalImage(
+  interaction: ChatInputCommandInteraction,
+  store: FeatureStore,
+  config: Config,
+  feature: Feature,
+): Promise<void> {
+  const text = interaction.options.getString("text", true);
+  const attachment = interaction.options.getAttachment("image");
+  if (attachment) {
+    assertImageContentType(attachment.contentType);
+    await interaction.deferReply();
+    await saveFeatureImage({
+      dataDir: config.dataDir,
+      store,
+      featureId: feature.id,
+      image: {
+        name: attachment.name,
+        url: attachment.url,
+        contentType: attachment.contentType,
+      },
+    });
+  }
+  store.addNote(feature.id, text);
+  const extra = attachment ? " Image saved for Cursor." : "";
+  await replyCommand(interaction, `Added a note to **${feature.name}**.${extra}`);
 }
 
 function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
@@ -99,17 +127,19 @@ export const COMMANDS: RegisteredCommand[] = [
     "egon-add",
     "Append note to latest feature in this channel",
     (builder) =>
-      builder.addStringOption((option) =>
-        option.setName("text").setDescription("Note to append").setRequired(true).setMaxLength(2000),
-      ),
+      builder
+        .addStringOption((option) =>
+          option.setName("text").setDescription("Note to append").setRequired(true).setMaxLength(2000),
+        )
+        .addAttachmentOption((option) =>
+          option.setName("image").setDescription("Reference image for Cursor").setRequired(false),
+        ),
     async ({ interaction, store, config }) => {
       const latest = store.getLatestFeatureForChannel(config.discordChannelId);
       if (!latest) {
         throw new UserFacingError("No latest feature in this channel. Use /egon-new-feature first.");
       }
-      const text = interaction.options.getString("text", true);
-      store.addNote(latest.id, text);
-      await replyCommand(interaction, `Added a note to **${latest.name}**.`);
+      await addNoteWithOptionalImage(interaction, store, config, latest);
     },
   ),
   command(
@@ -122,16 +152,17 @@ export const COMMANDS: RegisteredCommand[] = [
         )
         .addStringOption((option) =>
           option.setName("text").setDescription("Note to append").setRequired(true).setMaxLength(2000),
+        )
+        .addAttachmentOption((option) =>
+          option.setName("image").setDescription("Reference image for Cursor").setRequired(false),
         ),
-    async ({ interaction, store }) => {
+    async ({ interaction, store, config }) => {
       const name = interaction.options.getString("name", true);
       const feature = store.getFeatureByName(name);
       if (!feature) {
         throw new UserFacingError(`No feature named "${name.trim()}".`);
       }
-      const text = interaction.options.getString("text", true);
-      store.addNote(feature.id, text);
-      await replyCommand(interaction, `Added a note to **${feature.name}**.`);
+      await addNoteWithOptionalImage(interaction, store, config, feature);
     },
   ),
   command(

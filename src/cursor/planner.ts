@@ -1,12 +1,20 @@
-import { Agent } from "@cursor/sdk";
+import { Agent, type SDKUserMessage } from "@cursor/sdk";
 import type { Config } from "../config.js";
-import type { Feature, FeatureStore } from "../features/store.js";
+import { featureAssetDir } from "../features/artifacts.js";
+import type { Feature, FeatureAttachment, FeatureStore } from "../features/store.js";
 import { featureSlug } from "../features/slug.js";
 import { createAskDiscordUsersTool, type AskUsersDeps } from "./askUsersTool.js";
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
+import { agentUserMessage, attachmentPromptLines, loadCursorImages } from "./images.js";
 import { parsePlanMarker, type PlanMarker } from "./planMarker.js";
+import { featurePaths, MAX_ACCEPTANCE_CRITERIA } from "./testReport.js";
 
-function plannerPrompt(feature: Feature, notes: string[]): string {
+export function plannerPrompt(
+  feature: Feature,
+  notes: string[],
+  attachmentsDir: string,
+  attachments: FeatureAttachment[],
+): string {
   const slug = featureSlug(feature.name);
   const noteBlock = notes.length > 0 ? notes.map((note) => `- ${note}`).join("\n") : "(none)";
   return [
@@ -16,14 +24,33 @@ function plannerPrompt(feature: Feature, notes: string[]): string {
     "You are on a feature branch. Do not write any other files. Do not commit or push.",
     "You may read existing game code to ground the spec.",
     "",
-    "The spec MUST include an **Acceptance criteria** section: a numbered list of concrete, browser-verifiable checks (what to do, and what must be visible or true).",
+    `The spec MUST include an **Acceptance criteria** section: a numbered list of at most ${String(MAX_ACCEPTANCE_CRITERIA)} concrete, browser-verifiable checks (what to do, and what must be visible or true). Never write more than ${String(MAX_ACCEPTANCE_CRITERIA)} criteria.`,
     "",
     "Feature notes from Discord:",
     noteBlock,
+    ...attachmentPromptLines(attachmentsDir, featureAssetDir(slug), attachments.length, false),
     "",
     "If you need a human decision, call ask_discord_users and wait for the answer.",
     "When finished, end your last message with a one-line marker exactly: PLAN_COMPLETE or PLAN_BLOCKED.",
   ].join("\n");
+}
+
+export function buildPlannerSendMessage(options: {
+  feature: Feature;
+  notes: string[];
+  attachments: FeatureAttachment[];
+  dataDir: string;
+  followUp?: string;
+}): string | SDKUserMessage {
+  if (options.followUp !== undefined) {
+    return options.followUp;
+  }
+  const attachmentsDir = featurePaths(options.dataDir, options.feature.id).attachmentsDir;
+  const text = plannerPrompt(options.feature, options.notes, attachmentsDir, options.attachments);
+  return agentUserMessage(
+    text,
+    loadCursorImages(options.dataDir, options.feature.id, options.attachments),
+  );
 }
 
 export async function runPlanner(options: {
@@ -44,8 +71,13 @@ export async function runPlanner(options: {
     : await Agent.create(createOptions);
   options.store.setPlannerAgentId(options.feature.id, agent.agentId);
   try {
-    const message =
-      options.followUp ?? plannerPrompt(options.feature, options.store.listNotes(options.feature.id));
+    const message = buildPlannerSendMessage({
+      feature: options.feature,
+      notes: options.store.listNotes(options.feature.id),
+      attachments: options.store.listAttachments(options.feature.id),
+      dataDir: options.config.dataDir,
+      followUp: options.followUp,
+    });
     const result = await sendAndWait(
       agent,
       message,

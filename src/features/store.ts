@@ -33,6 +33,15 @@ export type Feature = {
   updatedAt: string;
 };
 
+export type FeatureAttachment = {
+  id: number;
+  featureId: number;
+  filename: string;
+  mimeType: string;
+  storedName: string;
+  createdAt: string;
+};
+
 export type OpenFeature = Feature & { noteCount: number };
 
 export type PipelineLock = {
@@ -181,6 +190,65 @@ export class FeatureStore {
       .prepare("SELECT text FROM notes WHERE feature_id = ? ORDER BY id ASC")
       .all(featureId) as Array<{ text: string }>;
     return rows.map((row) => row.text);
+  }
+
+  addAttachment(
+    featureId: number,
+    info: { filename: string; mimeType: string; storedName: string },
+  ): FeatureAttachment {
+    const feature = this.getFeatureById(featureId);
+    if (!feature) {
+      throw new UserFacingError("Feature not found.");
+    }
+    const storedName = info.storedName.trim();
+    if (storedName === "" || storedName.includes("/") || storedName.includes("\\")) {
+      throw new UserFacingError("Invalid attachment name.");
+    }
+    const filename = info.filename.trim() === "" ? storedName : info.filename.trim();
+    const mimeType = info.mimeType.trim();
+    if (mimeType === "") {
+      throw new UserFacingError("Attachment mime type cannot be empty.");
+    }
+    const createdAt = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO attachments (feature_id, filename, mime_type, stored_name, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(featureId, filename, mimeType, storedName, createdAt);
+    this.db.prepare("UPDATE features SET updated_at = ? WHERE id = ?").run(createdAt, featureId);
+    return {
+      id: Number(result.lastInsertRowid),
+      featureId,
+      filename,
+      mimeType,
+      storedName,
+      createdAt,
+    };
+  }
+
+  listAttachments(featureId: number): FeatureAttachment[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, feature_id, filename, mime_type, stored_name, created_at
+         FROM attachments WHERE feature_id = ? ORDER BY id ASC`,
+      )
+      .all(featureId) as Array<{
+      id: number | bigint;
+      feature_id: number | bigint;
+      filename: string;
+      mime_type: string;
+      stored_name: string;
+      created_at: string;
+    }>;
+    return rows.map((row) => ({
+      id: Number(row.id),
+      featureId: Number(row.feature_id),
+      filename: row.filename,
+      mimeType: row.mime_type,
+      storedName: row.stored_name,
+      createdAt: row.created_at,
+    }));
   }
 
   listAllFeatures(): Feature[] {
@@ -506,7 +574,7 @@ export class FeatureStore {
     return Number(row.total);
   }
 
-  /** Remove a collecting (unplanned) feature, its notes, and channel-latest pointers. */
+  /** Remove a collecting (unplanned) feature, its notes, attachments, and channel-latest pointers. */
   deleteCollectingFeature(featureId: number): Feature {
     const feature = this.requireFeature(featureId);
     if (feature.state !== "collecting") {
@@ -520,6 +588,7 @@ export class FeatureStore {
     }
     this.db.exec("BEGIN");
     try {
+      this.db.prepare("DELETE FROM attachments WHERE feature_id = ?").run(featureId);
       this.db.prepare("DELETE FROM notes WHERE feature_id = ?").run(featureId);
       this.db.prepare("DELETE FROM channel_latest WHERE feature_id = ?").run(featureId);
       this.db.prepare("DELETE FROM features WHERE id = ?").run(featureId);
@@ -555,6 +624,14 @@ export class FeatureStore {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         feature_id INTEGER NOT NULL REFERENCES features(id),
         text TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        feature_id INTEGER NOT NULL REFERENCES features(id),
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        stored_name TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS channel_latest (

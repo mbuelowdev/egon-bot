@@ -6,6 +6,7 @@ import {
   JsonlLocalAgentStore,
   type SDKAgent,
   type SDKCustomTool,
+  type SDKUserMessage,
   type SendOptions,
 } from "@cursor/sdk";
 import type { Config } from "../config.js";
@@ -15,6 +16,7 @@ import {
   setActiveAgentRun,
 } from "./activeRun.js";
 import { beginLiveRunLog, persistRunLog, type AgentLogContext, type LiveRunLog } from "./agentLog.js";
+import { logTextForMessage } from "./images.js";
 import { activeRunDurationMs, resetAgentIdle, takeAgentIdleMs } from "./agentIdle.js";
 import {
   beginAgentWatch,
@@ -56,7 +58,7 @@ function totalTokensOf(usage: { totalTokens?: number } | undefined): number | un
 
 export async function sendAndWait(
   agent: SDKAgent,
-  message: string,
+  message: string | SDKUserMessage,
   options?: SendOptions,
   log?: AgentLogContext,
 ): Promise<{ status: "finished" | "error" | "cancelled"; result?: string; errorMessage?: string }> {
@@ -73,6 +75,7 @@ export async function sendAndWait(
     status: "error",
   };
   const activeMs = (): number => activeRunDurationMs(Date.now() - startedAt, takeAgentIdleMs());
+  const userText = logTextForMessage(message);
   try {
     run = await agent.send(message, options);
     setActiveAgentRun(run);
@@ -89,7 +92,7 @@ export async function sendAndWait(
       },
     });
     if (log) {
-      live = beginLiveRunLog(log, agent, message, run.id);
+      live = beginLiveRunLog(log, agent, userText, run.id);
       if (run.supports("stream")) {
         const writer = live;
         const activity = watch;
@@ -175,7 +178,7 @@ export async function sendAndWait(
     if (live) {
       await live.finish(outcome, run);
     } else if (log) {
-      await persistRunLog(log, agent, message, run, outcome);
+      await persistRunLog(log, agent, userText, run, outcome);
     }
     await refreshPresence();
   }

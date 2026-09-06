@@ -10,7 +10,7 @@ Humans talk in one Discord channel, then drive the pipeline with slash commands.
 
 1. Collect ideas (`/egon-new-feature`, `/egon-add`, `/egon-add-to-feature`).
 2. `/egon-plan` starts a local Cursor **planner**. Questions go to a Discord thread; the first message that **mentions the bot** is the answer.
-3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. On `PLAN_COMPLETE` the bot commits the spec, pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
+3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}`. Discord images are copied into `assets/egon/{slug}/`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. On `PLAN_COMPLETE` the bot commits the spec (and those assets), pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
 4. A local Cursor **implementer** edits the game repo on that branch. The agent does not commit or push. After a successful implementer run the bot commits, pushes, and **un-drafts** the PR (spec-only commits stay draft).
 5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status.
 6. Bugs go back to the same implementer. The bot commits and pushes each fix. Export and test again until overall PASS or the retry cap.
@@ -101,8 +101,8 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 | --- | --- |
 | `/egon-help` | List every command with its short explanation (ephemeral) |
 | `/egon-new-feature name` | Create feature; becomes this channel's "latest" |
-| `/egon-add text` | Append note to latest feature in this channel |
-| `/egon-add-to-feature name text` | Append to a named feature |
+| `/egon-add text [image]` | Append note to latest feature in this channel; optional image is stored and sent to Cursor |
+| `/egon-add-to-feature name text [image]` | Append to a named feature; same optional image |
 | `/egon-list` | Open features (not `accepted`): name, state, note count, PR link |
 | `/egon-plan [name]` | Start planner for a named feature, or this channel's latest if omitted; fail if another pipeline is active |
 | `/egon-pivot text` | Change request from `awaiting_review` or `rejected`; re-enter implement + test |
@@ -113,6 +113,8 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Discord.
 
 `/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none.
+
+Optional `image` on `/egon-add` and `/egon-add-to-feature` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only. Text remains required; extra images are additional `/egon-add` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
 
 ### Q&A threads
 
@@ -128,21 +130,21 @@ Do **not** install the Cursor IDE. The SDK local executor runs in-process.
 
 ### Planner
 
-Durable agent. Custom tool `ask_discord_users` (local `customTools`, not a separate MCP server) posts to Discord and waits, with a timeout. Writes `docs/features/{slug}/SPEC.md` **in the game repo** on branch `egon/{slug}`.
+Durable agent. Custom tool `ask_discord_users` (local `customTools`, not a separate MCP server) posts to Discord and waits, with a timeout. Writes `docs/features/{slug}/SPEC.md` **in the game repo** on branch `egon/{slug}`. Discord images collected with `/egon-add` are attached as vision on the first `send` and already sit at `assets/egon/{slug}/`.
 
-That game-repo spec **must** include an **Acceptance criteria** section: a numbered list of concrete, browser-verifiable checks (what to do, what must be visible/true). The tester treats this list as the test plan. Planner may read existing game code; it must not write outside that spec file.
+That game-repo spec **must** include an **Acceptance criteria** section: a numbered list of at most **3** concrete, browser-verifiable checks (what to do, what must be visible/true). Never more than 3. The tester treats this list as the test plan and never runs more than 3 criteria. Planner may read existing game code; it must not write outside that spec file.
 
 End with a one-line `PLAN_COMPLETE` or `PLAN_BLOCKED` marker the orchestrator can parse. Do not commit or push; the orchestrator commits the spec after `PLAN_COMPLETE`.
 
 ### Implementer
 
-Separate agent from the planner. Resume it for bug fixes and pivots (`implementerAgentId` on the feature). Implement the game-repo SPEC only. Download asset URLs from feature notes into the Godot project. Work on the feature branch already checked out.
+Separate agent from the planner. Resume it for bug fixes and pivots (`implementerAgentId` on the feature). Implement the game-repo SPEC only. Download asset URLs from feature notes into the Godot project. Discord images are attached as vision on the first `send` and already copied to `assets/egon/{slug}/` for import. Work on the feature branch already checked out.
 
 Prompt includes one extra line: bump the version field in `deployment.json` (changing that file triggers deploy when the PR merges). Do **not** commit or push; the orchestrator commits after the agent finishes.
 
 ### Tester
 
-**New agent every test cycle.** Before creating it, confirm Playwright Chrome for Testing exists **and actually launches**. Playwright MCP from the bot install (`node node_modules/@playwright/mcp/cli.js --headless --browser=chromium`), not `npx` in the game tree. Prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list. Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` that marks each criterion `PASS`/`FAIL`. Overall `PASS` only if every criterion passes. On failure the orchestrator `send`s the report to the implementer.
+**New agent every test cycle.** Before creating it, confirm Playwright Chrome for Testing exists **and actually launches**. Playwright MCP from the bot install (`node node_modules/@playwright/mcp/cli.js --headless --browser=chromium`), not `npx` in the game tree. Prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list (at most 3 items; extra items are ignored). Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` that marks each criterion `PASS`/`FAIL`. Overall `PASS` only if every criterion passes. On failure the orchestrator `send`s the report to the implementer.
 
 Planner and implementer do **not** need a browser. The tester does. Chromium lives in the same container.
 
@@ -208,7 +210,7 @@ Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepte
 A public HTTP server (separate from the Godot debug server) binds `0.0.0.0:$FEATURES_HTTP_PORT`:
 
 - Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Collecting cards (and the collecting detail page) have a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Planned or later states cannot be deleted this way.
-- Detail `/features/{slug}`: name, state, PR link, collected notes, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Index cards also link to `#agent-log`.
+- Detail `/features/{slug}`: name, state, PR link, collected notes, Discord reference images, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Index cards also link to `#agent-log`. Images are served at `/features/{slug}/attachments/{file}`.
 - Persist each planner / implementer / tester run under `$DATA_DIR/features/{id}/agent-log.jsonl`. The file is written when the run starts (prompt) and updated as stream events arrive, so a catalog refresh shows in-flight output — not only the finished run. A running entry that has gone silent is marked possibly stuck. If that file is missing, the catalog hydrates from the Cursor agent store using `plannerAgentId` / `implementerAgentId`.
 - `POST /github/webhook` as above.
 
@@ -221,7 +223,7 @@ Single service. Long-running Node bot as PID 1 (or a tiny supervisord only if xv
 ```
 /app          bot source
 /game         cloned Godot repo (GAME_REPO_DIR)
-/data         sqlite, agent store, screenshots, specs
+/data         sqlite, agent store, screenshots, attachments, specs
 ```
 
 Node.js **22.13+** (required by `@cursor/sdk`).

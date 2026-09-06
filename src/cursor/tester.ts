@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { Agent, type SDKCustomTool } from "@cursor/sdk";
 import type { Config } from "../config.js";
 import type { Feature } from "../features/store.js";
@@ -12,6 +12,7 @@ import {
 } from "./playwrightMcp.js";
 import {
   featurePaths,
+  MAX_ACCEPTANCE_CRITERIA,
   parseAcceptanceCriteria,
   parseTestReport,
   type TestReport,
@@ -21,28 +22,66 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function screenshotBasename(name: string): string {
+  return basename(name.replace(/\\/g, "/"));
+}
+
+/** Rename a Playwright-saved PNG onto a stable criterion-N.png name. Never accepts image bytes. */
+export function publishScreenshotFromDisk(
+  screenshotsDir: string,
+  filename: string,
+  source: string,
+): { ok: true; filename: string } | { ok: false; error: string } {
+  const destName = screenshotBasename(filename);
+  if (!destName.endsWith(".png")) {
+    return { ok: false, error: "filename must end in .png" };
+  }
+  const dir = resolve(screenshotsDir);
+  const sourceName = screenshotBasename(source);
+  if (sourceName === "" || destName === "") {
+    return { ok: false, error: "source and filename are required" };
+  }
+  const sourcePath = resolve(dir, sourceName);
+  const destPath = resolve(dir, destName);
+  if (!sourcePath.startsWith(`${dir}/`) || !destPath.startsWith(`${dir}/`)) {
+    return { ok: false, error: "screenshot paths must stay in the screenshots directory" };
+  }
+  if (!existsSync(sourcePath)) {
+    return { ok: false, error: `source screenshot not found: ${sourceName}` };
+  }
+  mkdirSync(dir, { recursive: true });
+  if (sourcePath !== destPath) {
+    renameSync(sourcePath, destPath);
+  }
+  return { ok: true, filename: destName };
+}
+
 function testerTools(screenshotsDir: string, reportPath: string): Record<string, SDKCustomTool> {
   return {
     publish_screenshot: {
       description:
-        "Save a screenshot for one acceptance criterion under the feature screenshots directory.",
+        "Rename a Playwright screenshot already on disk to criterion-N.png. Pass the saved file name, not image bytes.",
       inputSchema: {
         type: "object",
         properties: {
-          filename: { type: "string", description: "File name ending in .png" },
-          image_base64: { type: "string", description: "PNG bytes as base64" },
+          filename: { type: "string", description: "Destination file name ending in .png" },
+          source: {
+            type: "string",
+            description: "Existing screenshot file Playwright saved (basename or path)",
+          },
         },
-        required: ["filename", "image_base64"],
+        required: ["filename", "source"],
       },
       async execute(args) {
-        const filename = asString(args.filename).replace(/[/\\]/g, "");
-        if (!filename.endsWith(".png")) {
-          return { content: [{ type: "text", text: "filename must end in .png" }], isError: true };
+        const result = publishScreenshotFromDisk(
+          screenshotsDir,
+          asString(args.filename),
+          asString(args.source),
+        );
+        if (!result.ok) {
+          return { content: [{ type: "text", text: result.error }], isError: true };
         }
-        const buffer = Buffer.from(asString(args.image_base64), "base64");
-        mkdirSync(screenshotsDir, { recursive: true });
-        writeFileSync(join(screenshotsDir, filename), buffer);
-        return `Wrote ${filename}`;
+        return `Wrote ${result.filename}`;
       },
     },
     write_test_report: {
@@ -72,14 +111,15 @@ function testerPrompt(
   const list =
     criteria.length > 0
       ? criteria.map((item, index) => `${String(index + 1)}. ${item}`).join("\n")
-      : "(no numbered list found — inspect the SPEC and derive checks)";
+      : `(no numbered list found — inspect the SPEC and derive at most ${String(MAX_ACCEPTANCE_CRITERIA)} checks)`;
   return [
     "You are the Egon tester. Use the Playwright MCP browser. Do not edit the Godot project.",
     `Open http://127.0.0.1:${String(config.webServePort)}/`,
     "Wait until the game canvas is visible and not blank.",
     `Read ${specPath} if needed.`,
-    "Execute each acceptance criterion in order. Screenshot each one.",
-    "Save screenshots with publish_screenshot (criterion-1.png, criterion-2.png, ...).",
+    `Execute each listed acceptance criterion in order (maximum ${String(MAX_ACCEPTANCE_CRITERIA)}). Screenshot each one.`,
+    "Take each screenshot with Playwright. Do not pass a filename so the PNG is written into the screenshots directory and you can see it.",
+    "Then publish_screenshot with source set to that saved file name and filename criterion-1.png, criterion-2.png, .... Never pass image bytes or base64.",
     "Write TEST_REPORT.md with write_test_report. Mark each criterion [PASS] or [FAIL].",
     "Overall PASS only if every criterion passes. End the report with OVERALL: PASS or OVERALL: FAIL.",
     "",
@@ -103,6 +143,7 @@ export async function runTester(options: {
   }
   const criteria = parseAcceptanceCriteria(spec);
   const paths = featurePaths(options.config.dataDir, options.feature.id);
+  rmSync(paths.screenshotsDir, { recursive: true, force: true });
   mkdirSync(paths.screenshotsDir, { recursive: true });
 
   const customTools = testerTools(paths.screenshotsDir, paths.reportPath);

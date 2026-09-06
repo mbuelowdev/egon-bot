@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import type { Config } from "../config.js";
 import { FeatureStore } from "../features/store.js";
@@ -99,6 +102,30 @@ test("feature page lists collected notes with HTML escaped", () => {
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /id="agent-log"/);
   assert.match(html, /No agent log yet/);
+});
+
+test("feature page shows Discord reference images", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-img-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  const attachment = store.addAttachment(feature.id, {
+    filename: "hud mock.png",
+    mimeType: "image/png",
+    storedName: "abc.png",
+  });
+  mkdirSync(join(dataDir, "features", String(feature.id), "attachments"), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(feature.id), "attachments", attachment.storedName), "png");
+  const html = featurePage(
+    { dataDir } as Config,
+    store.getFeatureById(feature.id)!,
+    [],
+    [],
+    store.listAttachments(feature.id),
+  );
+  store.close();
+  assert.match(html, /Reference images/);
+  assert.match(html, /hud mock\.png/);
+  assert.match(html, /\/features\/dash-hud\/attachments\/abc\.png/);
 });
 
 test("feature page renders prompts, agent text, and tool calls from the log", () => {

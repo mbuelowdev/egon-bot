@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+export const MAX_ACCEPTANCE_CRITERIA = 3;
+
 export type CriterionResult = {
   index: number;
   status: "PASS" | "FAIL";
@@ -23,7 +25,7 @@ export function parseAcceptanceCriteria(markdown: string): string[] {
     }
     items.push(line);
   }
-  return items;
+  return items.slice(0, MAX_ACCEPTANCE_CRITERIA);
 }
 
 export function parseTestReport(raw: string): TestReport {
@@ -46,6 +48,7 @@ export function parseTestReport(raw: string): TestReport {
 export function featurePaths(dataDir: string, featureId: number): {
   root: string;
   screenshotsDir: string;
+  attachmentsDir: string;
   reportPath: string;
   specPath: string;
   agentLogPath: string;
@@ -54,6 +57,7 @@ export function featurePaths(dataDir: string, featureId: number): {
   return {
     root,
     screenshotsDir: join(root, "screenshots"),
+    attachmentsDir: join(root, "attachments"),
     reportPath: join(root, "TEST_REPORT.md"),
     specPath: join(root, "SPEC.md"),
     agentLogPath: join(root, "agent-log.jsonl"),

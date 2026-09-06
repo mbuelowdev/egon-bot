@@ -227,21 +227,23 @@ async function handleRequest(
         feature,
         options.store.listNotes(feature.id),
         await loadFeatureAgentLog(options.config, feature),
+        options.store.listAttachments(feature.id),
       ),
       "text/html; charset=utf-8",
     );
     return;
   }
 
-  const shot = urlPath.match(/^\/features\/([^/]+)\/screenshots\/([^/]+)$/);
-  if (shot && shot[1] && shot[2]) {
-    const feature = findFeatureBySlug(options.store, shot[1]);
+  const asset = urlPath.match(/^\/features\/([^/]+)\/(screenshots|attachments)\/([^/]+)$/);
+  if (asset && asset[1] && asset[2] && asset[3]) {
+    const feature = findFeatureBySlug(options.store, asset[1]);
     if (!feature) {
       send(res, 404, "Not found", "text/plain; charset=utf-8");
       return;
     }
-    const fileName = basename(shot[2]);
-    const dir = resolve(featurePaths(options.config.dataDir, feature.id).screenshotsDir);
+    const fileName = basename(asset[3]);
+    const paths = featurePaths(options.config.dataDir, feature.id);
+    const dir = resolve(asset[2] === "attachments" ? paths.attachmentsDir : paths.screenshotsDir);
     const filePath = resolve(join(dir, fileName));
     if (filePath !== dir && !filePath.startsWith(`${dir}/`)) {
       send(res, 403, "Forbidden", "text/plain; charset=utf-8");

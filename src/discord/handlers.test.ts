@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import type { Client, Interaction } from "discord.js";
 import type { Config } from "../config.js";
-import type { FeatureStore } from "../features/store.js";
+import { FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { beginAgentWatch } from "../cursor/agentWatch.js";
 import { handleInteraction } from "./handlers.js";
@@ -20,6 +23,12 @@ type ReplyPayload =
   | string
   | { content?: string; ephemeral?: boolean; flags?: number };
 
+type FakeAttachment = {
+  name: string;
+  url: string;
+  contentType: string | null;
+};
+
 type FakeInteraction = {
   isChatInputCommand: () => boolean;
   isRepliable: () => boolean;
@@ -30,7 +39,9 @@ type FakeInteraction = {
   member: { displayName: string };
   options: {
     data: { name: string; value: string }[];
+    attachments: Record<string, FakeAttachment | undefined>;
     getString: (name: string, required?: boolean) => string | null;
+    getAttachment: (name: string) => FakeAttachment | null;
   };
   replied: boolean;
   deferred: boolean;
@@ -38,6 +49,8 @@ type FakeInteraction = {
   followUps: ReplyPayload[];
   reply: (payload: ReplyPayload) => Promise<void>;
   followUp: (payload: ReplyPayload) => Promise<void>;
+  deferReply: () => Promise<void>;
+  editReply: (payload: ReplyPayload) => Promise<void>;
 };
 
 function contentOf(payload: ReplyPayload | undefined): string {
@@ -58,8 +71,12 @@ function fakeCommand(overrides: Partial<FakeInteraction> = {}): FakeInteraction 
     member: { displayName: "Michael" },
     options: {
       data: [],
+      attachments: {},
       getString(name: string) {
         return interaction.options.data.find((option) => option.name === name)?.value ?? null;
+      },
+      getAttachment(name: string) {
+        return interaction.options.attachments[name] ?? null;
       },
     },
     replied: false,
@@ -72,6 +89,13 @@ function fakeCommand(overrides: Partial<FakeInteraction> = {}): FakeInteraction 
     },
     async followUp(payload: ReplyPayload) {
       interaction.followUps.push(payload);
+    },
+    async deferReply() {
+      interaction.deferred = true;
+    },
+    async editReply(payload: ReplyPayload) {
+      interaction.replied = true;
+      interaction.replies.push(payload);
     },
     ...overrides,
   };
@@ -97,6 +121,66 @@ test("command result is the public reply", async () => {
     },
   ]);
   assert.equal(interaction.followUps.length, 0);
+});
+
+test("egon-add with an image downloads it for Cursor", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-add-img-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  const interaction = fakeCommand({ commandName: "egon-add" });
+  interaction.options.data.push({ name: "text", value: "jump has to be higher" });
+  interaction.options.attachments.image = {
+    name: "hud.png",
+    url: "https://cdn.example/hud.png",
+    contentType: "image/png",
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(Buffer.from("png-bytes"), { status: 200 })) as typeof fetch;
+  try {
+    await handleInteraction(interaction as unknown as Interaction, {
+      ...ctx,
+      config: { ...config, dataDir },
+      store,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(interaction.deferred, true);
+  assert.match(contentOf(interaction.followUps[0]), /Image saved for Cursor/);
+  assert.equal(store.listNotes(feature.id)[0], "jump has to be higher");
+  const attachments = store.listAttachments(feature.id);
+  assert.equal(attachments.length, 1);
+  const stored = attachments[0];
+  assert.ok(stored);
+  const files = readdirSync(join(dataDir, "features", String(feature.id), "attachments"));
+  assert.equal(files.length, 1);
+  assert.equal(
+    readFileSync(join(dataDir, "features", String(feature.id), "attachments", stored.storedName), "utf8"),
+    "png-bytes",
+  );
+  store.close();
+});
+
+test("egon-add rejects a non-image attachment", async () => {
+  const store = {
+    getLatestFeatureForChannel: () => ({ id: 1, name: "Jump" }),
+    addNote: () => {
+      throw new Error("should not add a note");
+    },
+  };
+  const interaction = fakeCommand({ commandName: "egon-add" });
+  interaction.options.data.push({ name: "text", value: "jump has to be higher" });
+  interaction.options.attachments.image = {
+    name: "notes.pdf",
+    url: "https://cdn.example/notes.pdf",
+    contentType: "application/pdf",
+  };
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    store: store as unknown as FeatureStore,
+  });
+  assert.equal(interaction.deferred, false);
+  assert.match(contentOf(interaction.replies[0]), /Only PNG, JPEG, GIF, or WebP/);
 });
 
 test("egon-plan without name uses the channel latest feature", async () => {

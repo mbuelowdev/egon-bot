@@ -12,7 +12,7 @@ export function bindPresence(client: Client, store: FeatureStore): void {
 }
 
 export function lifetimeTokensStatus(tokens: number): string {
-  return `${formatTokenCount(tokens)} lifetime tokens used`;
+  return `${formatTokenCount(tokens)} lifetime token used on debian-4c-8gb`;
 }
 
 export function recordRunTokens(

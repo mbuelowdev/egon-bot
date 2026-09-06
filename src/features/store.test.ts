@@ -136,13 +136,46 @@ test("deleteCollectingFeature removes notes and channel latest", () => {
   const keep = store.createFeature("keep me", "channel-1");
   const gone = store.createFeature("drop me", "channel-1");
   store.addNote(gone.id, "scratch idea");
+  store.addAttachment(gone.id, {
+    filename: "mock.png",
+    mimeType: "image/png",
+    storedName: "abc.png",
+  });
   assert.equal(store.getLatestFeatureForChannel("channel-1")?.id, gone.id);
   const deleted = store.deleteCollectingFeature(gone.id);
   assert.equal(deleted.name, "drop me");
   assert.equal(store.getFeatureById(gone.id), undefined);
   assert.equal(store.listNotes(gone.id).length, 0);
+  assert.equal(store.listAttachments(gone.id).length, 0);
   assert.equal(store.getLatestFeatureForChannel("channel-1"), undefined);
   assert.equal(store.getFeatureById(keep.id)?.name, "keep me");
+  store.close();
+});
+
+test("add and list attachments", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  const first = store.addAttachment(feature.id, {
+    filename: "hud.png",
+    mimeType: "image/png",
+    storedName: "111.png",
+  });
+  store.addAttachment(feature.id, {
+    filename: "map.jpg",
+    mimeType: "image/jpeg",
+    storedName: "222.jpg",
+  });
+  const listed = store.listAttachments(feature.id);
+  assert.equal(listed.length, 2);
+  assert.equal(listed[0]?.id, first.id);
+  assert.equal(listed[0]?.filename, "hud.png");
+  assert.equal(listed[0]?.mimeType, "image/png");
+  assert.equal(listed[0]?.storedName, "111.png");
+  assert.equal(listed[1]?.filename, "map.jpg");
+  assert.throws(
+    () => store.addAttachment(feature.id, { filename: "x.png", mimeType: "image/png", storedName: "../x.png" }),
+    /Invalid attachment name/,
+  );
   store.close();
 });
 

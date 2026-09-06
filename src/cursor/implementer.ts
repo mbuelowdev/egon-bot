@@ -1,10 +1,18 @@
-import { Agent } from "@cursor/sdk";
+import { Agent, type SDKUserMessage } from "@cursor/sdk";
 import type { Config } from "../config.js";
-import type { Feature, FeatureStore } from "../features/store.js";
+import { featureAssetDir } from "../features/artifacts.js";
+import type { Feature, FeatureAttachment, FeatureStore } from "../features/store.js";
 import { featureSlug } from "../features/slug.js";
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
+import { agentUserMessage, attachmentPromptLines, loadCursorImages } from "./images.js";
+import { featurePaths } from "./testReport.js";
 
-function implementerPrompt(feature: Feature, notes: string[]): string {
+export function implementerPrompt(
+  feature: Feature,
+  notes: string[],
+  attachmentsDir: string,
+  attachments: FeatureAttachment[],
+): string {
   const slug = featureSlug(feature.name);
   const noteBlock = notes.length > 0 ? notes.map((note) => `- ${note}`).join("\n") : "(none)";
   return [
@@ -16,7 +24,26 @@ function implementerPrompt(feature: Feature, notes: string[]): string {
     "",
     "Feature notes:",
     noteBlock,
+    ...attachmentPromptLines(attachmentsDir, featureAssetDir(slug), attachments.length, true),
   ].join("\n");
+}
+
+export function buildImplementerSendMessage(options: {
+  feature: Feature;
+  notes: string[];
+  attachments: FeatureAttachment[];
+  dataDir: string;
+  followUp?: string;
+}): string | SDKUserMessage {
+  if (options.followUp !== undefined) {
+    return options.followUp;
+  }
+  const attachmentsDir = featurePaths(options.dataDir, options.feature.id).attachmentsDir;
+  const text = implementerPrompt(options.feature, options.notes, attachmentsDir, options.attachments);
+  return agentUserMessage(
+    text,
+    loadCursorImages(options.dataDir, options.feature.id, options.attachments),
+  );
 }
 
 export async function runImplementer(options: {
@@ -31,9 +58,13 @@ export async function runImplementer(options: {
     : await Agent.create(base);
   options.store.setImplementerAgentId(options.feature.id, agent.agentId);
   try {
-    const message =
-      options.followUp ??
-      implementerPrompt(options.feature, options.store.listNotes(options.feature.id));
+    const message = buildImplementerSendMessage({
+      feature: options.feature,
+      notes: options.store.listNotes(options.feature.id),
+      attachments: options.store.listAttachments(options.feature.id),
+      dataDir: options.config.dataDir,
+      followUp: options.followUp,
+    });
     const result = await sendAndWait(
       agent,
       message,
