@@ -28,7 +28,7 @@ async function main(): Promise<void> {
     ],
   });
   const pipeline = createPipeline({ client, store, config });
-  bindPresence(client, config);
+  bindPresence(client, store);
 
   await serveCatalog({
     store,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catalogUrl, loadConfig } from "./config.js";
+import { catalogUrl, githubRepoWebUrl, loadConfig } from "./config.js";
 
 const validEnv: NodeJS.ProcessEnv = {
   DISCORD_TOKEN: "token",
@@ -59,10 +59,18 @@ test("loadConfig applies documented defaults", () => {
   assert.equal(config.githubToken, "ghp_test");
   assert.equal(config.githubWebhookSecret, "whsec");
   assert.equal(config.gameRepoHttpsUrl, "https://github.com/org/game.git");
+  assert.equal(config.gamePublicUrl, "https://lets-vibe-together.mbuelow.dev");
 });
 
 test("catalogUrl strips trailing slash on FEATURES_PUBLIC_URL", () => {
   const config = loadConfig({ ...validEnv, FEATURES_PUBLIC_URL: "https://egon.example/" });
   assert.equal(config.featuresPublicUrl, "https://egon.example");
   assert.equal(catalogUrl(config, "/features/dash"), "https://egon.example/features/dash");
+});
+
+test("githubRepoWebUrl strips .git from the clone URL", () => {
+  assert.equal(
+    githubRepoWebUrl("https://github.com/mbuelowdev/lets-vibe-together.git"),
+    "https://github.com/mbuelowdev/lets-vibe-together",
+  );
 });

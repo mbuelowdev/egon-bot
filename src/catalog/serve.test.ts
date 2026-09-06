@@ -37,6 +37,12 @@ test("catalog lists planned and implemented features with spec and screenshots",
   store.transition(done.id, "planning");
   store.transition(done.id, "implementing");
   store.transition(done.id, "accepted");
+  store.setGithubPr(done.id, {
+    branch: "egon/jump",
+    number: 7,
+    url: "https://github.com/org/game/pull/7",
+  });
+  store.recordAgentRunTokens("run-1", "agent-a", 1_200_000, 3_720_000);
   mkdirSync(join(dataDir, "features", String(done.id)), { recursive: true });
   writeFileSync(join(dataDir, "features", String(done.id), "SPEC.md"), "# Jump\n");
 
@@ -69,6 +75,17 @@ test("catalog lists planned and implemented features with spec and screenshots",
     assert.match(indexHtml, /Jump/);
     assert.match(indexHtml, /Planned/);
     assert.match(indexHtml, /Implemented/);
+    assert.match(indexHtml, /lifetime tokens used/);
+    assert.match(indexHtml, /1\.2M/);
+    assert.match(indexHtml, />1<\/strong><span>feature implemented/);
+    assert.match(indexHtml, /1h 2m/);
+    assert.match(indexHtml, /lifetime agent time/);
+    assert.match(indexHtml, /Play the game/);
+    assert.match(indexHtml, /href="https:\/\/lets-vibe-together\.mbuelow\.dev"/);
+    assert.match(indexHtml, /Game repo/);
+    assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game"/);
+    assert.match(indexHtml, /PR #7/);
+    assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
 
     const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
     const detailHtml = await detail.text();

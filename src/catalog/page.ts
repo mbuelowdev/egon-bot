@@ -1,9 +1,16 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
+import { formatDuration, formatTokenCount } from "../format.js";
 import { featureSlug } from "../features/slug.js";
 import type { Feature } from "../features/store.js";
 import { escapeHtml, renderMarkdown } from "./markdown.js";
+
+export type CatalogLifetimeStats = {
+  tokens: number;
+  implemented: number;
+  durationMs: number;
+};
 
 const STYLES = `
 :root {
@@ -37,7 +44,42 @@ header { padding-bottom: 0; }
   color: var(--amber);
 }
 h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; }
-.lede { color: var(--muted); margin: 0 0 2rem; max-width: 40rem; }
+.lede { color: var(--muted); margin: 0 0 0.85rem; max-width: 40rem; }
+.links {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.85rem;
+  margin: 0 0 1.25rem;
+}
+.links a { text-decoration: none; }
+.links a:hover { text-decoration: underline; }
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin: 0 0 2rem;
+  padding: 0;
+  list-style: none;
+}
+.stats li {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 0.85rem 1rem;
+}
+.stats strong {
+  display: block;
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--amber);
+  letter-spacing: 0.02em;
+}
+.stats span {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
 h2 {
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   font-size: 0.85rem;
@@ -50,16 +92,15 @@ h2 {
 a { color: var(--amber); }
 .grid { display: grid; gap: 0.85rem; }
 .card {
-  display: block;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 2px;
   padding: 1rem 1.1rem;
-  text-decoration: none;
-  color: inherit;
 }
 .card:hover { border-color: var(--amber); }
 .card h3 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.card h3 a { color: inherit; text-decoration: none; }
+.card h3 a:hover { color: var(--amber); }
 .meta {
   font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
   font-size: 0.8rem;
@@ -101,13 +142,29 @@ ${body}
 </html>`;
 }
 
-export function indexPage(planned: Feature[], implemented: Feature[]): string {
+export type CatalogLinks = {
+  gamePublicUrl: string;
+  gameRepoUrl: string;
+};
+
+export function indexPage(
+  planned: Feature[],
+  implemented: Feature[],
+  stats: CatalogLifetimeStats,
+  links: CatalogLinks,
+): string {
   const card = (feature: Feature): string => {
     const slug = featureSlug(feature.name);
-    return `<a class="card" href="/features/${encodeURIComponent(slug)}">
-      <h3>${escapeHtml(feature.name)}</h3>
-      <div class="meta">${escapeHtml(feature.state)}${feature.githubPrUrl ? " · PR" : ""}</div>
-    </a>`;
+    const pr =
+      feature.githubPrUrl && feature.githubPrNumber !== null
+        ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">PR #${String(feature.githubPrNumber)}</a>`
+        : feature.githubPrUrl
+          ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">PR</a>`
+          : "";
+    return `<article class="card">
+      <h3><a href="/features/${encodeURIComponent(slug)}">${escapeHtml(feature.name)}</a></h3>
+      <div class="meta">${escapeHtml(feature.state)}${pr}</div>
+    </article>`;
   };
   const section = (title: string, features: Feature[]): string => {
     const items =
@@ -116,12 +173,23 @@ export function indexPage(planned: Feature[], implemented: Feature[]): string {
         : `<div class="grid">${features.map(card).join("")}</div>`;
     return `<section><h2>${escapeHtml(title)}</h2>${items}</section>`;
   };
+  const implementedLabel = stats.implemented === 1 ? "feature implemented" : "features implemented";
   return layout(
     "Egon feature log",
     `<header>
       <div class="kicker">Egon</div>
       <h1>Feature log</h1>
       <p class="lede">Specs the planner wrote, and proof screenshots the tester took. Implementation lands through GitHub pull requests.</p>
+      <p class="links">
+        <a href="${escapeHtml(links.gamePublicUrl)}" target="_blank" rel="noopener noreferrer">Play the game</a>
+        ·
+        <a href="${escapeHtml(links.gameRepoUrl)}" target="_blank" rel="noopener noreferrer">Game repo</a>
+      </p>
+      <ul class="stats">
+        <li><strong>${escapeHtml(formatTokenCount(stats.tokens))}</strong><span>lifetime tokens used</span></li>
+        <li><strong>${escapeHtml(String(stats.implemented))}</strong><span>${implementedLabel}</span></li>
+        <li><strong>${escapeHtml(formatDuration(stats.durationMs))}</strong><span>lifetime agent time</span></li>
+      </ul>
     </header>
     <main>
       ${section("Planned", planned)}
@@ -149,7 +217,7 @@ export function featurePage(config: Config, feature: Feature): string {
           )
           .join("")}</div>`;
   const pr = feature.githubPrUrl
-    ? `<p class="meta"><a href="${escapeHtml(feature.githubPrUrl)}">GitHub pull request</a></p>`
+    ? `<p class="meta"><a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${feature.githubPrNumber !== null ? `PR #${String(feature.githubPrNumber)}` : "GitHub pull request"}</a></p>`
     : "";
   return layout(
     feature.name,

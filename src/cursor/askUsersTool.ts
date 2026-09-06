@@ -4,6 +4,7 @@ import type { Config } from "../config.js";
 import { postToChannel } from "../discord/channel.js";
 import { waitForThreadAnswer } from "../discord/qaWaiters.js";
 import type { FeatureStore } from "../features/store.js";
+import { beginAgentIdle, endAgentIdle } from "./agentIdle.js";
 
 export type AskUsersDeps = {
   client: Client;
@@ -73,6 +74,7 @@ export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
       }
 
       try {
+        beginAgentIdle();
         const answer = await waitForThreadAnswer(threadId);
         deps.store.clearPendingQuestion(feature.id);
         return `The humans answered:\n${answer}`;
@@ -80,6 +82,8 @@ export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
         deps.store.clearPendingQuestion(feature.id);
         const message = error instanceof Error ? error.message : "Unknown Q&A error";
         return { content: [{ type: "text", text: message }], isError: true };
+      } finally {
+        endAgentIdle();
       }
     },
   };

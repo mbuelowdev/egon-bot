@@ -28,6 +28,7 @@ export type Config = {
   webServePort: number;
   featuresHttpPort: number;
   featuresPublicUrl: string | undefined;
+  gamePublicUrl: string;
   cursorAdminApiKey: string | undefined;
   cursorOrganizationId: string | undefined;
 };
@@ -78,6 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cursorAdminApiKey = env.CURSOR_ADMIN_API_KEY?.trim();
   const cursorOrganizationId = env.CURSOR_ORGANIZATION_ID?.trim();
   const featuresPublicUrl = env.FEATURES_PUBLIC_URL?.trim();
+  const gamePublicUrl = optional(env, "GAME_PUBLIC_URL", "https://lets-vibe-together.mbuelow.dev");
   return {
     discordToken: required(env, "DISCORD_TOKEN"),
     discordAppId: required(env, "DISCORD_APP_ID"),
@@ -97,6 +99,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webServePort: optionalPort(env, "WEB_SERVE_PORT", 8080),
     featuresHttpPort: optionalPort(env, "FEATURES_HTTP_PORT", 10001),
     featuresPublicUrl: featuresPublicUrl ? featuresPublicUrl.replace(/\/+$/, "") : undefined,
+    gamePublicUrl: gamePublicUrl.replace(/\/+$/, ""),
     cursorAdminApiKey: cursorAdminApiKey ? cursorAdminApiKey : undefined,
     cursorOrganizationId: cursorOrganizationId ? cursorOrganizationId : undefined,
   };
@@ -108,4 +111,8 @@ export function catalogUrl(config: Config, path = "/"): string | undefined {
   }
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `${config.featuresPublicUrl}${suffix}`;
+}
+
+export function githubRepoWebUrl(gitHttpsUrl: string): string {
+  return gitHttpsUrl.replace(/\.git$/i, "").replace(/\/+$/, "");
 }

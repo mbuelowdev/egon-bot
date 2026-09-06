@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, join, resolve } from "node:path";
-import type { Config } from "../config.js";
+import { githubRepoWebUrl, type Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureStore } from "../features/store.js";
@@ -128,7 +128,19 @@ async function handleRequest(
 
   if (urlPath === "/") {
     const { planned, implemented } = plannedAndImplemented(options.store, options.config);
-    send(res, 200, indexPage(planned, implemented), "text/html; charset=utf-8");
+    send(
+      res,
+      200,
+      indexPage(planned, implemented, {
+        tokens: options.store.totalAgentTokens(),
+        implemented: options.store.countAcceptedFeatures(),
+        durationMs: options.store.totalAgentDurationMs(),
+      }, {
+        gamePublicUrl: options.config.gamePublicUrl,
+        gameRepoUrl: githubRepoWebUrl(options.config.gameRepoHttpsUrl),
+      }),
+      "text/html; charset=utf-8",
+    );
     return;
   }
 

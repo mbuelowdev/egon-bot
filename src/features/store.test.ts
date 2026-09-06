@@ -83,5 +83,18 @@ test("github PR fields round-trip and lookup", () => {
   store.transition(feature.id, "implementing");
   store.transition(feature.id, "accepted");
   assert.equal(store.listFeaturesAwaitingGithub().length, 0);
+  assert.equal(store.countAcceptedFeatures(), 1);
+  store.close();
+});
+
+test("agent run tokens sum uniquely by run id", () => {
+  const store = openStore();
+  store.recordAgentRunTokens("run-1", "agent-a", 1500, 1_000);
+  store.recordAgentRunTokens("run-2", "agent-a", 500, 2_500);
+  store.recordAgentRunTokens("run-1", "agent-a", 1600, 1_200);
+  store.recordAgentRunTokens("run-3", "agent-b", undefined);
+  assert.equal(store.totalAgentTokens(), 2100);
+  assert.equal(store.totalAgentDurationMs(), 3_700);
+  assert.equal(store.countAcceptedFeatures(), 0);
   store.close();
 });

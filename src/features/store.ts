@@ -393,6 +393,68 @@ export class FeatureStore {
     return this.getFeatureById(feature.id);
   }
 
+  recordAgentRunTokens(
+    runId: string,
+    agentId: string,
+    totalTokens: number | undefined,
+    durationMs?: number,
+  ): void {
+    const tokens =
+      totalTokens !== undefined && Number.isFinite(totalTokens) && totalTokens >= 0
+        ? Math.round(totalTokens)
+        : undefined;
+    const duration =
+      durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0
+        ? Math.round(durationMs)
+        : undefined;
+    if (runId.trim() === "" || (tokens === undefined && duration === undefined)) {
+      return;
+    }
+    const existing = this.db
+      .prepare("SELECT run_id FROM agent_run_tokens WHERE run_id = ?")
+      .get(runId) as { run_id: string } | undefined;
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE agent_run_tokens
+           SET agent_id = ?,
+               total_tokens = COALESCE(?, total_tokens),
+               duration_ms = COALESCE(?, duration_ms),
+               recorded_at = ?
+           WHERE run_id = ?`,
+        )
+        .run(agentId, tokens ?? null, duration ?? null, nowIso(), runId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO agent_run_tokens (run_id, agent_id, total_tokens, duration_ms, recorded_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(runId, agentId, tokens ?? 0, duration ?? null, nowIso());
+  }
+
+  totalAgentTokens(): number {
+    const row = this.db.prepare("SELECT COALESCE(SUM(total_tokens), 0) AS total FROM agent_run_tokens").get() as {
+      total: number | bigint;
+    };
+    return Number(row.total);
+  }
+
+  totalAgentDurationMs(): number {
+    const row = this.db
+      .prepare("SELECT COALESCE(SUM(duration_ms), 0) AS total FROM agent_run_tokens")
+      .get() as { total: number | bigint };
+    return Number(row.total);
+  }
+
+  countAcceptedFeatures(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS total FROM features WHERE state = 'accepted'")
+      .get() as { total: number | bigint };
+    return Number(row.total);
+  }
+
   private requireFeature(featureId: number): Feature {
     const feature = this.getFeatureById(featureId);
     if (!feature) {
@@ -428,6 +490,13 @@ export class FeatureStore {
         feature_id INTEGER NOT NULL REFERENCES features(id),
         locked_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS agent_run_tokens (
+        run_id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        total_tokens INTEGER,
+        duration_ms INTEGER,
+        recorded_at TEXT NOT NULL
+      );
     `);
     this.ensureColumn("features", "planner_agent_id", "TEXT");
     this.ensureColumn("features", "implementer_agent_id", "TEXT");
@@ -436,6 +505,7 @@ export class FeatureStore {
     this.ensureColumn("features", "github_branch", "TEXT");
     this.ensureColumn("features", "github_pr_number", "INTEGER");
     this.ensureColumn("features", "github_pr_url", "TEXT");
+    this.ensureColumn("agent_run_tokens", "duration_ms", "INTEGER");
   }
 
   private ensureColumn(table: string, column: string, type: string): void {

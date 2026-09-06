@@ -1,53 +1,47 @@
 import { ActivityType, type Client } from "discord.js";
-import type { Config } from "../config.js";
-import { fetchRemainingUsagePercent } from "../cursor/usage.js";
+import { formatTokenCount } from "../format.js";
+import type { FeatureStore } from "../features/store.js";
 
 let boundClient: Client | undefined;
-let boundConfig: Config | undefined;
+let boundStore: FeatureStore | undefined;
 let inFlight: Promise<void> | undefined;
 
-export function bindPresence(client: Client, config: Config): void {
+export function bindPresence(client: Client, store: FeatureStore): void {
   boundClient = client;
-  boundConfig = config;
+  boundStore = store;
 }
 
-function activityName(snapshot: Awaited<ReturnType<typeof fetchRemainingUsagePercent>>): string {
-  if (snapshot.kind === "percent") {
-    return `${String(snapshot.remainingPercent)}% left`;
-  }
-  return "usage n/a";
+export function lifetimeTokensStatus(tokens: number): string {
+  return `${formatTokenCount(tokens)} lifetime tokens used`;
+}
+
+export function recordRunTokens(
+  runId: string,
+  agentId: string,
+  totalTokens: number | undefined,
+  durationMs?: number,
+): void {
+  boundStore?.recordAgentRunTokens(runId, agentId, totalTokens, durationMs);
 }
 
 async function refreshOnce(): Promise<void> {
   const client = boundClient;
-  const config = boundConfig;
-  if (!client?.user || !config) {
+  const store = boundStore;
+  if (!client?.user || !store) {
     return;
   }
+  const status = lifetimeTokensStatus(store.totalAgentTokens());
   try {
-    const snapshot = await fetchRemainingUsagePercent({
-      cursorApiKey: config.cursorApiKey,
-      cursorAdminApiKey: config.cursorAdminApiKey,
-      cursorOrganizationId: config.cursorOrganizationId,
-    });
     await client.user.setPresence({
-      activities: [{ name: activityName(snapshot), type: ActivityType.Watching }],
+      activities: [{ name: status, type: ActivityType.Custom, state: status }],
       status: "online",
     });
   } catch (error) {
     console.error("presence refresh failed", error);
-    try {
-      await client.user.setPresence({
-        activities: [{ name: "usage n/a", type: ActivityType.Watching }],
-        status: "online",
-      });
-    } catch (inner) {
-      console.error("presence fallback failed", inner);
-    }
   }
 }
 
-/** Single-flight: overlapping agent completions share one usage fetch. */
+/** Single-flight: overlapping agent completions share one presence update. */
 export function refreshPresence(): Promise<void> {
   if (inFlight) {
     return inFlight;

@@ -6,7 +6,7 @@ import {
 import type { Config } from "../config.js";
 import { UserFacingError, type FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
-import { COMMAND_BY_NAME, type CommandContext } from "./commands.js";
+import { COMMAND_BY_NAME, commandAnnouncement, type CommandContext } from "./commands.js";
 import { deliverThreadAnswer } from "./qaWaiters.js";
 import { isInConfiguredChannel, isWinningMention } from "./threads.js";
 
@@ -41,7 +41,7 @@ async function replyError(interaction: Interaction, content: string): Promise<vo
       await interaction.editReply(content);
       return;
     }
-    await interaction.followUp({ content, ephemeral: true });
+    await interaction.followUp({ content, ephemeral: false });
     return;
   }
   await interaction.reply({ content, ephemeral: true });
@@ -81,6 +81,7 @@ export async function handleInteraction(
     pipeline: ctx.pipeline,
   };
   try {
+    await interaction.reply(commandAnnouncement(interaction));
     await command.handle(commandCtx);
   } catch (error) {
     if (error instanceof UserFacingError) {
