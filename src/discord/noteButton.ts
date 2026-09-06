@@ -7,17 +7,11 @@ import {
   TextInputStyle,
 } from "discord.js";
 
-export const DELETE_NOTE_CUSTOM_ID_PREFIX = "egon-del-note:";
 export const ADD_NOTE_CUSTOM_ID_PREFIX = "egon-add-note:";
 export const ADD_NOTE_MODAL_CUSTOM_ID_PREFIX = "egon-add-note-modal:";
 export const ADD_NOTE_TEXT_INPUT_ID = "text";
 
 const MODAL_TITLE_LIMIT = 45;
-
-export type DeleteNoteTarget = {
-  noteId: number;
-  attachmentId?: number;
-};
 
 function parsePositiveInt(value: string): number | undefined {
   if (!/^\d+$/.test(value)) {
@@ -28,42 +22,6 @@ function parsePositiveInt(value: string): number | undefined {
     return undefined;
   }
   return id;
-}
-
-export function deleteNoteButtonRow(
-  noteId: number,
-  attachmentId?: number,
-): ActionRowBuilder<ButtonBuilder> {
-  const customId =
-    attachmentId === undefined
-      ? `${DELETE_NOTE_CUSTOM_ID_PREFIX}${String(noteId)}`
-      : `${DELETE_NOTE_CUSTOM_ID_PREFIX}${String(noteId)}:${String(attachmentId)}`;
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(customId).setLabel("Delete").setStyle(ButtonStyle.Danger),
-  );
-}
-
-export function parseDeleteNoteCustomId(customId: string): DeleteNoteTarget | undefined {
-  if (!customId.startsWith(DELETE_NOTE_CUSTOM_ID_PREFIX)) {
-    return undefined;
-  }
-  const rest = customId.slice(DELETE_NOTE_CUSTOM_ID_PREFIX.length);
-  const match = /^(\d+)(?::(\d+))?$/.exec(rest);
-  if (!match || match[1] === undefined) {
-    return undefined;
-  }
-  const noteId = parsePositiveInt(match[1]);
-  if (noteId === undefined) {
-    return undefined;
-  }
-  if (match[2] === undefined) {
-    return { noteId };
-  }
-  const attachmentId = parsePositiveInt(match[2]);
-  if (attachmentId === undefined) {
-    return undefined;
-  }
-  return { noteId, attachmentId };
 }
 
 export function addNoteButtonRow(featureId: number): ActionRowBuilder<ButtonBuilder> {

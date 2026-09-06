@@ -96,6 +96,27 @@ test("collecting feature page includes a delete action; planned does not", () =>
   assert.doesNotMatch(plannedHtml, /data-delete-slug="dash-hud"/);
 });
 
+test("feature page PR is a GitHub-icon button", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+  store.setGithubPr(feature.id, {
+    branch: "egon/dash-hud",
+    number: 12,
+    url: "https://github.com/mbuelowdev/lets-vibe-together/pull/12",
+  });
+  const html = featurePage(
+    { dataDir: "/tmp/egon-missing" } as Config,
+    store.getFeatureById(feature.id)!,
+  );
+  store.close();
+  assert.match(html, /class="github-pr"/);
+  assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together\/pull\/12"/);
+  assert.match(html, /PR #12/);
+  assert.match(html, /<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.doesNotMatch(html, /<p class="meta"><a href="https:\/\/github\.com/);
+});
+
 test("feature page lists collected notes with HTML escaped", () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Dash <HUD>", "channel-1");
@@ -153,7 +174,7 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
       user: "Write ONLY this file <SPEC>",
       result: "PLAN_COMPLETE",
       steps: [
-        { type: "thinking", text: "secret chain" },
+        { type: "thinking", text: "secret **chain**\n\n1. consider the spec" },
         { type: "tool", name: "read", args: { path: "player.gd" }, result: { status: "success" } },
         { type: "assistant", text: "PLAN_COMPLETE" },
       ],
@@ -166,7 +187,10 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
   assert.match(html, /PLAN_COMPLETE/);
   assert.match(html, /read · player\.gd/);
   assert.match(html, /Thinking/);
-  assert.match(html, /secret chain/);
+  assert.match(html, /secret <strong>chain<\/strong>/);
+  assert.match(html, /<li>consider the spec<\/li>/);
+  assert.match(html, /class="log-msg thinking"/);
+  assert.match(html, /class="thinking-body spec"/);
 });
 
 test("renderAgentLog marks an in-progress run", () => {

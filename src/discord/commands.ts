@@ -15,7 +15,7 @@ import { assertImageContentType, saveFeatureImage } from "../features/saveImage.
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { formatNoteAdded, formatPlanStarted } from "../format.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
-import { addNoteButtonRow, deleteNoteButtonRow } from "./noteButton.js";
+import { addNoteButtonRow } from "./noteButton.js";
 import { discordLink, noLinkPreview } from "./preview.js";
 
 export type CommandContext = {
@@ -71,7 +71,6 @@ export async function addNoteAndReply(
   attachment?: { name: string; url: string; contentType: string | null } | null,
 ): Promise<void> {
   let assetPath: string | undefined;
-  let attachmentId: number | undefined;
   if (attachment) {
     assertImageContentType(attachment.contentType);
     await interaction.deferReply();
@@ -85,13 +84,10 @@ export async function addNoteAndReply(
         contentType: attachment.contentType,
       },
     });
-    attachmentId = saved.id;
     assetPath = plannedAssetPath(feature.name, store.listAttachments(feature.id), saved.id);
   }
-  const note = store.addNote(feature.id, text);
-  const components =
-    feature.state === "collecting" ? [deleteNoteButtonRow(note.id, attachmentId)] : undefined;
-  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath), { components });
+  store.addNote(feature.id, text);
+  await replyCommand(interaction, formatNoteAdded(feature.name, text, assetPath));
 }
 
 async function addNoteWithOptionalImage(
@@ -255,16 +251,34 @@ export const COMMANDS: RegisteredCommand[] = [
     "egon-pivot",
     "Change request; re-enter implement + test",
     (builder) =>
-      builder.addStringOption((option) =>
-        option
-          .setName("text")
-          .setDescription("Change request")
-          .setRequired(true)
-          .setMaxLength(2000),
-      ),
+      builder
+        .addStringOption((option) =>
+          option
+            .setName("text")
+            .setDescription("Change request")
+            .setRequired(true)
+            .setMaxLength(2000),
+        )
+        .addAttachmentOption((option) =>
+          option.setName("image").setDescription("Reference image for Cursor").setRequired(false),
+        ),
     async ({ interaction, pipeline }) => {
       const text = interaction.options.getString("text", true);
-      const message = await pipeline.pivot(text);
+      const attachment = interaction.options.getAttachment("image");
+      if (attachment) {
+        assertImageContentType(attachment.contentType);
+        await interaction.deferReply();
+      }
+      const message = await pipeline.pivot(
+        text,
+        attachment
+          ? {
+              name: attachment.name ?? "",
+              url: attachment.url,
+              contentType: attachment.contentType,
+            }
+          : undefined,
+      );
       await replyCommand(interaction, message);
     },
   ),

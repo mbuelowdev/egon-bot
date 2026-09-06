@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Client, Interaction } from "discord.js";
+import { ApplicationCommandOptionType } from "discord.js";
 import type { Config } from "../config.js";
 import { FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { beginAgentWatch } from "../cursor/agentWatch.js";
 import { PHASE_EMOJI } from "../format.js";
+import { COMMAND_BY_NAME } from "./commands.js";
 import { handleInteraction } from "./handlers.js";
-import { parseAddNoteCustomId, parseDeleteNoteCustomId } from "./noteButton.js";
+import { parseAddNoteCustomId } from "./noteButton.js";
 import { SUPPRESS_LINK_PREVIEW } from "./preview.js";
 
 const config = { discordChannelId: "chan" } as Config;
@@ -203,16 +205,13 @@ test("command result is the public reply", async () => {
     ...ctx,
     store: store as unknown as FeatureStore,
   });
-  assert.equal(contentOf(interaction.replies[0]), "Added a note to **Jump**.\n*jump has to be higher*");
-  assert.equal(
-    typeof interaction.replies[0] === "object" ? interaction.replies[0].ephemeral : undefined,
-    false,
-  );
-  assert.equal(
-    typeof interaction.replies[0] === "object" ? interaction.replies[0].flags : undefined,
-    SUPPRESS_LINK_PREVIEW,
-  );
-  assert.deepEqual(parseDeleteNoteCustomId(deleteCustomId(interaction.replies[0]) ?? ""), { noteId: 11 });
+  assert.deepEqual(interaction.replies, [
+    {
+      content: "Added a note to **Jump**.\n*jump has to be higher*",
+      ephemeral: false,
+      flags: SUPPRESS_LINK_PREVIEW,
+    },
+  ]);
   assert.equal(interaction.followUps.length, 0);
 });
 
@@ -248,10 +247,6 @@ test("egon-add with an image downloads it for Cursor", async () => {
   assert.equal(attachments.length, 1);
   const stored = attachments[0];
   assert.ok(stored);
-  assert.deepEqual(parseDeleteNoteCustomId(deleteCustomId(interaction.followUps[0]) ?? ""), {
-    noteId: 1,
-    attachmentId: stored.id,
-  });
   const files = readdirSync(join(dataDir, "features", String(feature.id), "attachments"));
   assert.equal(files.length, 1);
   assert.equal(
@@ -367,6 +362,90 @@ test("egon-status includes live agent activity", async () => {
   }
 });
 
+test("egon-pivot passes text to the pipeline", async () => {
+  const interaction = fakeCommand({ commandName: "egon-pivot" });
+  interaction.options.data.push({ name: "text", value: "make the HUD smaller" });
+  let received: { text: string; image?: unknown } | undefined;
+  const pipeline = {
+    pivot: async (text: string, image?: unknown) => {
+      received = { text, image };
+      return "Pivoting **Jump**. Re-entering implement and test.\n*make the HUD smaller*";
+    },
+  };
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    pipeline: pipeline as unknown as Pipeline,
+  });
+  assert.deepEqual(received, { text: "make the HUD smaller", image: undefined });
+  assert.equal(interaction.deferred, false);
+  assert.equal(
+    contentOf(interaction.replies[0]),
+    "Pivoting **Jump**. Re-entering implement and test.\n*make the HUD smaller*",
+  );
+  assert.equal(interaction.followUps.length, 0);
+});
+
+test("egon-pivot with an image defers and passes it to the pipeline", async () => {
+  const interaction = fakeCommand({ commandName: "egon-pivot" });
+  interaction.options.data.push({ name: "text", value: "match this HUD" });
+  interaction.options.attachments.image = {
+    name: "hud.png",
+    url: "https://cdn.example/hud.png",
+    contentType: "image/png",
+  };
+  let received: { text: string; image?: unknown } | undefined;
+  const pipeline = {
+    pivot: async (text: string, image?: unknown) => {
+      received = { text, image };
+      return "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*\nassets/egon/jump/hud.png";
+    },
+  };
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    pipeline: pipeline as unknown as Pipeline,
+  });
+  assert.equal(interaction.deferred, true);
+  assert.deepEqual(received, {
+    text: "match this HUD",
+    image: { name: "hud.png", url: "https://cdn.example/hud.png", contentType: "image/png" },
+  });
+  assert.equal(
+    contentOf(interaction.followUps[0]),
+    "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*\nassets/egon/jump/hud.png",
+  );
+});
+
+test("egon-pivot rejects a non-image attachment", async () => {
+  const interaction = fakeCommand({ commandName: "egon-pivot" });
+  interaction.options.data.push({ name: "text", value: "match this HUD" });
+  interaction.options.attachments.image = {
+    name: "notes.pdf",
+    url: "https://cdn.example/notes.pdf",
+    contentType: "application/pdf",
+  };
+  let pivoted = false;
+  const pipeline = {
+    pivot: async () => {
+      pivoted = true;
+      return "should not pivot";
+    },
+  };
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    pipeline: pipeline as unknown as Pipeline,
+  });
+  assert.equal(pivoted, false);
+  assert.equal(interaction.deferred, false);
+  assert.match(contentOf(interaction.replies[0]), /Only PNG, JPEG, GIF, or WebP/);
+});
+
+test("egon-pivot slash command includes an optional image", () => {
+  const json = COMMAND_BY_NAME.get("egon-pivot")?.data.toJSON();
+  const image = json?.options?.find((option) => option.name === "image");
+  assert.equal(image?.type, ApplicationCommandOptionType.Attachment);
+  assert.equal(image?.required, false);
+});
+
 test("egon-retry asks the pipeline to retry", async () => {
   const interaction = fakeCommand({ commandName: "egon-retry" });
   let retried = false;
@@ -416,68 +495,6 @@ test("wrong-channel commands stay ephemeral", async () => {
   assert.equal(interaction.followUps.length, 0);
 });
 
-test("delete button removes the note and the confirmation message", async () => {
-  const store = new FeatureStore(":memory:");
-  const feature = store.createFeature("Jump", "chan");
-  store.addNote(feature.id, "keep this");
-  const gone = store.addNote(feature.id, "oops");
-  const interaction = fakeButton(`egon-del-note:${String(gone.id)}`);
-  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
-  assert.equal(interaction.deferred, true);
-  assert.equal(interaction.message.deleted, true);
-  assert.deepEqual(store.listNotes(feature.id), ["keep this"]);
-  assert.equal(interaction.followUps.length, 0);
-  store.close();
-});
-
-test("delete button removes an added image file too", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "egon-del-img-"));
-  const store = new FeatureStore(":memory:");
-  const feature = store.createFeature("Jump", "chan");
-  const note = store.addNote(feature.id, "use this HUD");
-  const image = store.addAttachment(feature.id, {
-    filename: "hud.png",
-    mimeType: "image/png",
-    storedName: "hud.png",
-  });
-  const filePath = join(dataDir, "features", String(feature.id), "attachments", image.storedName);
-  mkdirSync(join(dataDir, "features", String(feature.id), "attachments"), { recursive: true });
-  writeFileSync(filePath, "png-bytes");
-  const interaction = fakeButton(`egon-del-note:${String(note.id)}:${String(image.id)}`);
-  await handleInteraction(interaction as unknown as Interaction, {
-    ...ctx,
-    config: { ...config, dataDir },
-    store,
-  });
-  assert.equal(interaction.message.deleted, true);
-  assert.deepEqual(store.listNotes(feature.id), []);
-  assert.equal(store.listAttachments(feature.id).length, 0);
-  assert.equal(existsSync(filePath), false);
-  store.close();
-});
-
-test("delete button is refused after planning starts", async () => {
-  const store = new FeatureStore(":memory:");
-  const feature = store.createFeature("Jump", "chan");
-  const note = store.addNote(feature.id, "oops");
-  store.startPlanning(feature.id);
-  const interaction = fakeButton(`egon-del-note:${String(note.id)}`);
-  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
-  assert.equal(interaction.message.deleted, false);
-  assert.deepEqual(store.listNotes(feature.id), ["oops"]);
-  assert.match(contentOf(interaction.followUps[0]), /while collecting/);
-  store.close();
-});
-
-test("stale delete button still removes the confirmation message", async () => {
-  const store = new FeatureStore(":memory:");
-  store.createFeature("Jump", "chan");
-  const interaction = fakeButton("egon-del-note:99");
-  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
-  assert.equal(interaction.message.deleted, true);
-  store.close();
-});
-
 test("Add note button opens a modal for that feature", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Jump", "chan");
@@ -491,16 +508,18 @@ test("Add note button opens a modal for that feature", async () => {
   store.close();
 });
 
-test("Add note modal stores the note and offers Delete", async () => {
+test("Add note modal stores the note and posts a public reply", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Jump", "chan");
   const interaction = fakeModal(`egon-add-note-modal:${String(feature.id)}`, "jump has to be higher");
   await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
   assert.deepEqual(store.listNotes(feature.id), ["jump has to be higher"]);
-  assert.equal(
-    contentOf(interaction.replies[0]),
-    "Added a note to **Jump**.\n*jump has to be higher*",
-  );
-  assert.deepEqual(parseDeleteNoteCustomId(deleteCustomId(interaction.replies[0]) ?? ""), { noteId: 1 });
+  assert.deepEqual(interaction.replies, [
+    {
+      content: "Added a note to **Jump**.\n*jump has to be higher*",
+      ephemeral: false,
+      flags: SUPPRESS_LINK_PREVIEW,
+    },
+  ]);
   store.close();
 });

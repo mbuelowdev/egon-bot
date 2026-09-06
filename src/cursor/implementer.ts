@@ -34,9 +34,13 @@ export function buildImplementerSendMessage(options: {
   attachments: FeatureAttachment[];
   dataDir: string;
   followUp?: string;
+  followUpAttachments?: FeatureAttachment[];
 }): string | SDKUserMessage {
   if (options.followUp !== undefined) {
-    return options.followUp;
+    return agentUserMessage(
+      options.followUp,
+      loadCursorImages(options.dataDir, options.feature.id, options.followUpAttachments ?? []),
+    );
   }
   const attachmentsDir = featurePaths(options.dataDir, options.feature.id).attachmentsDir;
   const text = implementerPrompt(options.feature, options.notes, attachmentsDir, options.attachments);
@@ -51,6 +55,7 @@ export async function runImplementer(options: {
   store: FeatureStore;
   feature: Feature;
   followUp?: string;
+  followUpAttachments?: FeatureAttachment[];
 }): Promise<{ status: "finished" | "error" | "cancelled"; result?: string; errorMessage?: string; agentId: string }> {
   const base = localAgentOptions(options.config);
   const agent = options.feature.implementerAgentId
@@ -64,6 +69,7 @@ export async function runImplementer(options: {
       attachments: options.store.listAttachments(options.feature.id),
       dataDir: options.config.dataDir,
       followUp: options.followUp,
+      followUpAttachments: options.followUpAttachments,
     });
     const result = await sendAndWait(
       agent,

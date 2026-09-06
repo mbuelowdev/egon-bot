@@ -1,3 +1,6 @@
+import type { TestReport } from "./cursor/testReport.js";
+import { discordLink } from "./discord/preview.js";
+
 const DISCORD_MESSAGE_LIMIT = 2000;
 
 /** Discord prefix for pipeline phase logs. */
@@ -36,7 +39,64 @@ function clipDiscordMessage(text: string): string {
 }
 
 function escapedFeatureName(name: string): string {
-  return escapeDiscordMarkdown(flattenDiscordLine(name));
+  return escapeDiscordMarkdown(flattenDiscordLine(name)).replace(/]/g, "\\]");
+}
+
+/** Bold feature name, linked to the catalog page when a URL is available. */
+export function formatFeatureName(name: string, pageUrl?: string): string {
+  const label = `**${escapedFeatureName(name)}**`;
+  if (pageUrl === undefined || pageUrl === "") {
+    return label;
+  }
+  return `[${label}](${discordLink(pageUrl)})`;
+}
+
+/** Channel line when implementation starts. */
+export function formatImplementationStart(name: string, pageUrl?: string): string {
+  return `${PHASE_EMOJI.implementing} Implementation started for ${formatFeatureName(name, pageUrl)}.`;
+}
+
+/** Channel line when testing starts. */
+export function formatTestingStart(name: string, pageUrl?: string): string {
+  return `${PHASE_EMOJI.testing} Testing started for ${formatFeatureName(name, pageUrl)}`;
+}
+
+function sanitizeCodeCell(text: string): string {
+  return flattenDiscordLine(text).replaceAll("```", "'''");
+}
+
+function formatMonospaceTable(rows: string[][]): string {
+  const columnCount = Math.max(0, ...rows.map((row) => row.length));
+  const widths = Array.from({ length: columnCount }, (_, col) =>
+    Math.max(0, ...rows.map((row) => row[col]?.length ?? 0)),
+  );
+  return rows
+    .map((row) =>
+      row
+        .map((cell, col) => (col === columnCount - 1 ? cell : cell.padEnd(widths[col] ?? 0)))
+        .join("  "),
+    )
+    .join("\n");
+}
+
+/** Tester summary. Discord has no markdown tables, so this uses a monospace grid. */
+export function formatTestReport(report: TestReport): string {
+  const overall = report.overallPass ? "PASS" : "FAIL";
+  const table = formatMonospaceTable([
+    ["#", "Result", "Criterion"],
+    ...report.criteria.map((item) => [
+      String(item.index),
+      item.status,
+      sanitizeCodeCell(item.text),
+    ]),
+  ]);
+  return clipDiscordMessage(`${PHASE_EMOJI.testing} **${overall}**\n\`\`\`\n${table}\n\`\`\``);
+}
+
+/** Channel line when a PR is ready for review. */
+export function formatReviewReady(name: string, pageUrl?: string, prUrl?: string): string {
+  const pr = prUrl !== undefined && prUrl !== "" ? `[PR](${discordLink(prUrl)})` : "PR";
+  return `${PHASE_EMOJI.review} ${pr} ready for review: ${formatFeatureName(name, pageUrl)}.`;
 }
 
 /** Confirmation after /egon-plan. */
@@ -57,14 +117,26 @@ function italicDiscord(text: string): string {
     .join("\n");
 }
 
-/** Confirmation after /egon-add or /egon-add-to-feature. */
-export function formatNoteAdded(name: string, text: string, assetPath?: string): string {
-  const title = `Added a note to **${escapedFeatureName(name)}**.`;
+function formatQuotedUserText(title: string, text: string, assetPath?: string): string {
   const lines = [title, italicDiscord(escapeDiscordMarkdown(text.trim()))];
   if (assetPath !== undefined && assetPath !== "") {
     lines.push(escapeDiscordMarkdown(assetPath));
   }
   return clipDiscordMessage(lines.join("\n"));
+}
+
+/** Confirmation after /egon-add or /egon-add-to-feature. */
+export function formatNoteAdded(name: string, text: string, assetPath?: string): string {
+  return formatQuotedUserText(`Added a note to **${escapedFeatureName(name)}**.`, text, assetPath);
+}
+
+/** Confirmation after /egon-pivot. */
+export function formatPivoting(name: string, text: string, assetPath?: string): string {
+  return formatQuotedUserText(
+    `Pivoting **${escapedFeatureName(name)}**. Re-entering implement and test.`,
+    text,
+    assetPath,
+  );
 }
 
 /** Compact count: 1500 → 1.5k, 1_200_000 → 1.2M. */

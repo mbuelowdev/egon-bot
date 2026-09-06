@@ -6,7 +6,6 @@ import {
   type ModalSubmitInteraction,
 } from "discord.js";
 import type { Config } from "../config.js";
-import { removeAttachmentFile } from "../features/saveImage.js";
 import { UserFacingError, type FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { addNoteAndReply, COMMAND_BY_NAME, type CommandContext } from "./commands.js";
@@ -15,7 +14,6 @@ import {
   addNoteModal,
   parseAddNoteCustomId,
   parseAddNoteModalCustomId,
-  parseDeleteNoteCustomId,
 } from "./noteButton.js";
 import { noLinkPreview } from "./preview.js";
 import { deliverThreadAnswer } from "./qaWaiters.js";
@@ -117,49 +115,18 @@ export async function handleInteraction(
 
 async function handleButton(interaction: ButtonInteraction, ctx: BotContext): Promise<void> {
   const addFeatureId = parseAddNoteCustomId(interaction.customId);
-  const deleteTarget = parseDeleteNoteCustomId(interaction.customId);
-  if (addFeatureId === undefined && deleteTarget === undefined) {
+  if (addFeatureId === undefined) {
     return;
   }
   if (!(await ensureConfiguredChannel(interaction, ctx))) {
     return;
   }
-  if (addFeatureId !== undefined) {
-    const feature = ctx.store.getFeatureById(addFeatureId);
-    if (!feature) {
-      await replyError(interaction, "Feature not found.");
-      return;
-    }
-    await interaction.showModal(addNoteModal(feature.id, feature.name));
+  const feature = ctx.store.getFeatureById(addFeatureId);
+  if (!feature) {
+    await replyError(interaction, "Feature not found.");
     return;
   }
-  if (deleteTarget === undefined) {
-    return;
-  }
-  await interaction.deferUpdate();
-  try {
-    const removed = ctx.store.deleteCollectingAddition(deleteTarget.noteId, deleteTarget.attachmentId);
-    if (removed?.attachment) {
-      removeAttachmentFile(
-        ctx.config.dataDir,
-        removed.feature.id,
-        removed.attachment.storedName,
-      );
-    }
-  } catch (error) {
-    if (error instanceof UserFacingError) {
-      await interaction.followUp(noLinkPreview({ content: error.message, ephemeral: true }));
-      return;
-    }
-    console.error(error);
-    await interaction.followUp(noLinkPreview({ content: "Something went wrong.", ephemeral: true }));
-    return;
-  }
-  try {
-    await interaction.message.delete();
-  } catch (error) {
-    console.error("could not delete note confirmation message", error);
-  }
+  await interaction.showModal(addNoteModal(feature.id, feature.name));
 }
 
 async function handleModalSubmit(interaction: ModalSubmitInteraction, ctx: BotContext): Promise<void> {

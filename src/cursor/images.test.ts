@@ -121,6 +121,36 @@ test("first implementer send includes images; follow-ups stay text-only", () => 
   store.close();
 });
 
+test("implementer pivot follow-up attaches the new image", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-impl-pivot-img-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
+  const dir = featurePaths(dataDir, feature.id).attachmentsDir;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "222.png"), "png-bytes");
+  const attachment = store.addAttachment(feature.id, {
+    filename: "hud.png",
+    mimeType: "image/png",
+    storedName: "222.png",
+  });
+  const followUp = buildImplementerSendMessage({
+    feature,
+    notes: ["match this HUD"],
+    attachments: [attachment],
+    dataDir,
+    followUp: "The humans requested a pivot.\nmatch this HUD",
+    followUpAttachments: [attachment],
+  });
+  assert.equal(typeof followUp, "object");
+  if (typeof followUp === "string") {
+    throw new Error("expected images");
+  }
+  assert.match(followUp.text, /requested a pivot/);
+  assert.equal(followUp.images?.length, 1);
+  assert.equal(followUp.images?.[0]?.mimeType, "image/png");
+  store.close();
+});
+
 test("agentUserMessage omits images when none exist", () => {
   assert.equal(agentUserMessage("just text", []), "just text");
 });

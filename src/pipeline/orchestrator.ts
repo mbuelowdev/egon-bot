@@ -7,11 +7,12 @@ import { runPlanner } from "../cursor/planner.js";
 import { postToChannel } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
 import { cancelAllThreadWaiters, waitForThreadAnswer } from "../discord/qaWaiters.js";
-import { copyFeatureAssets, copyFeatureSpec, featureBranchName } from "../features/artifacts.js";
+import { copyFeatureAssets, copyFeatureSpec, featureBranchName, plannedAssetPath } from "../features/artifacts.js";
+import { saveFeatureImage, type IncomingImage } from "../features/saveImage.js";
 import { featureSlug } from "../features/slug.js";
-import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
+import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
-import { formatPlanningStart, PHASE_EMOJI } from "../format.js";
+import { formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
 import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
 import {
   createDraftPr,
@@ -34,7 +35,7 @@ import { runExportTestLoop } from "./testLoop.js";
 export type Pipeline = {
   startPlan: (featureId: number) => Promise<void>;
   resumeIfNeeded: () => Promise<void>;
-  pivot: (text: string) => Promise<string>;
+  pivot: (text: string, image?: IncomingImage) => Promise<string>;
   retry: () => Promise<string>;
   stop: () => Promise<string>;
   handleGithubEvent: (event: GithubPrEvent) => Promise<void>;
@@ -66,12 +67,15 @@ export function createPipeline(ctx: {
     }
   };
 
+  const featureCatalogUrl = (feature: Feature): string | undefined =>
+    catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+
   const extraLinks = (feature: Feature): string[] => {
     const lines: string[] = [];
     if (feature.githubPrUrl) {
       lines.push(discordLink(feature.githubPrUrl));
     }
-    const page = catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+    const page = featureCatalogUrl(feature);
     if (page) {
       lines.push(discordLink(page));
     }
@@ -91,7 +95,11 @@ export function createPipeline(ctx: {
 
   const runJob = async (
     featureId: number,
-    options: { resume?: boolean; implementerFollowUp?: string },
+    options: {
+      resume?: boolean;
+      implementerFollowUp?: string;
+      implementerFollowUpAttachments?: FeatureAttachment[];
+    },
   ): Promise<void> => {
     const abort = new AbortController();
     jobAbort = abort;
@@ -212,11 +220,7 @@ export function createPipeline(ctx: {
 
       if (feature.state === "implementing") {
         copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
-        await notify(
-          [`${PHASE_EMOJI.implementing} Implementation started for **${feature.name}**.`, ...extraLinks(feature)]
-            .filter((line) => line !== "")
-            .join("\n"),
-        );
+        await notify(formatImplementationStart(feature.name, featureCatalogUrl(feature)));
         if (haltIfNeeded()) {
           return;
         }
@@ -230,6 +234,7 @@ export function createPipeline(ctx: {
           store: ctx.store,
           feature,
           followUp: implFollowUp,
+          followUpAttachments: options.implementerFollowUpAttachments,
         });
         feature = ctx.store.getFeatureById(featureId) ?? feature;
         if (haltIfNeeded()) {
@@ -263,7 +268,6 @@ export function createPipeline(ctx: {
           store: ctx.store,
           config: ctx.config,
           notify,
-          extraLinks,
           featureId,
           signal: abort.signal,
           onFixCommit: async (current) => {
@@ -332,7 +336,7 @@ export function createPipeline(ctx: {
       }
       return enqueue(() => runJob(lock.feature.id, { resume: true }));
     },
-    pivot: async (text: string) => {
+    pivot: async (text: string, image?: IncomingImage) => {
       const lock = ctx.store.getPipelineLock();
       if (
         !lock ||
@@ -340,22 +344,44 @@ export function createPipeline(ctx: {
       ) {
         throw new UserFacingError("Pivot is only valid when awaiting_review or after the PR was closed.");
       }
+      let assetPath: string | undefined;
+      let newAttachment: FeatureAttachment | undefined;
+      if (image) {
+        newAttachment = await saveFeatureImage({
+          dataDir: ctx.config.dataDir,
+          store: ctx.store,
+          featureId: lock.feature.id,
+          image,
+        });
+        assetPath = plannedAssetPath(
+          lock.feature.name,
+          ctx.store.listAttachments(lock.feature.id),
+          newAttachment.id,
+        );
+      }
       ctx.store.addNote(lock.feature.id, text);
       ctx.store.transition(lock.feature.id, "pivoting");
       const featureId = lock.feature.id;
       const name = lock.feature.name;
+      const followUp = [
+        "The humans requested a pivot.",
+        "Re-implement the SPEC with this change. Do not commit or push.",
+        text,
+        assetPath
+          ? `New reference image is already in the working tree at ${assetPath}. Import it from there (do not re-download).`
+          : "",
+      ]
+        .filter((line) => line !== "")
+        .join("\n");
       void enqueue(() =>
         runJob(featureId, {
-          implementerFollowUp: [
-            "The humans requested a pivot.",
-            "Re-implement the SPEC with this change. Do not commit or push.",
-            text,
-          ].join("\n"),
+          implementerFollowUp: followUp,
+          implementerFollowUpAttachments: newAttachment ? [newAttachment] : undefined,
         }),
       ).catch((error: unknown) => {
         console.error("pivot pipeline failed", error);
       });
-      return `Pivoting **${name}**. Re-entering implement and test.`;
+      return formatPivoting(name, text, assetPath);
     },
     retry: async () => {
       const lock = ctx.store.getPipelineLock();

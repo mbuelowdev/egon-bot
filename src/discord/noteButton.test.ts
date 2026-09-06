@@ -4,32 +4,9 @@ import { ButtonStyle, ComponentType } from "discord.js";
 import {
   addNoteButtonRow,
   addNoteModal,
-  deleteNoteButtonRow,
   parseAddNoteCustomId,
   parseAddNoteModalCustomId,
-  parseDeleteNoteCustomId,
 } from "./noteButton.js";
-
-test("delete note custom ids round-trip", () => {
-  const noteOnly = deleteNoteButtonRow(11).toJSON().components[0];
-  assert.ok(noteOnly && noteOnly.type === ComponentType.Button);
-  assert.equal(noteOnly.style, ButtonStyle.Danger);
-  assert.equal(noteOnly.label, "Delete");
-  assert.deepEqual(parseDeleteNoteCustomId(noteOnly.custom_id ?? ""), { noteId: 11 });
-
-  const withImage = deleteNoteButtonRow(11, 22).toJSON().components[0];
-  assert.ok(withImage && withImage.type === ComponentType.Button);
-  assert.deepEqual(parseDeleteNoteCustomId(withImage.custom_id ?? ""), {
-    noteId: 11,
-    attachmentId: 22,
-  });
-});
-
-test("parseDeleteNoteCustomId rejects other buttons", () => {
-  assert.equal(parseDeleteNoteCustomId("other"), undefined);
-  assert.equal(parseDeleteNoteCustomId("egon-del-note:"), undefined);
-  assert.equal(parseDeleteNoteCustomId("egon-del-note:nope"), undefined);
-});
 
 test("add note button and modal custom ids round-trip", () => {
   const button = addNoteButtonRow(7).toJSON().components[0];

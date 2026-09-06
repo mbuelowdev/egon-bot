@@ -1,14 +1,14 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "discord.js";
-import type { Config } from "../config.js";
+import { catalogUrl, type Config } from "../config.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { featurePaths, type TestReport } from "../cursor/testReport.js";
 import { runTester } from "../cursor/tester.js";
 import { postFiles } from "../discord/channel.js";
-import { discordLink } from "../discord/preview.js";
+import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureStore } from "../features/store.js";
-import { PHASE_EMOJI } from "../format.js";
+import { formatReviewReady, formatTestReport, formatTestingStart } from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
 import { exportDebugWeb } from "../godot/export.js";
 import { serveExportDir } from "../godot/serve.js";
@@ -18,18 +18,18 @@ export const MAX_TEST_CYCLES = 3;
 
 async function notifyReadyForReview(
   ctx: {
+    config: Config;
     notify: (content: string) => Promise<void>;
-    extraLinks: (feature: Feature) => string[];
   },
   feature: Feature,
   outcome: string,
   nextStep: string,
 ): Promise<void> {
+  const catalog = catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
   await ctx.notify(
     [
-      `${PHASE_EMOJI.review} PR ready for review: **${feature.name}**.`,
       outcome,
-      ...ctx.extraLinks(feature),
+      formatReviewReady(feature.name, catalog, feature.githubPrUrl ?? undefined),
       nextStep,
     ]
       .filter((line) => line !== "")
@@ -42,7 +42,6 @@ export async function runExportTestLoop(ctx: {
   store: FeatureStore;
   config: Config;
   notify: (content: string) => Promise<void>;
-  extraLinks: (feature: Feature) => string[];
   featureId: number;
   signal?: AbortSignal;
   onFixCommit?: (feature: Feature) => Promise<void>;
@@ -117,9 +116,8 @@ export async function runExportTestLoop(ctx: {
     }
 
     if (!announcedTesting) {
-      await ctx.notify(
-        `${PHASE_EMOJI.testing} Testing started for **${feature.name}** at ${discordLink(`http://127.0.0.1:${String(ctx.config.webServePort)}/`)}`,
-      );
+      const catalog = catalogUrl(ctx.config, `/features/${featureSlug(feature.name)}`);
+      await ctx.notify(formatTestingStart(feature.name, catalog));
       announcedTesting = true;
     }
     const latest = ctx.store.getFeatureById(feature.id) ?? feature;
@@ -173,17 +171,12 @@ async function postTesterArtifacts(
         .filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
         .map((name) => join(paths.screenshotsDir, name))
     : [];
-  const summary = [
-    report.overallPass ? "TEST_REPORT: OVERALL PASS" : "TEST_REPORT: OVERALL FAIL",
-    ...report.criteria.map(
-      (item) => `${String(item.index)}. [${item.status}] ${item.text}`.slice(0, 180),
-    ),
-  ].join("\n");
+  const summary = formatTestReport(report);
   const target = threadId ?? ctx.config.discordChannelId;
   try {
-    await postFiles(ctx.client, target, files, summary.slice(0, 2000));
+    await postFiles(ctx.client, target, files, summary);
   } catch (error) {
     console.error("failed to post tester artifacts", error);
-    await ctx.notify(summary.slice(0, 2000));
+    await ctx.notify(summary);
   }
 }

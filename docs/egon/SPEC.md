@@ -105,7 +105,7 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 | `/egon-add-to-feature name text [image]` | Append to a named feature; same optional image |
 | `/egon-list` | Open features (not `accepted`): name, state, note count, PR link |
 | `/egon-plan [name]` | Start planner for a named feature, or this channel's latest if omitted; fail if another pipeline is active |
-| `/egon-pivot text` | Change request from `awaiting_review` or `rejected`; re-enter implement + test |
+| `/egon-pivot text [image]` | Change request from `awaiting_review` or `rejected`; re-enter implement + test; optional image is stored and sent to Cursor |
 | `/egon-retry` | Cancel a stuck planner/implementer/tester and continue from the current phase (or from `awaiting_review` / `rejected`) |
 | `/egon-stop` | Cancel the in-flight planner, implementer, or tester (and any Discord Q&A wait) |
 | `/egon-status` | Current pipeline feature + state + last agent activity + PR link |
@@ -114,7 +114,7 @@ There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Disc
 
 `/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none.
 
-Optional `image` on `/egon-add` and `/egon-add-to-feature` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only. Text remains required; extra images are additional `/egon-add` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
+Optional `image` on `/egon-add`, `/egon-add-to-feature`, and `/egon-pivot` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only, except `/egon-pivot` with an image attaches that new file as vision on the implementer follow-up. Text remains required; extra images are additional `/egon-add` or `/egon-pivot` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
 
 ### Q&A threads
 
@@ -138,7 +138,7 @@ End with a one-line `PLAN_COMPLETE` or `PLAN_BLOCKED` marker the orchestrator ca
 
 ### Implementer
 
-Separate agent from the planner. Resume it for bug fixes and pivots (`implementerAgentId` on the feature). Implement the game-repo SPEC only. Download asset URLs from feature notes into the Godot project. Discord images are attached as vision on the first `send` and already copied to `assets/egon/{slug}/` for import. Work on the feature branch already checked out.
+Separate agent from the planner. Resume it for bug fixes and pivots (`implementerAgentId` on the feature). Implement the game-repo SPEC only. Download asset URLs from feature notes into the Godot project. Discord images are attached as vision on the first `send` and already copied to `assets/egon/{slug}/` for import. A `/egon-pivot` image is copied the same way and attached as vision on that follow-up `send`. Work on the feature branch already checked out.
 
 Prompt includes one extra line: bump the version field in `deployment.json` (changing that file triggers deploy when the PR merges). Do **not** commit or push; the orchestrator commits after the agent finishes.
 
@@ -195,7 +195,7 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 
 **`deployment.json`:** confirm the version increased vs `origin/$GAME_REPO_BRANCH` on the implementer commit path. If the implementer skipped the bump, increment it there. Host deploy watches `deployment.json` on the default branch after merge.
 
-**`/egon-pivot`:** valid from `awaiting_review` or `rejected`. Append the change request, re-enter implement + test on the same branch and PR.
+**`/egon-pivot`:** valid from `awaiting_review` or `rejected`. Append the change request (and optional image), re-enter implement + test on the same branch and PR.
 
 **`/egon-stop`:** valid while the locked feature is `planning`, `implementing`, `exporting`, `testing`, `fixing`, or `pivoting`. Cancels the Cursor run, any Discord Q&A waiter, and Godot export. No PR → `collecting` and release the lock (fresh `/egon-plan` later). With a PR → `awaiting_review` (merge on GitHub, `/egon-retry` to continue the same work, or `/egon-pivot`).
 
