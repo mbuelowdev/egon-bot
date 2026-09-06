@@ -220,11 +220,13 @@ test("feature page opens proof screenshots in a lightbox", () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Dash HUD", "channel-1");
   mkdirSync(join(dataDir, "features", String(feature.id), "screenshots"), { recursive: true });
-  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "01.png"), "png");
+  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "criterion-1.png"), "png");
+  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "page-viewport.png"), "dump");
   const html = featurePage({ dataDir } as Config, store.getFeatureById(feature.id)!);
   store.close();
   assert.match(html, /<h2>Proof<\/h2>/);
-  assert.match(html, /\/features\/dash-hud\/screenshots\/01\.png/);
+  assert.match(html, /\/features\/dash-hud\/screenshots\/criterion-1\.png/);
+  assert.doesNotMatch(html, /page-viewport/);
   assert.match(html, /cursor: zoom-in/);
   assert.match(html, /overlay\.className = "lightbox"/);
   assert.match(html, /background: #000000b8/);

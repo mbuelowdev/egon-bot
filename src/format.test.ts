@@ -113,6 +113,7 @@ test("formatTestingStart puts the catalog link on the feature name", () => {
 test("formatTestReport posts overall PASS without criteria", () => {
   const text = formatTestReport({
     overallPass: true,
+    hasFailure: false,
     criteria: [
       { index: 1, status: "PASS", text: "canvas visible" },
       { index: 2, status: "PASS", text: "player jumps" },
@@ -125,10 +126,21 @@ test("formatTestReport posts overall PASS without criteria", () => {
 test("formatTestReport posts overall FAIL without criteria", () => {
   const text = formatTestReport({
     overallPass: false,
+    hasFailure: true,
     criteria: [{ index: 1, status: "FAIL", text: "hud **broken**\nand wrapped" }],
     raw: "",
   });
   assert.equal(text, `${PHASE_EMOJI.testing} **FAIL**`);
+});
+
+test("formatTestReport posts overall PASS when a criterion could not be verified", () => {
+  const text = formatTestReport({
+    overallPass: true,
+    hasFailure: false,
+    criteria: [{ index: 1, status: "COULD_NOT_VERIFY", text: "projectile too fast" }],
+    raw: "",
+  });
+  assert.equal(text, `${PHASE_EMOJI.testing} **PASS**`);
 });
 
 test("formatReviewReady links PR to GitHub and the feature name to the catalog", () => {

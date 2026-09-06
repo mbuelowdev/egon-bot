@@ -6,15 +6,15 @@ This repo is the orchestrator (Discord bot, Cursor SDK runners, Godot export/ser
 
 ## Product flow
 
-Humans talk in one Discord channel, then drive the pipeline with slash commands. **Merge happens on GitHub**, not via Discord accept/reject.
+Humans talk in one Discord channel, then drive the pipeline with slash commands. Merge happens on GitHub or via the **Merge the feature** Discord button; there is no accept/reject slash command.
 
 1. Collect ideas (`/egon-new-feature`, `/egon-add`, `/egon-add-to-feature`).
 2. `/egon-plan` starts a local Cursor **planner**. Questions go to the Discord channel with answer buttons; the first button or modal response is the answer.
 3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}` (UTC, seconds; a new feature never reuses an older branch of the same slug). Discord images are copied into `assets/egon/{slug}/`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. On `PLAN_COMPLETE` the bot commits the spec (and those assets), pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
 4. A local Cursor **implementer** edits the game repo on that branch. The agent does not commit or push. After a successful implementer run the bot commits, pushes, and **un-drafts** the PR (spec-only commits stay draft).
-5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status.
-6. Bugs go back to the same implementer. The bot commits and pushes each fix. Export and test again until overall PASS or the retry cap.
-7. Power users merge the PR on GitHub. `/egon-pivot` steers the implementer without converting the PR back to draft. GitHub notifies the bot via webhook so it can clean up. After the game's **Build and deploy** GitHub Action succeeds, the bot posts a Discord notice like ssh-docker-deployment (`Successfully deployed`, play URL, version, commit).
+5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status. `COULD NOT VERIFY` counts as overall PASS.
+6. Clear FAILs go back to the same implementer. The bot commits and pushes each fix. Export and test again until overall PASS or the retry cap.
+7. Power users merge the PR on GitHub or click **Merge the feature** on the Discord review-ready message. `/egon-pivot` steers the implementer without converting the PR back to draft. GitHub notifies the bot via webhook so it can clean up. After the game's **Build and deploy** GitHub Action succeeds, the bot posts a Discord notice like ssh-docker-deployment (`Successfully deployed`, play URL, version, commit).
 
 ```mermaid
 flowchart TD
@@ -47,6 +47,8 @@ flowchart TD
   bot --> catalog
   gh -->|webhook merge and deploy| bot
   humans -->|merge on GitHub| gh
+  humans -->|Merge the feature button| bot
+  bot -->|gh pr merge| gh
 ```
 
 One Docker container runs all of this. Cursor IDE is **not** installed. Local agents run via `@cursor/sdk` inside the bot Node process. The GitHub CLI (`gh`) authenticates git over HTTPS, clones the game repo, and creates/un-drafts PRs. `git` still branches, commits, and pushes.
@@ -89,7 +91,7 @@ Optional with defaults:
 - `FEATURES_PUBLIC_URL` — public base URL for Discord catalog links and the GitHub webhook URL, default `https://egon.mbuelow.dev`
 - `CURSOR_ADMIN_API_KEY` — optional; official remaining-usage % via Admin pooled-usage
 
-On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}-{YYYYMMDDTHHMMSSZ}`; humans merge that PR on GitHub.
+On boot: `gh auth setup-git`, then if `GAME_REPO_DIR` is empty, `gh repo clone $GAME_REPO_HTTPS_URL`; otherwise `git remote set-url origin $GAME_REPO_HTTPS_URL` and fetch. The bot never pushes `GAME_REPO_BRANCH` directly. Feature work is pushed on `egon/{slug}-{YYYYMMDDTHHMMSSZ}`; humans merge that PR on GitHub or via **Merge the feature**.
 
 Configure a GitHub repository webhook on the game repo: URL `{FEATURES_PUBLIC_URL}/github/webhook`, content type JSON, secret `GITHUB_WEBHOOK_SECRET`, events **Pull requests** and **Workflow runs**.
 
@@ -110,9 +112,9 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 | `/egon-stop` | Cancel the in-flight planner, implementer, or tester (and any Discord Q&A wait) |
 | `/egon-status` | Current pipeline feature + state + last agent activity + PR link |
 
-There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Discord.
+There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub or click **Merge the feature** on the review-ready Discord message; pivot in Discord.
 
-`/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none. `/egon-new-feature` includes an **Add specifics** button (modal) for that feature; `/egon-plan` removes it.
+`/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none. `/egon-new-feature` includes an **Add specifics** button (modal) for that feature; `/egon-plan` removes it. After implement + test, the review-ready message includes **Merge the feature**; the bot removes that button after a merge (Discord click or GitHub webhook).
 
 Optional `image` on `/egon-add`, `/egon-add-to-feature`, and `/egon-pivot` must be PNG, JPEG, GIF, or WebP. The bot downloads it immediately (Discord CDN URLs expire) into `$DATA_DIR/features/{id}/attachments/` and records it in SQLite. When `/egon-plan` creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}`, the bot copies those files into `assets/egon/{slug}/` in the game repo (and again before the implementer runs). The orchestrator commits them with the spec. The first planner and implementer `send` also attach the files as vision input (`agent.send({ text, images })`). Follow-ups stay text-only, except `/egon-pivot` with an image attaches that new file as vision on the implementer follow-up. Text remains required; extra images are additional `/egon-add` or `/egon-pivot` invocations. Paste the file with the `image` option — a URL in `text` is not downloaded at add time (the implementer may still fetch http(s) URLs from notes).
 
@@ -132,7 +134,7 @@ Do **not** install the Cursor IDE. The SDK local executor runs in-process.
 
 Durable agent. Custom tool `ask_discord_users` (local `customTools`, not a separate MCP server) posts to Discord and waits, with a timeout. Writes `docs/features/{slug}/SPEC.md` **in the game repo** on branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}`. Discord images collected with `/egon-add` are attached as vision on the first `send` and already sit at `assets/egon/{slug}/`.
 
-That game-repo spec **must** include an **Acceptance criteria** section: a numbered list of at most **3** concrete, browser-verifiable checks (what to do, what must be visible/true). Never more than 3. The tester treats this list as the test plan and never runs more than 3 criteria. Planner may read existing game code; it must not write outside that spec file.
+That game-repo spec **must** include an **Acceptance criteria** section: a numbered list of at most **3** concrete, browser-verifiable checks (what to do, what must be visible/true). Never more than 3. Each check must be decidable from a still screenshot of durable on-screen state, not a single frame of a fast animation. The tester treats this list as the test plan and never runs more than 3 criteria. The planner must make the spec as specific as possible and ask Discord questions until material details are precise and certain — do not guess unspecified layout, numbers, or feel. Planner may read existing game code; it must not write outside that spec file.
 
 End with a one-line `PLAN_COMPLETE` or `PLAN_BLOCKED` marker the orchestrator can parse. Do not commit or push; the orchestrator commits the spec after `PLAN_COMPLETE`.
 
@@ -144,7 +146,7 @@ Prompt includes one extra line: bump the version field in `deployment.json` (cha
 
 ### Tester
 
-**New agent every test cycle.** Before creating it, confirm Playwright Chrome for Testing exists **and actually launches**. Playwright MCP from the bot install (`node node_modules/@playwright/mcp/cli.js --headless --browser=chromium`), not `npx` in the game tree. Prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list (at most 3 items; extra items are ignored). Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` that marks each criterion `PASS`/`FAIL`. Overall `PASS` only if every criterion passes. On failure the orchestrator `send`s the report to the implementer.
+**New agent every test cycle.** Before creating it, confirm Playwright Chrome for Testing exists **and actually launches**. Playwright MCP from the bot install (`node node_modules/@playwright/mcp/cli.js --headless --browser=chromium`), not `npx` in the game tree. Prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list (at most 3 items; extra items are ignored). **At most 5 attempts per criterion** (replay, reload, or wait and screenshot again). Each criterion is `PASS`, `FAIL`, or `COULD NOT VERIFY`. `FAIL` only when the game is clearly wrong. `COULD NOT VERIFY` when the tester cannot complete the check after the attempt cap (including a fleeting visual such as a projectile) — keep the last screenshot and continue; do not loop. `COULD NOT VERIFY` counts as overall `PASS` so humans can merge. Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` with those marks. Discord and the catalog proof gallery attach only `criterion-1.png` … `criterion-N.png` (at most 3); Playwright dumps stay on disk and are not posted. Overall `PASS` if no criterion failed. Overall `FAIL` if any criterion fails; the orchestrator `send`s that report to the implementer.
 
 Planner and implementer do **not** need a browser. The tester does. Chromium lives in the same container.
 
@@ -201,7 +203,7 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 
 **`/egon-retry`:** valid while the pipeline lock is held in a plan/implement/test state, `awaiting_review`, or `rejected`. Cancels the in-flight Cursor run if any, keeps feature state (or re-enters `pivoting` from review/rejected), and continues the chain. Does not discard uncommitted work.
 
-**Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock. Do **not** post a merge notice. Then wait for the game repo's **Build and deploy** workflow (the same reusable action as lets-vibe-together). On success, post a Discord notice in the vibe channel:
+**Merge:** humans merge on GitHub or click **Merge the feature** on the Discord review-ready message (`gh pr merge`). The bot then runs the same cleanup as a GitHub-side merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock, and strip **Merge the feature**. Do **not** post a merge notice. Then wait for the game repo's **Build and deploy** workflow (the same reusable action as lets-vibe-together). Wait on the merge commit (`gh pr view --json mergeCommit`) and ignore any run that started before `mergedAt`, so an earlier deploy is never treated as this one. Wait up to 20 minutes for the run to appear, then `gh run watch`. On success, post a Discord notice in the vibe channel. If Discord is down, do not mark the feature announced — a later `workflow_run` webhook or catch-up can retry.
 
 ```
 **✅ Successfully deployed: {feature name}**
@@ -211,7 +213,7 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 - **Commit**: {workflow title}
 ```
 
-If no pending feature (manual deploy), use `owner/repo` as the title. A `workflow_run` webhook for that workflow is an alternate path to the same notice (idempotent per Actions run id). Workflow failure posts `Deploy failed` with a link to the run; the feature stays pending so a re-run can still announce success. Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`. The catalog keeps the feature and labels the PR **closed**. Delete from the catalog removes it and closes the PR if it is still open.
+If no pending feature (manual deploy), use `owner/repo` as the title. A `workflow_run` webhook for that workflow is an alternate path to the same notice (idempotent per Actions run id). Workflow failure posts `Deploy failed` with a link to the run; the feature stays pending so a re-run can still announce success. Closed without merge → `rejected` and a Discord notice; strip **Merge the feature**; lock stays so humans can `/egon-pivot`. The catalog keeps the feature and labels the PR **closed**. Delete from the catalog removes it and closes the PR if it is still open.
 
 Do **not** poll GitHub on an interval. After a merge (webhook, boot catch-up, or catalog page load), wait on that deploy workflow with `gh run watch`. On boot and when serving the catalog index or a feature page, one `gh pr view` per non-accepted feature that already has a PR number (catch up if a webhook arrived while the process was down, or never arrived). Coalesce overlapping catch-ups and skip a repeat within 10 seconds. Plus a deploy wait if any accepted feature still needs a deploy notice.
 

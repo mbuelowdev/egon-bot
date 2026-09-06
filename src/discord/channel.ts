@@ -16,11 +16,11 @@ export async function clearMessageComponents(
   await message.edit({ components: [] });
 }
 
-/** Strip the Add specifics button from the /egon-new-feature reply. Missing or deleted messages are ignored. */
-export async function removeAddNoteButton(
+async function removeComponentsQuietly(
   client: Client,
   channelId: string,
   messageId: string | null | undefined,
+  label: string,
 ): Promise<void> {
   if (!messageId) {
     return;
@@ -28,8 +28,26 @@ export async function removeAddNoteButton(
   try {
     await clearMessageComponents(client, channelId, messageId);
   } catch (error) {
-    console.error("failed to remove Add specifics button", error);
+    console.error(`failed to remove ${label}`, error);
   }
+}
+
+/** Strip the Add specifics button from the /egon-new-feature reply. Missing or deleted messages are ignored. */
+export async function removeAddNoteButton(
+  client: Client,
+  channelId: string,
+  messageId: string | null | undefined,
+): Promise<void> {
+  await removeComponentsQuietly(client, channelId, messageId, "Add specifics button");
+}
+
+/** Strip Merge the feature from the review-ready message. Missing or deleted messages are ignored. */
+export async function removeMergeButton(
+  client: Client,
+  channelId: string,
+  messageId: string | null | undefined,
+): Promise<void> {
+  await removeComponentsQuietly(client, channelId, messageId, "Merge the feature button");
 }
 
 export async function postToChannel(

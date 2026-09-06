@@ -6,13 +6,14 @@ import { test } from "node:test";
 import type { Client, Interaction } from "discord.js";
 import { ApplicationCommandOptionType } from "discord.js";
 import type { Config } from "../config.js";
-import { FeatureStore } from "../features/store.js";
+import { FeatureStore, UserFacingError } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
 import { beginAgentWatch } from "../cursor/agentWatch.js";
 import { PHASE_EMOJI } from "../format.js";
 import { COMMAND_BY_NAME } from "./commands.js";
 import { handleInteraction } from "./handlers.js";
 import { parseAddNoteCustomId } from "./noteButton.js";
+import { parseMergeCustomId } from "./mergeButton.js";
 import { SUPPRESS_LINK_PREVIEW } from "./preview.js";
 import { waitForQuestionAnswer } from "./qaWaiters.js";
 
@@ -695,5 +696,68 @@ test("stale question buttons are rejected", async () => {
   await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
   assert.match(contentOf(interaction.replies[0]), /no longer open/);
   assert.equal(store.getFeatureById(feature.id)?.pendingAnswer, null);
+  store.close();
+});
+
+function featureAwaitingReview(store: FeatureStore, name: string): ReturnType<FeatureStore["createFeature"]> {
+  const feature = store.createFeature(name, "chan");
+  store.startPlanning(feature.id);
+  store.setGithubPr(feature.id, {
+    branch: "egon/dash",
+    number: 4,
+    url: "https://github.com/org/game/pull/4",
+  });
+  store.transition(feature.id, "implementing");
+  store.transition(feature.id, "exporting");
+  store.transition(feature.id, "testing");
+  store.transition(feature.id, "awaiting_review");
+  return store.getFeatureById(feature.id) ?? feature;
+}
+
+test("merge button asks the pipeline to merge", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = featureAwaitingReview(store, "Dash");
+  let mergedId: number | undefined;
+  const pipeline = {
+    merge: async (id: number) => {
+      mergedId = id;
+    },
+  };
+  const interaction = fakeButton(`egon-merge:${String(feature.id)}`);
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    store,
+    pipeline: pipeline as unknown as Pipeline,
+  });
+  assert.equal(parseMergeCustomId(interaction.customId), feature.id);
+  assert.equal(mergedId, feature.id);
+  assert.equal(interaction.deferred, true);
+  assert.equal(interaction.replies.length, 0);
+  assert.equal(interaction.followUps.length, 0);
+  store.close();
+});
+
+test("merge button reports a pipeline error without replacing the review message", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = featureAwaitingReview(store, "Dash");
+  const pipeline = {
+    merge: async () => {
+      throw new UserFacingError("This feature has no pull request.");
+    },
+  };
+  const interaction = fakeButton(`egon-merge:${String(feature.id)}`);
+  await handleInteraction(interaction as unknown as Interaction, {
+    ...ctx,
+    store,
+    pipeline: pipeline as unknown as Pipeline,
+  });
+  assert.equal(interaction.deferred, true);
+  assert.deepEqual(interaction.followUps, [
+    {
+      content: "This feature has no pull request.",
+      ephemeral: true,
+      flags: SUPPRESS_LINK_PREVIEW,
+    },
+  ]);
   store.close();
 });

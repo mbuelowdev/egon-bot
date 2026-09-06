@@ -44,7 +44,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
   const specDir = join(dataDir, "features", String(planned.id));
   mkdirSync(join(specDir, "screenshots"), { recursive: true });
   writeFileSync(join(specDir, "SPEC.md"), "# Dash HUD\n\n1. See the speed\n");
-  writeFileSync(join(specDir, "screenshots", "01.png"), "png");
+  writeFileSync(join(specDir, "screenshots", "criterion-1.png"), "png");
   writeFileSync(
     join(specDir, "agent-log.jsonl"),
     `${JSON.stringify({
@@ -148,12 +148,12 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
     const detailHtml = await detail.text();
     assert.match(detailHtml, /See the speed/);
-    assert.match(detailHtml, /01\.png/);
+    assert.match(detailHtml, /criterion-1\.png/);
     assert.match(detailHtml, /Agent log/);
     assert.match(detailHtml, /Write the Dash HUD spec/);
     assert.match(detailHtml, /PLAN_COMPLETE/);
 
-    const shot = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/screenshots/01.png`);
+    const shot = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/screenshots/criterion-1.png`);
     assert.equal(shot.status, 200);
     assert.equal(await shot.text(), "png");
 

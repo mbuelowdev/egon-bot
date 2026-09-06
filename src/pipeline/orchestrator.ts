@@ -5,7 +5,7 @@ import { StuckAgentError } from "../cursor/agentWatch.js";
 import { postPlannerQuestion } from "../cursor/askUsersTool.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { runPlanner } from "../cursor/planner.js";
-import { postToChannel, removeAddNoteButton } from "../discord/channel.js";
+import { postToChannel, removeAddNoteButton, removeMergeButton } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
 import { cancelAllQuestionWaiters, waitForQuestionAnswer } from "../discord/qaWaiters.js";
 import {
@@ -27,6 +27,7 @@ import {
   isClosedUnmergedView,
   isMergedView,
   markPrReady,
+  mergePullRequest,
   viewPullRequest,
   waitForDeployWorkflow,
 } from "../git/github.js";
@@ -35,7 +36,6 @@ import {
   commitAndPush,
   createFeatureBranch,
   discardUncommittedWork,
-  git,
 } from "../git/workingTree.js";
 import { stopWebServer } from "../godot/serve.js";
 import type { GithubWebhookEvent } from "../catalog/webhook.js";
@@ -48,6 +48,7 @@ export type Pipeline = {
   pivot: (text: string, image?: IncomingImage) => Promise<string>;
   retry: () => Promise<string>;
   stop: () => Promise<string>;
+  merge: (featureId: number) => Promise<void>;
   handleGithubEvent: (event: GithubWebhookEvent) => Promise<void>;
   catchUpOpenPrs: () => Promise<void>;
   interruptIfLocked: (featureId: number) => Promise<void>;
@@ -85,6 +86,10 @@ export function createPipeline(ctx: {
 
   const extraLinks = (feature: Feature): string[] =>
     feature.githubPrUrl ? [discordLink(feature.githubPrUrl)] : [];
+
+  const clearMergeButton = async (feature: Feature): Promise<void> => {
+    await removeMergeButton(ctx.client, ctx.config.discordChannelId, feature.reviewMessageId);
+  };
 
   const pushImplementerWork = async (feature: Feature, message: string): Promise<Feature> => {
     await ensureDeploymentBump(ctx.config);
@@ -308,20 +313,18 @@ export function createPipeline(ctx: {
       return;
     }
     if (event.kind === "merged") {
-      if (feature.state === "accepted") {
-        return;
+      await clearMergeButton(feature);
+      if (feature.state !== "accepted") {
+        await checkoutDefaultBranch(ctx.config);
+        await cleanupAfterMerge(ctx.config, ctx.store, feature.id);
       }
-      await checkoutDefaultBranch(ctx.config);
-      await cleanupAfterMerge(ctx.config, ctx.store, feature.id);
-      let headSha: string | undefined;
-      try {
-        headSha = await git(ctx.config.gameRepoDir, ["rev-parse", "HEAD"]);
-      } catch (error) {
-        console.error("failed to read HEAD after merge", error);
+      const latest = ctx.store.getFeatureById(feature.id) ?? feature;
+      if (!latest.deployAnnounced) {
+        void waitAndAnnounceDeployFromMerge(event.number);
       }
-      void waitAndAnnounceDeploy(headSha);
       return;
     }
+    await clearMergeButton(feature);
     if (feature.state === "accepted" || feature.state === "rejected") {
       return;
     }
@@ -341,7 +344,10 @@ export function createPipeline(ctx: {
   const announceDeployOutcome = async (
     event: Extract<GithubWebhookEvent, { kind: "deployed" | "deploy_failed" }>,
   ): Promise<void> => {
-    if (event.headBranch !== "" && event.headBranch !== ctx.config.gameRepoBranch) {
+    const branch = event.headBranch.replace(/^refs\/heads\//, "");
+    const expected = ctx.config.gameRepoBranch.replace(/^refs\/heads\//, "");
+    if (branch !== "" && branch !== expected) {
+      console.log(`ignoring deploy for branch ${branch} (expected ${expected})`);
       return;
     }
     if (!ctx.store.claimDeployRun(event.runId)) {
@@ -349,43 +355,50 @@ export function createPipeline(ctx: {
     }
     const pending = ctx.store.listPendingDeployFeatures();
     const title = deployTitle(pending);
-    if (event.kind === "deployed") {
-      ctx.store.markFeaturesDeployAnnounced(pending.map((item) => item.id));
-      let version: string | undefined;
-      try {
-        version = await readOriginDeploymentVersion(ctx.config);
-      } catch (error) {
-        console.error("failed to read deployment.json version", error);
-      }
-      await notify(
-        formatDeploySuccess({
-          title,
-          repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
-          gameUrl: ctx.config.gamePublicUrl,
-          version,
-          durationMinutes: event.durationMinutes,
-          commitMessage: event.commitMessage,
-        }),
-      );
+    const content =
+      event.kind === "deployed"
+        ? formatDeploySuccess({
+            title,
+            repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
+            gameUrl: ctx.config.gamePublicUrl,
+            version: await readDeployVersion(),
+            durationMinutes: event.durationMinutes,
+            commitMessage: event.commitMessage,
+          })
+        : formatDeployFailure({
+            title,
+            repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
+            gameUrl: ctx.config.gamePublicUrl,
+            durationMinutes: event.durationMinutes,
+            commitMessage: event.commitMessage,
+            workflowUrl: event.htmlUrl,
+          });
+    try {
+      await postToChannel(ctx.client, ctx.config.discordChannelId, content);
+    } catch (error) {
+      ctx.store.clearDeployRunClaim(event.runId);
+      console.error("failed to post deploy notice", error);
       return;
     }
-    await notify(
-      formatDeployFailure({
-        title,
-        repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
-        gameUrl: ctx.config.gamePublicUrl,
-        durationMinutes: event.durationMinutes,
-        commitMessage: event.commitMessage,
-        workflowUrl: event.htmlUrl,
-      }),
-    );
+    if (event.kind === "deployed") {
+      ctx.store.markFeaturesDeployAnnounced(pending.map((item) => item.id));
+    }
+  };
+
+  const readDeployVersion = async (): Promise<string | undefined> => {
+    try {
+      return await readOriginDeploymentVersion(ctx.config);
+    } catch (error) {
+      console.error("failed to read deployment.json version", error);
+      return undefined;
+    }
   };
 
   const waitAndAnnounceDeploy = async (headSha?: string, createdAfterIso?: string): Promise<void> => {
     try {
       const run = await waitForDeployWorkflow(ctx.config, {
         headSha,
-        createdAfterIso: headSha ? undefined : createdAfterIso,
+        createdAfterIso,
       });
       const kind =
         run.conclusion === "success" ? "deployed" : run.conclusion === "failure" ? "deploy_failed" : undefined;
@@ -403,6 +416,24 @@ export function createPipeline(ctx: {
     } catch (error) {
       console.error("failed to wait for game deploy", error);
     }
+  };
+
+  const waitAndAnnounceDeployFromMerge = async (prNumber: number): Promise<void> => {
+    const fallbackAfter = new Date(Date.now() - 15_000).toISOString();
+    let headSha: string | undefined;
+    let createdAfterIso = fallbackAfter;
+    try {
+      const view = await viewPullRequest(ctx.config, prNumber);
+      if (view.mergedAt) {
+        createdAfterIso = view.mergedAt;
+      }
+      if (view.mergeCommit) {
+        headSha = view.mergeCommit;
+      }
+    } catch (error) {
+      console.error("failed to read merge commit for deploy wait", error);
+    }
+    await waitAndAnnounceDeploy(headSha, createdAfterIso);
   };
 
   return {
@@ -449,6 +480,7 @@ export function createPipeline(ctx: {
         );
       }
       ctx.store.addNote(lock.feature.id, text);
+      await clearMergeButton(lock.feature);
       ctx.store.transition(lock.feature.id, "pivoting");
       const featureId = lock.feature.id;
       const name = lock.feature.name;
@@ -489,6 +521,7 @@ export function createPipeline(ctx: {
       await cancelActiveAgentRun();
       let state = lock.feature.state;
       if (lock.feature.state === "awaiting_review" || lock.feature.state === "rejected") {
+        await clearMergeButton(lock.feature);
         ctx.store.transition(lock.feature.id, "pivoting");
         state = "pivoting";
       }
@@ -528,6 +561,26 @@ export function createPipeline(ctx: {
         .filter((line) => line !== "")
         .join("\n");
     },
+    merge: async (featureId: number) => {
+      const feature = ctx.store.getFeatureById(featureId);
+      if (!feature) {
+        throw new UserFacingError("Feature not found.");
+      }
+      if (feature.githubPrNumber === null) {
+        throw new UserFacingError("This feature has no pull request.");
+      }
+      if (feature.state === "rejected") {
+        await clearMergeButton(feature);
+        throw new UserFacingError("This PR was closed without merging.");
+      }
+      try {
+        await mergePullRequest(ctx.config, feature.githubPrNumber);
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error);
+        throw new UserFacingError(`Could not merge the PR: ${text}`);
+      }
+      await handleGithubEvent({ kind: "merged", number: feature.githubPrNumber });
+    },
     handleGithubEvent,
     catchUpOpenPrs: () => {
       if (catchUpInFlight) {
@@ -558,7 +611,7 @@ export function createPipeline(ctx: {
             const oldest = pending[pending.length - 1];
             const updated = oldest ? Date.parse(oldest.updatedAt) : Number.NaN;
             const after = Number.isFinite(updated)
-              ? new Date(updated - 10 * 60_000).toISOString()
+              ? new Date(updated - 15_000).toISOString()
               : undefined;
             void waitAndAnnounceDeploy(undefined, after);
           }

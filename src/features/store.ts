@@ -22,6 +22,7 @@ export type Feature = {
   discordMessageId: string | null;
   discordThreadId: string | null;
   addNoteMessageId: string | null;
+  reviewMessageId: string | null;
   answerMessageId: string | null;
   plannerAgentId: string | null;
   implementerAgentId: string | null;
@@ -58,6 +59,7 @@ type FeatureRow = {
   discord_message_id: string | null;
   discord_thread_id: string | null;
   add_note_message_id: string | null;
+  review_message_id: string | null;
   answer_message_id: string | null;
   planner_agent_id: string | null;
   implementer_agent_id: string | null;
@@ -86,6 +88,7 @@ function mapFeature(row: FeatureRow): Feature {
     discordMessageId: row.discord_message_id,
     discordThreadId: row.discord_thread_id,
     addNoteMessageId: row.add_note_message_id,
+    reviewMessageId: row.review_message_id,
     answerMessageId: row.answer_message_id,
     plannerAgentId: row.planner_agent_id,
     implementerAgentId: row.implementer_agent_id,
@@ -321,6 +324,13 @@ export class FeatureStore {
     return true;
   }
 
+  /** Drop a claim so a later webhook or catch-up can retry the Discord notice. */
+  clearDeployRunClaim(runId: number): void {
+    if (this.getKv("last_deploy_run_id") === String(runId)) {
+      this.deleteKv("last_deploy_run_id");
+    }
+  }
+
   private getKv(key: string): string | undefined {
     const row = this.db.prepare("SELECT value FROM kv WHERE key = ?").get(key) as
       | { value: string }
@@ -335,6 +345,10 @@ export class FeatureStore {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       )
       .run(key, value);
+  }
+
+  private deleteKv(key: string): void {
+    this.db.prepare("DELETE FROM kv WHERE key = ?").run(key);
   }
 
   setGithubBranch(featureId: number, branch: string): Feature {
@@ -491,6 +505,13 @@ export class FeatureStore {
     this.requireFeature(featureId);
     this.db
       .prepare("UPDATE features SET add_note_message_id = ?, updated_at = ? WHERE id = ?")
+      .run(messageId, nowIso(), featureId);
+  }
+
+  setReviewMessageId(featureId: number, messageId: string): void {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET review_message_id = ?, updated_at = ? WHERE id = ?")
       .run(messageId, nowIso(), featureId);
   }
 
@@ -719,6 +740,7 @@ export class FeatureStore {
     this.ensureColumn("features", "github_pr_number", "INTEGER");
     this.ensureColumn("features", "github_pr_url", "TEXT");
     this.ensureColumn("features", "add_note_message_id", "TEXT");
+    this.ensureColumn("features", "review_message_id", "TEXT");
     this.ensureColumn("features", "deploy_announced", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("agent_run_tokens", "duration_ms", "INTEGER");
     this.db.exec(`

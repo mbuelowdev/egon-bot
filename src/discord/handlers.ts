@@ -23,6 +23,7 @@ import {
   parseAddNoteCustomId,
   parseAddNoteModalCustomId,
 } from "./noteButton.js";
+import { parseMergeCustomId } from "./mergeButton.js";
 import { noLinkPreview } from "./preview.js";
 import { deliverQuestionAnswer } from "./qaWaiters.js";
 import { isInConfiguredChannel } from "./threads.js";
@@ -143,6 +144,12 @@ async function handleButton(interaction: ButtonInteraction, ctx: BotContext): Pr
     return;
   }
 
+  const mergeFeatureId = parseMergeCustomId(interaction.customId);
+  if (mergeFeatureId !== undefined) {
+    await handleMergeButton(interaction, ctx, mergeFeatureId);
+    return;
+  }
+
   const answerClick = parseAnswerButtonCustomId(interaction.customId);
   if (answerClick !== undefined) {
     await handleAnswerButton(interaction, ctx, answerClick);
@@ -189,6 +196,30 @@ async function handleModalSubmit(interaction: ModalSubmitInteraction, ctx: BotCo
   const answerFeatureId = parseAnswerModalCustomId(interaction.customId);
   if (answerFeatureId !== undefined) {
     await handleAnswerModal(interaction, ctx, answerFeatureId);
+  }
+}
+
+async function handleMergeButton(
+  interaction: ButtonInteraction,
+  ctx: BotContext,
+  featureId: number,
+): Promise<void> {
+  if (!(await ensureConfiguredChannel(interaction, ctx))) {
+    return;
+  }
+  try {
+    await interaction.deferUpdate();
+    await ctx.pipeline.merge(featureId);
+  } catch (error) {
+    if (!(error instanceof UserFacingError)) {
+      console.error(error);
+    }
+    const content = error instanceof UserFacingError ? error.message : "Something went wrong.";
+    try {
+      await interaction.followUp(noLinkPreview({ content, ephemeral: true }));
+    } catch (followUpError) {
+      console.error("failed to report merge error", followUpError);
+    }
   }
 }
 

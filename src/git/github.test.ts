@@ -8,8 +8,11 @@ import {
   isClosedUnmergedView,
   isMergedView,
   markPrReady,
+  mergePullRequest,
+  runMatchesWait,
   viewPullRequest,
   waitForDeployWorkflow,
+  type DeployWorkflowRun,
   type ExecGh,
 } from "./github.js";
 
@@ -93,6 +96,28 @@ test("closePullRequest closes an open PR", async () => {
   await closePullRequest(config, 8, execGh);
 });
 
+test("mergePullRequest uses gh pr merge", async () => {
+  const execGh: ExecGh = async (_cwd, args) => {
+    assert.deepEqual(args, ["pr", "merge", "12"]);
+    return { stdout: "", stderr: "" };
+  };
+  await mergePullRequest(config, 12, execGh);
+});
+
+test("mergePullRequest is idempotent when already merged", async () => {
+  const execGh: ExecGh = async () => {
+    throw new Error("X Pull request org/game#12 (Dash) was already merged");
+  };
+  await mergePullRequest(config, 12, execGh);
+});
+
+test("mergePullRequest still throws when GitHub refuses the merge", async () => {
+  const execGh: ExecGh = async () => {
+    throw new Error("X Pull request org/game#12 is not mergeable: dirty");
+  };
+  await assert.rejects(() => mergePullRequest(config, 12, execGh), /not mergeable/);
+});
+
 test("viewPullRequest parses merged and closed JSON", async () => {
   const execGh: ExecGh = async () => ({
     stdout: JSON.stringify({
@@ -102,12 +127,14 @@ test("viewPullRequest parses merged and closed JSON", async () => {
       mergedAt: "2026-09-05T00:00:00Z",
       closedAt: "2026-09-05T00:00:00Z",
       isDraft: false,
+      mergeCommit: { oid: "abc123def" },
     }),
     stderr: "",
   });
   const view = await viewPullRequest(config, 3, execGh);
   assert.equal(isMergedView(view), true);
   assert.equal(isClosedUnmergedView(view), false);
+  assert.equal(view.mergeCommit, "abc123def");
 });
 
 test("closed without merge is rejected, not accepted", () => {
@@ -119,6 +146,7 @@ test("closed without merge is rejected, not accepted", () => {
       mergedAt: null,
       closedAt: "2026-09-05T00:00:00Z",
       isDraft: false,
+      mergeCommit: null,
     }),
     true,
   );
@@ -183,6 +211,63 @@ test("waitForDeployWorkflow times out when no matching run appears", async () =>
     () => waitForDeployWorkflow(config, { headSha: "missing", appearTimeoutMs: 0, pollMs: 0 }, execGh),
     /Timed out waiting for Build and deploy/,
   );
+});
+
+test("runMatchesWait ignores a completed run that started before the merge", () => {
+  const oldRun: DeployWorkflowRun = {
+    id: 44,
+    status: "completed",
+    conclusion: "success",
+    headSha: "abc123",
+    url: "https://github.com/org/game/actions/runs/44",
+    displayTitle: "Bump deployment.json",
+    createdAt: "2026-09-06T18:00:00Z",
+    startedAt: null,
+    updatedAt: "2026-09-06T18:04:00Z",
+  };
+  assert.equal(
+    runMatchesWait(oldRun, {
+      headSha: "abc123",
+      createdAfterIso: "2026-09-06T19:00:00Z",
+    }),
+    false,
+  );
+  assert.equal(
+    runMatchesWait(
+      { ...oldRun, createdAt: "2026-09-06T19:01:00Z" },
+      { headSha: "abc123", createdAfterIso: "2026-09-06T19:00:00Z" },
+    ),
+    true,
+  );
+});
+
+test("waitForDeployWorkflow does not pick an older run for the same SHA", async () => {
+  const execGh: ExecGh = async () => ({ stdout: JSON.stringify([deployListRow]), stderr: "" });
+  await assert.rejects(
+    () =>
+      waitForDeployWorkflow(
+        config,
+        { headSha: "abc123", createdAfterIso: "2026-09-06T19:00:00Z", appearTimeoutMs: 0, pollMs: 0 },
+        execGh,
+      ),
+    /Timed out waiting for Build and deploy/,
+  );
+});
+
+test("waitForDeployWorkflow matches a post-merge run even if HEAD SHA is stale", async () => {
+  const execGh: ExecGh = async () => ({
+    stdout: JSON.stringify([
+      { ...deployListRow, databaseId: 45, headSha: "newsha", createdAt: "2026-09-06T19:01:00Z" },
+      deployListRow,
+    ]),
+    stderr: "",
+  });
+  const run = await waitForDeployWorkflow(
+    config,
+    { headSha: "stale", createdAfterIso: "2026-09-06T19:00:00Z", appearTimeoutMs: 0, pollMs: 0 },
+    execGh,
+  );
+  assert.equal(run.id, 45);
 });
 
 test("deployRunDurationMinutes rounds up to at least one minute", () => {

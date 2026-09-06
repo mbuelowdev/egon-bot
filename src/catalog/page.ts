@@ -1,9 +1,9 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../config.js";
 import type { AgentLogEntry, AgentLogStep, AgentRole } from "../cursor/agentLog.js";
 import { hangingToolName, logEntryStuckKind } from "../cursor/agentWatch.js";
-import { featurePaths } from "../cursor/testReport.js";
+import { featurePaths, listCriterionScreenshots } from "../cursor/testReport.js";
 import { formatDuration, formatTokenCount } from "../format.js";
 import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureAttachment } from "../features/store.js";
@@ -695,9 +695,7 @@ export function featurePage(
   const slug = featureSlug(feature.name);
   const paths = featurePaths(config.dataDir, feature.id);
   const spec = existsSync(paths.specPath) ? readFileSync(paths.specPath, "utf8") : "_No spec on file yet._";
-  const shots = existsSync(paths.screenshotsDir)
-    ? readdirSync(paths.screenshotsDir).filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
-    : [];
+  const shots = existsSync(paths.screenshotsDir) ? listCriterionScreenshots(paths.screenshotsDir) : [];
   const gallery =
     shots.length === 0
       ? `<p class="empty">No proof screenshots yet.</p>`

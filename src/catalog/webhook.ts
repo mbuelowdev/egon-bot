@@ -92,6 +92,26 @@ function durationMinutes(startedAt: string | undefined, endedAt: string | undefi
   return Math.max(1, Math.round((end - start) / 60_000));
 }
 
+function parsePositiveInt(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function isDeployWorkflow(name: string, ...paths: string[]): boolean {
+  if (name.toLowerCase() === DEPLOY_WORKFLOW_NAME.toLowerCase()) {
+    return true;
+  }
+  return paths.some((path) => path.toLowerCase().endsWith("build-and-deploy.yml"));
+}
+
 function parseWorkflowRunEvent(payload: unknown): GithubWebhookEvent {
   if (!payload || typeof payload !== "object") {
     return { kind: "ignore" };
@@ -102,6 +122,7 @@ function parseWorkflowRunEvent(payload: unknown): GithubWebhookEvent {
     workflow_run?: {
       id?: unknown;
       name?: unknown;
+      path?: unknown;
       conclusion?: unknown;
       head_branch?: unknown;
       html_url?: unknown;
@@ -116,13 +137,16 @@ function parseWorkflowRunEvent(payload: unknown): GithubWebhookEvent {
   }
   const run = body.workflow_run;
   const workflowPath = typeof body.workflow?.path === "string" ? body.workflow.path : "";
-  const workflowName = typeof run.name === "string" ? run.name : "";
-  const isDeploy =
-    workflowName === DEPLOY_WORKFLOW_NAME || workflowPath.endsWith("build-and-deploy.yml");
-  if (!isDeploy) {
+  const workflowName =
+    (typeof run.name === "string" && run.name) ||
+    (typeof body.workflow?.name === "string" ? body.workflow.name : "");
+  const runPath = typeof run.path === "string" ? run.path : "";
+  if (!isDeployWorkflow(workflowName, workflowPath, runPath)) {
     return { kind: "ignore" };
   }
-  if (typeof run.id !== "number" || typeof run.html_url !== "string") {
+  const runId = parsePositiveInt(run.id);
+  if (runId === undefined || typeof run.html_url !== "string") {
+    console.log("ignoring Build and deploy workflow_run with missing id or html_url");
     return { kind: "ignore" };
   }
   const headBranch = typeof run.head_branch === "string" ? run.head_branch : "";
@@ -136,7 +160,7 @@ function parseWorkflowRunEvent(payload: unknown): GithubWebhookEvent {
   if (run.conclusion === "success") {
     return {
       kind: "deployed",
-      runId: run.id,
+      runId,
       headBranch,
       commitMessage,
       htmlUrl: run.html_url,
@@ -146,7 +170,7 @@ function parseWorkflowRunEvent(payload: unknown): GithubWebhookEvent {
   if (run.conclusion === "failure") {
     return {
       kind: "deploy_failed",
-      runId: run.id,
+      runId,
       headBranch,
       commitMessage,
       htmlUrl: run.html_url,

@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { publishScreenshotFromDisk } from "./tester.js";
+import type { Config } from "../config.js";
+import type { Feature } from "../features/store.js";
+import { MAX_CRITERION_ATTEMPTS, publishScreenshotFromDisk, testerPrompt } from "./tester.js";
 
 test("publishScreenshotFromDisk renames a Playwright file instead of writing bytes", () => {
   const dir = mkdtempSync(join(tmpdir(), "egon-shots-"));
@@ -31,4 +33,19 @@ test("publishScreenshotFromDisk rejects a missing source instead of inventing by
   const dir = mkdtempSync(join(tmpdir(), "egon-shots-"));
   const result = publishScreenshotFromDisk(dir, "criterion-1.png", "missing.png");
   assert.deepEqual(result, { ok: false, error: "source screenshot not found: missing.png" });
+});
+
+test("tester prompt caps attempts and marks unverifiable checks separately from fail", () => {
+  assert.equal(MAX_CRITERION_ATTEMPTS, 5);
+  const prompt = testerPrompt(
+    { name: "Cannon" } as Feature,
+    { webServePort: 8080 } as Config,
+    ["A projectile is visible after firing"],
+    "/game/docs/features/cannon/SPEC.md",
+  );
+  assert.match(prompt, /At most 5 attempts per criterion/);
+  assert.match(prompt, /projectile or other fleeting visual/);
+  assert.match(prompt, /\[COULD NOT VERIFY\]/);
+  assert.match(prompt, /\[FAIL\] only when the game is clearly wrong/);
+  assert.match(prompt, /Treat \[COULD NOT VERIFY\] as overall PASS/);
 });

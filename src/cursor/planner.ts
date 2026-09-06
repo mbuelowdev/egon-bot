@@ -25,12 +25,15 @@ export function plannerPrompt(
     "You may read existing game code to ground the spec.",
     "",
     `The spec MUST include an **Acceptance criteria** section: a numbered list of at most ${String(MAX_ACCEPTANCE_CRITERIA)} concrete, browser-verifiable checks (what to do, and what must be visible or true). Never write more than ${String(MAX_ACCEPTANCE_CRITERIA)} criteria.`,
+    "Each check must be decidable from a still screenshot of durable on-screen state. Do not require capturing a single frame of a fast animation (projectiles, particles, flashes).",
+    "",
+    "Make the spec as specific as possible. Name exact sizes, colors, positions, controls, counts, timing, and behavior so the implementer has nothing to guess.",
+    "Ask questions until everything material is precise and certain. Call ask_discord_users with a clear question and up to 3 numbered choices (1, 2, 3) plus Other. Wait for the answer. Do not invent unspecified details.",
     "",
     "Feature notes from Discord:",
     noteBlock,
     ...attachmentPromptLines(attachmentsDir, featureAssetDir(slug), attachments.length, false),
     "",
-    "If you need a human decision, call ask_discord_users with a clear question and up to 3 numbered choices (1, 2, 3) plus Other. Wait for the answer.",
     "When finished, end your last message with a one-line marker exactly: PLAN_COMPLETE or PLAN_BLOCKED.",
   ].join("\n");
 }

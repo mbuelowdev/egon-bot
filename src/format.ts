@@ -1,4 +1,4 @@
-import type { TestReport } from "./cursor/testReport.js";
+import { overallTestLabel, type TestReport } from "./cursor/testReport.js";
 import { discordLink } from "./discord/preview.js";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
@@ -63,8 +63,7 @@ export function formatTestingStart(name: string, pageUrl?: string): string {
 
 /** Tester summary: overall PASS/FAIL only. Criteria live on the catalog. */
 export function formatTestReport(report: TestReport): string {
-  const overall = report.overallPass ? "PASS" : "FAIL";
-  return `${PHASE_EMOJI.testing} **${overall}**`;
+  return `${PHASE_EMOJI.testing} **${overallTestLabel(report)}**`;
 }
 
 /** Channel line when a PR is ready for review. */

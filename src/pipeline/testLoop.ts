@@ -1,11 +1,12 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "discord.js";
 import { featurePageUrl, type Config } from "../config.js";
 import { runImplementer } from "../cursor/implementer.js";
-import { featurePaths, type TestReport } from "../cursor/testReport.js";
+import { featurePaths, listCriterionScreenshots, type TestReport } from "../cursor/testReport.js";
 import { runTester } from "../cursor/tester.js";
-import { postFiles } from "../discord/channel.js";
+import { postFiles, postToChannel, removeMergeButton } from "../discord/channel.js";
+import { mergeButtonRow } from "../discord/mergeButton.js";
 import type { Feature, FeatureStore } from "../features/store.js";
 import { formatFeatureName, formatReviewReady, formatTestReport, formatTestingStart } from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
@@ -17,6 +18,8 @@ export const MAX_TEST_CYCLES = 3;
 
 async function notifyReadyForReview(
   ctx: {
+    client: Client;
+    store: FeatureStore;
     config: Config;
     notify: (content: string) => Promise<void>;
   },
@@ -25,15 +28,23 @@ async function notifyReadyForReview(
   nextStep?: string,
 ): Promise<void> {
   const catalog = featurePageUrl(ctx.config, feature.name);
-  await ctx.notify(
-    [
-      outcome,
-      formatReviewReady(feature.name, catalog, feature.githubPrUrl ?? undefined),
-      nextStep,
-    ]
-      .filter((line) => line !== undefined && line !== "")
-      .join("\n"),
-  );
+  const content = [
+    outcome,
+    formatReviewReady(feature.name, catalog, feature.githubPrUrl ?? undefined),
+    nextStep,
+  ]
+    .filter((line) => line !== undefined && line !== "")
+    .join("\n");
+  await removeMergeButton(ctx.client, ctx.config.discordChannelId, feature.reviewMessageId);
+  try {
+    const posted = await postToChannel(ctx.client, ctx.config.discordChannelId, content, {
+      components: [mergeButtonRow(feature.id)],
+    });
+    ctx.store.setReviewMessageId(feature.id, posted.id);
+  } catch (error) {
+    console.error("failed to post review-ready message", error);
+    await ctx.notify(content);
+  }
 }
 
 export async function runExportTestLoop(ctx: {
@@ -68,7 +79,8 @@ export async function runExportTestLoop(ctx: {
         store: ctx.store,
         feature,
         followUp: [
-          "The tester failed. Fix the issues in this report. Do not commit or push.",
+          "The tester found failures. Fix only [FAIL] items. Do not commit or push.",
+          "[COULD NOT VERIFY] means the tester could not complete the check, not that the game is wrong.",
           "Keep or bump the version field in deployment.json.",
           "",
           reportText,
@@ -148,7 +160,7 @@ export async function runExportTestLoop(ctx: {
         ctx,
         feature,
         `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
-        "Merge on GitHub, or /egon-pivot to continue.",
+        "Or /egon-pivot to continue.",
       );
       return;
     }
@@ -164,9 +176,7 @@ async function postTesterArtifacts(
 ): Promise<void> {
   const paths = featurePaths(ctx.config.dataDir, featureId);
   const files = existsSync(paths.screenshotsDir)
-    ? readdirSync(paths.screenshotsDir)
-        .filter((name) => /\.(png|jpe?g|webp)$/i.test(name))
-        .map((name) => join(paths.screenshotsDir, name))
+    ? listCriterionScreenshots(paths.screenshotsDir).map((name) => join(paths.screenshotsDir, name))
     : [];
   const summary = formatTestReport(report);
   try {

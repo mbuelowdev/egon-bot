@@ -92,6 +92,31 @@ test("parseGithubWebhookEvent maps a successful Build and deploy run", () => {
   );
 });
 
+test("parseGithubWebhookEvent accepts a string run id", () => {
+  assert.deepEqual(
+    parseGithubWebhookEvent("workflow_run", {
+      action: "completed",
+      workflow: { name: "Build and deploy" },
+      workflow_run: {
+        id: "88",
+        path: ".github/workflows/build-and-deploy.yml",
+        conclusion: "success",
+        head_branch: "master",
+        html_url: "https://github.com/org/game/actions/runs/88",
+        display_title: "Bump deployment.json",
+      },
+    }),
+    {
+      kind: "deployed",
+      runId: 88,
+      headBranch: "master",
+      commitMessage: "Bump deployment.json",
+      htmlUrl: "https://github.com/org/game/actions/runs/88",
+      durationMinutes: 1,
+    },
+  );
+});
+
 test("parseGithubWebhookEvent maps a failed deploy and ignores other workflows", () => {
   assert.deepEqual(
     parseGithubWebhookEvent("workflow_run", {

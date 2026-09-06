@@ -18,6 +18,9 @@ import {
   type TestReport,
 } from "./testReport.js";
 
+/** Replay / wait / screenshot cycles before the tester must mark a criterion and move on. */
+export const MAX_CRITERION_ATTEMPTS = 5;
+
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -85,7 +88,8 @@ function testerTools(screenshotsDir: string, reportPath: string): Record<string,
       },
     },
     write_test_report: {
-      description: "Write TEST_REPORT.md marking each acceptance criterion PASS or FAIL.",
+      description:
+        "Write TEST_REPORT.md marking each acceptance criterion [PASS], [FAIL], or [COULD NOT VERIFY].",
       inputSchema: {
         type: "object",
         properties: {
@@ -102,7 +106,7 @@ function testerTools(screenshotsDir: string, reportPath: string): Record<string,
   };
 }
 
-function testerPrompt(
+export function testerPrompt(
   feature: Feature,
   config: Config,
   criteria: string[],
@@ -118,10 +122,14 @@ function testerPrompt(
     "Wait until the game canvas is visible and not blank.",
     `Read ${specPath} if needed.`,
     `Execute each listed acceptance criterion in order (maximum ${String(MAX_ACCEPTANCE_CRITERIA)}). Screenshot each one.`,
+    `At most ${String(MAX_CRITERION_ATTEMPTS)} attempts per criterion. An attempt is one setup plus screenshot (replay, reload, or wait and try again).`,
+    "If it is still not verifiable after that — including a projectile or other fleeting visual — publish the last screenshot, mark that criterion [COULD NOT VERIFY], and continue. Do not loop on one criterion.",
     "Take each screenshot with Playwright. Do not pass a filename so the PNG is written into the screenshots directory and you can see it.",
     "Then publish_screenshot with source set to that saved file name and filename criterion-1.png, criterion-2.png, .... Never pass image bytes or base64.",
-    "Write TEST_REPORT.md with write_test_report. Mark each criterion [PASS] or [FAIL].",
-    "Overall PASS only if every criterion passes. End the report with OVERALL: PASS or OVERALL: FAIL.",
+    "Write TEST_REPORT.md with write_test_report. Mark each criterion [PASS], [FAIL], or [COULD NOT VERIFY].",
+    "[FAIL] only when the game is clearly wrong. [COULD NOT VERIFY] when you could not complete the check.",
+    "Treat [COULD NOT VERIFY] as overall PASS. Overall FAIL only if any criterion is [FAIL].",
+    "End the report with OVERALL: PASS or OVERALL: FAIL.",
     "",
     `Feature: ${feature.name}`,
     "Acceptance criteria:",

@@ -23,6 +23,7 @@ export type PullRequestView = {
   mergedAt: string | null;
   closedAt: string | null;
   isDraft: boolean;
+  mergeCommit: string | null;
 };
 
 export function ghEnv(config: Config): NodeJS.ProcessEnv {
@@ -61,6 +62,19 @@ function parsePrUrl(text: string): PullRequestRef | undefined {
   return { number: Number(match[1]), url: match[0] };
 }
 
+function parseMergeCommitOid(value: unknown): string | null {
+  if (typeof value === "string" && value !== "") {
+    return value;
+  }
+  if (value && typeof value === "object" && "oid" in value) {
+    const oid = (value as { oid?: unknown }).oid;
+    if (typeof oid === "string" && oid !== "") {
+      return oid;
+    }
+  }
+  return null;
+}
+
 function parseViewJson(raw: string): PullRequestView {
   const parsed = JSON.parse(raw) as {
     number?: unknown;
@@ -69,6 +83,7 @@ function parseViewJson(raw: string): PullRequestView {
     mergedAt?: unknown;
     closedAt?: unknown;
     isDraft?: unknown;
+    mergeCommit?: unknown;
   };
   if (typeof parsed.number !== "number" || typeof parsed.url !== "string") {
     throw new Error(`Unexpected gh pr view JSON: ${raw}`);
@@ -80,6 +95,7 @@ function parseViewJson(raw: string): PullRequestView {
     mergedAt: typeof parsed.mergedAt === "string" ? parsed.mergedAt : null,
     closedAt: typeof parsed.closedAt === "string" ? parsed.closedAt : null,
     isDraft: parsed.isDraft === true,
+    mergeCommit: parseMergeCommitOid(parsed.mergeCommit),
   };
 }
 
@@ -91,7 +107,7 @@ export async function viewPullRequest(
   const target = selector === "current" ? [] : [String(selector)];
   const result = await execGh(
     config.gameRepoDir,
-    ["pr", "view", ...target, "--json", "number,url,state,mergedAt,closedAt,isDraft"],
+    ["pr", "view", ...target, "--json", "number,url,state,mergedAt,closedAt,isDraft,mergeCommit"],
     ghEnv(config),
   );
   return parseViewJson(result.stdout);
@@ -164,6 +180,22 @@ export async function closePullRequest(
   }
 }
 
+export async function mergePullRequest(
+  config: Config,
+  prNumber: number,
+  execGh: ExecGh = defaultExecGh,
+): Promise<void> {
+  try {
+    await execGh(config.gameRepoDir, ["pr", "merge", String(prNumber)], ghEnv(config));
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (/already merged|was already merged/i.test(text)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 export function isMergedView(view: PullRequestView): boolean {
   return view.state.toUpperCase() === "MERGED" || view.mergedAt !== null;
 }
@@ -209,11 +241,17 @@ function parseDeployRun(raw: unknown): DeployWorkflowRun | undefined {
     startedAt?: unknown;
     updatedAt?: unknown;
   };
-  if (typeof row.databaseId !== "number" || typeof row.url !== "string") {
+  const id =
+    typeof row.databaseId === "number"
+      ? row.databaseId
+      : typeof row.databaseId === "string" && /^\d+$/.test(row.databaseId)
+        ? Number(row.databaseId)
+        : undefined;
+  if (id === undefined || !Number.isInteger(id) || typeof row.url !== "string") {
     return undefined;
   }
   return {
-    id: row.databaseId,
+    id,
     status: typeof row.status === "string" ? row.status : "",
     conclusion: typeof row.conclusion === "string" ? row.conclusion : null,
     headSha: typeof row.headSha === "string" ? row.headSha : "",
@@ -295,16 +333,37 @@ export async function viewDeployWorkflowRun(
   return run;
 }
 
-function runMatchesWait(run: DeployWorkflowRun, options: WaitForDeployOptions): boolean {
-  if (options.headSha !== undefined && options.headSha !== "") {
-    return run.headSha === options.headSha;
-  }
+/** True when this Actions run belongs to the merge we are waiting on — never an older deploy. */
+export function runMatchesWait(run: DeployWorkflowRun, options: WaitForDeployOptions): boolean {
   if (options.createdAfterIso !== undefined && options.createdAfterIso !== "") {
     const created = Date.parse(run.createdAt);
     const after = Date.parse(options.createdAfterIso);
-    return Number.isFinite(created) && Number.isFinite(after) && created >= after;
+    if (!Number.isFinite(created) || !Number.isFinite(after) || created < after) {
+      return false;
+    }
+    return true;
+  }
+  if (options.headSha !== undefined && options.headSha !== "") {
+    return run.headSha === options.headSha;
   }
   return true;
+}
+
+function pickDeployRunToWait(
+  runs: DeployWorkflowRun[],
+  options: WaitForDeployOptions,
+): DeployWorkflowRun | undefined {
+  const matching = runs.filter((candidate) => runMatchesWait(candidate, options));
+  const headSha = options.headSha;
+  if (
+    headSha !== undefined &&
+    headSha !== "" &&
+    options.createdAfterIso !== undefined &&
+    options.createdAfterIso !== ""
+  ) {
+    return matching.find((candidate) => candidate.headSha === headSha) ?? matching[0];
+  }
+  return matching[0];
 }
 
 async function defaultSleep(ms: number): Promise<void> {
@@ -319,14 +378,14 @@ export async function waitForDeployWorkflow(
   options: WaitForDeployOptions = {},
   execGh: ExecGh = defaultExecGh,
 ): Promise<DeployWorkflowRun> {
-  const appearTimeoutMs = options.appearTimeoutMs ?? 5 * 60_000;
+  const appearTimeoutMs = options.appearTimeoutMs ?? 20 * 60_000;
   const pollMs = options.pollMs ?? 10_000;
   const sleep = options.sleep ?? defaultSleep;
   const deadline = Date.now() + appearTimeoutMs;
   let run: DeployWorkflowRun | undefined;
   for (;;) {
     const runs = await listDeployWorkflowRuns(config, execGh);
-    run = runs.find((candidate) => runMatchesWait(candidate, options));
+    run = pickDeployRunToWait(runs, options);
     if (run) {
       break;
     }
