@@ -13,6 +13,11 @@ test("allowed pipeline transitions match SPEC", () => {
   assert.equal(canTransition("implementing", "accepted"), true);
   assert.equal(canTransition("testing", "accepted"), true);
   assert.equal(canTransition("pivoting", "implementing"), true);
+  assert.equal(canTransition("planning", "collecting"), true);
+  assert.equal(canTransition("implementing", "awaiting_review"), true);
+  assert.equal(canTransition("exporting", "awaiting_review"), true);
+  assert.equal(canTransition("fixing", "awaiting_review"), true);
+  assert.equal(canTransition("pivoting", "awaiting_review"), true);
   assert.equal(canTransition("accepted", "planning"), false);
   assert.equal(canTransition("collecting", "implementing"), false);
 });

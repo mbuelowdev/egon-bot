@@ -38,6 +38,7 @@ export async function runImplementer(options: {
       agent,
       message,
       options.followUp ? { local: { force: true } } : undefined,
+      { config: options.config, featureId: options.feature.id, role: "implementer" },
     );
     return { ...result, agentId: agent.agentId };
   } finally {

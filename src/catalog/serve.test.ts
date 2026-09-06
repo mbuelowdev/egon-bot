@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../config.js";
 import { FeatureStore } from "../features/store.js";
-import { serveCatalog, stopCatalogServer } from "./serve.js";
+import { serveCatalog, stopCatalogServer, CATALOG_DELETE_PASSWORD } from "./serve.js";
 import type { GithubPrEvent } from "./webhook.js";
 
 async function freePort(): Promise<number> {
@@ -24,15 +24,30 @@ async function freePort(): Promise<number> {
   });
 }
 
-test("catalog lists planned and implemented features with spec and screenshots", async () => {
+test("catalog lists collecting, planned, and implemented features with spec and screenshots", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-"));
   const store = new FeatureStore(":memory:");
+  const collecting = store.createFeature("Wall run", "channel-1");
+  store.addNote(collecting.id, "hold jump against a wall");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
   const specDir = join(dataDir, "features", String(planned.id));
   mkdirSync(join(specDir, "screenshots"), { recursive: true });
   writeFileSync(join(specDir, "SPEC.md"), "# Dash HUD\n\n1. See the speed\n");
   writeFileSync(join(specDir, "screenshots", "01.png"), "png");
+  writeFileSync(
+    join(specDir, "agent-log.jsonl"),
+    `${JSON.stringify({
+      at: "2026-09-06T12:04:00.000Z",
+      role: "planner",
+      agentId: "p1",
+      runId: "r1",
+      status: "finished",
+      user: "Write the Dash HUD spec",
+      result: "PLAN_COMPLETE",
+      steps: [{ type: "assistant", text: "PLAN_COMPLETE" }],
+    })}\n`,
+  );
   const done = store.createFeature("Jump", "channel-1");
   store.transition(done.id, "planning");
   store.transition(done.id, "implementing");
@@ -71,6 +86,8 @@ test("catalog lists planned and implemented features with spec and screenshots",
     const index = await fetch(`http://127.0.0.1:${String(port)}/`);
     const indexHtml = await index.text();
     assert.equal(index.status, 200);
+    assert.match(indexHtml, /Wall run/);
+    assert.match(indexHtml, /Collecting/);
     assert.match(indexHtml, /Dash HUD/);
     assert.match(indexHtml, /Jump/);
     assert.match(indexHtml, /Planned/);
@@ -86,11 +103,23 @@ test("catalog lists planned and implemented features with spec and screenshots",
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game"/);
     assert.match(indexHtml, /PR #7/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
+    assert.match(indexHtml, /data-delete-slug="wall-run"/);
+    assert.doesNotMatch(indexHtml, /data-delete-slug="dash-hud"/);
+    assert.doesNotMatch(indexHtml, /data-delete-slug="jump"/);
+
+    const idea = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
+    const ideaHtml = await idea.text();
+    assert.equal(idea.status, 200);
+    assert.match(ideaHtml, /hold jump against a wall/);
+    assert.match(ideaHtml, /collecting/);
 
     const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
     const detailHtml = await detail.text();
     assert.match(detailHtml, /See the speed/);
     assert.match(detailHtml, /01\.png/);
+    assert.match(detailHtml, /Agent log/);
+    assert.match(detailHtml, /Write the Dash HUD spec/);
+    assert.match(detailHtml, /PLAN_COMPLETE/);
 
     const shot = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/screenshots/01.png`);
     assert.equal(shot.status, 200);
@@ -117,6 +146,76 @@ test("catalog lists planned and implemented features with spec and screenshots",
       body,
     });
     assert.equal(bad.status, 401);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("catalog deletes collecting features after the shared password", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-delete-"));
+  const store = new FeatureStore(":memory:");
+  const collecting = store.createFeature("Wall run", "channel-1");
+  store.addNote(collecting.id, "hold jump against a wall");
+  mkdirSync(join(dataDir, "features", String(collecting.id)), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(collecting.id), "notes.txt"), "scratch");
+  const planned = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(planned.id);
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+  });
+  try {
+    const wrong = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "nope" }),
+    });
+    assert.equal(wrong.status, 403);
+    assert.equal(store.getFeatureById(collecting.id)?.name, "Wall run");
+
+    const blocked = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(blocked.status, 409);
+    assert.equal(store.getFeatureById(planned.id)?.state, "planning");
+
+    const ok = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(ok.status, 204);
+    assert.equal(store.getFeatureById(collecting.id), undefined);
+    assert.equal(existsSync(join(dataDir, "features", String(collecting.id))), false);
+
+    const gone = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
+    assert.equal(gone.status, 404);
+
+    const stillPlanned = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
+    assert.equal(stillPlanned.status, 200);
+    assert.equal(store.getFeatureById(planned.id)?.state, "planning");
+
+    const index = await fetch(`http://127.0.0.1:${String(port)}/`);
+    const indexHtml = await index.text();
+    assert.doesNotMatch(indexHtml, /Wall run/);
   } finally {
     await stopCatalogServer();
     store.close();

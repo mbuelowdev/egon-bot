@@ -6,27 +6,57 @@ import { runImplementer } from "../cursor/implementer.js";
 import { featurePaths, type TestReport } from "../cursor/testReport.js";
 import { runTester } from "../cursor/tester.js";
 import { postFiles } from "../discord/channel.js";
+import { discordLink } from "../discord/preview.js";
 import type { Feature, FeatureStore } from "../features/store.js";
+import { PHASE_EMOJI } from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
 import { exportDebugWeb } from "../godot/export.js";
 import { serveExportDir } from "../godot/serve.js";
+import { shouldHaltPipeline } from "./halt.js";
 
 export const MAX_TEST_CYCLES = 3;
+
+async function notifyReadyForReview(
+  ctx: {
+    notify: (content: string) => Promise<void>;
+    extraLinks: (feature: Feature) => string[];
+  },
+  feature: Feature,
+  outcome: string,
+  nextStep: string,
+): Promise<void> {
+  await ctx.notify(
+    [
+      `${PHASE_EMOJI.review} PR ready for review: **${feature.name}**.`,
+      outcome,
+      ...ctx.extraLinks(feature),
+      nextStep,
+    ]
+      .filter((line) => line !== "")
+      .join("\n"),
+  );
+}
 
 export async function runExportTestLoop(ctx: {
   client: Client;
   store: FeatureStore;
   config: Config;
   notify: (content: string) => Promise<void>;
+  extraLinks: (feature: Feature) => string[];
   featureId: number;
+  signal?: AbortSignal;
   onFixCommit?: (feature: Feature) => Promise<void>;
 }): Promise<void> {
+  const haltIfNeeded = (feature: Feature): boolean =>
+    Boolean(ctx.signal?.aborted) || shouldHaltPipeline(feature);
+
+  let announcedTesting = false;
   for (let attempt = 1; attempt <= MAX_TEST_CYCLES; attempt += 1) {
     let feature = ctx.store.getFeatureById(ctx.featureId);
     if (!feature) {
       throw new Error("Feature not found");
     }
-    if (feature.state === "accepted" || feature.state === "rejected") {
+    if (haltIfNeeded(feature)) {
       return;
     }
 
@@ -35,7 +65,6 @@ export async function runExportTestLoop(ctx: {
       const reportText = existsSync(paths.reportPath)
         ? readFileSync(paths.reportPath, "utf8")
         : "Tester reported FAIL with no TEST_REPORT.md";
-      await ctx.notify(`Fixing **${feature.name}** from tester report.`);
       const result = await runImplementer({
         config: ctx.config,
         store: ctx.store,
@@ -48,7 +77,7 @@ export async function runExportTestLoop(ctx: {
         ].join("\n"),
       });
       feature = ctx.store.getFeatureById(feature.id) ?? feature;
-      if (feature.state === "accepted" || feature.state === "rejected") {
+      if (haltIfNeeded(feature)) {
         return;
       }
       if (result.status !== "finished") {
@@ -58,73 +87,77 @@ export async function runExportTestLoop(ctx: {
         await ctx.onFixCommit(feature);
       }
       feature = ctx.store.getFeatureById(feature.id) ?? feature;
-      if (feature.state === "accepted" || feature.state === "rejected") {
+      if (haltIfNeeded(feature)) {
         return;
       }
       ctx.store.transition(feature.id, "exporting");
       feature = ctx.store.getFeatureById(feature.id) ?? feature;
     }
 
+    if (haltIfNeeded(feature)) {
+      return;
+    }
     if (feature.state !== "exporting" && feature.state !== "testing") {
       throw new Error(`Cannot export/test from state ${feature.state}`);
     }
 
-    await ctx.notify(
-      `Exporting **${feature.name}** (attempt ${String(attempt)}/${String(MAX_TEST_CYCLES)}).`,
-    );
-    await exportDebugWeb(ctx.config.gameRepoDir);
+    await exportDebugWeb(ctx.config.gameRepoDir, ctx.signal);
     await serveExportDir(EXPORT_DIR, ctx.config.webServePort);
+    feature = ctx.store.getFeatureById(feature.id) ?? feature;
+    if (haltIfNeeded(feature)) {
+      return;
+    }
     if (feature.state === "exporting") {
       ctx.store.transition(feature.id, "testing");
     }
 
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
-    if (feature.state === "accepted" || feature.state === "rejected") {
+    if (haltIfNeeded(feature)) {
       return;
     }
 
-    await ctx.notify(
-      `Testing **${feature.name}** at http://127.0.0.1:${String(ctx.config.webServePort)}/`,
-    );
+    if (!announcedTesting) {
+      await ctx.notify(
+        `${PHASE_EMOJI.testing} Testing started for **${feature.name}** at ${discordLink(`http://127.0.0.1:${String(ctx.config.webServePort)}/`)}`,
+      );
+      announcedTesting = true;
+    }
     const latest = ctx.store.getFeatureById(feature.id) ?? feature;
     const report = await runTester({ config: ctx.config, feature: latest });
+    feature = ctx.store.getFeatureById(feature.id) ?? feature;
+    if (haltIfNeeded(feature)) {
+      return;
+    }
     await postTesterArtifacts(ctx, latest.id, latest.discordThreadId, report);
 
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
-    if (feature.state === "accepted" || feature.state === "rejected") {
+    if (haltIfNeeded(feature)) {
       return;
     }
 
     if (report.overallPass) {
       ctx.store.transition(feature.id, "awaiting_review");
-      await ctx.notify(
-        [
-          `**${feature.name}** passed every acceptance criterion.`,
-          feature.githubPrUrl ?? "",
-          "Merge on GitHub, or /egon-pivot to steer the implementer.",
-        ]
-          .filter((line) => line !== "")
-          .join("\n"),
+      await notifyReadyForReview(
+        ctx,
+        feature,
+        `**${feature.name}** passed every acceptance criterion.`,
+        "Merge on GitHub, or /egon-pivot to steer the implementer.",
       );
       return;
     }
 
     if (attempt === MAX_TEST_CYCLES) {
       ctx.store.transition(feature.id, "awaiting_review");
-      await ctx.notify(
-        [
-          `**${feature.name}** still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
-          feature.githubPrUrl ?? "",
-          "Merge on GitHub, or /egon-pivot to continue.",
-        ]
-          .filter((line) => line !== "")
-          .join("\n"),
+      await notifyReadyForReview(
+        ctx,
+        feature,
+        `**${feature.name}** still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
+        "Merge on GitHub, or /egon-pivot to continue.",
       );
       return;
     }
 
     ctx.store.transition(feature.id, "fixing");
-    await ctx.notify(`Tester FAIL for **${feature.name}** — sending the report to the implementer.`);
   }
 }
 

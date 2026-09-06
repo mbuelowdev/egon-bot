@@ -98,3 +98,78 @@ test("agent run tokens sum uniquely by run id", () => {
   assert.equal(store.countAcceptedFeatures(), 0);
   store.close();
 });
+
+test("stopPipelineWork during planning returns to collecting and releases the lock", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  store.startPlanning(feature.id);
+  store.setPlannerAgentId(feature.id, "planner-1");
+  store.setPendingQuestion(feature.id, "Which font?");
+  const result = store.stopPipelineWork();
+  assert.equal(result.feature.state, "collecting");
+  assert.equal(result.releasedLock, true);
+  assert.equal(result.feature.plannerAgentId, null);
+  assert.equal(result.feature.pendingQuestion, null);
+  assert.equal(store.getPipelineLock(), undefined);
+  store.close();
+});
+
+test("stopPipelineWork after a PR parks the feature in awaiting_review", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  store.startPlanning(feature.id);
+  store.setGithubPr(feature.id, {
+    branch: "egon/dash",
+    number: 3,
+    url: "https://example.com/3",
+  });
+  store.transition(feature.id, "implementing");
+  const result = store.stopPipelineWork();
+  assert.equal(result.feature.state, "awaiting_review");
+  assert.equal(result.releasedLock, false);
+  assert.equal(store.getPipelineLock()?.feature.id, feature.id);
+  store.close();
+});
+
+test("deleteCollectingFeature removes notes and channel latest", () => {
+  const store = openStore();
+  const keep = store.createFeature("keep me", "channel-1");
+  const gone = store.createFeature("drop me", "channel-1");
+  store.addNote(gone.id, "scratch idea");
+  assert.equal(store.getLatestFeatureForChannel("channel-1")?.id, gone.id);
+  const deleted = store.deleteCollectingFeature(gone.id);
+  assert.equal(deleted.name, "drop me");
+  assert.equal(store.getFeatureById(gone.id), undefined);
+  assert.equal(store.listNotes(gone.id).length, 0);
+  assert.equal(store.getLatestFeatureForChannel("channel-1"), undefined);
+  assert.equal(store.getFeatureById(keep.id)?.name, "keep me");
+  store.close();
+});
+
+test("deleteCollectingFeature rejects planned features", () => {
+  const store = openStore();
+  const feature = store.createFeature("hud", "channel-1");
+  store.startPlanning(feature.id);
+  assert.throws(() => store.deleteCollectingFeature(feature.id), /Only collecting features/);
+  assert.equal(store.getFeatureById(feature.id)?.state, "planning");
+  store.close();
+});
+
+test("stopPipelineWork rejects when idle or awaiting review", () => {
+  const store = openStore();
+  store.createFeature("dash", "channel-1");
+  assert.throws(() => store.stopPipelineWork(), /Nothing to stop/);
+  const planned = store.createFeature("hud", "channel-1");
+  store.startPlanning(planned.id);
+  store.setGithubPr(planned.id, {
+    branch: "egon/hud",
+    number: 4,
+    url: "https://example.com/4",
+  });
+  store.transition(planned.id, "implementing");
+  store.transition(planned.id, "exporting");
+  store.transition(planned.id, "testing");
+  store.transition(planned.id, "awaiting_review");
+  assert.throws(() => store.stopPipelineWork(), /awaiting_review/);
+  store.close();
+});

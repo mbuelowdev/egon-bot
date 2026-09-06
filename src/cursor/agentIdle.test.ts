@@ -4,6 +4,7 @@ import {
   activeRunDurationMs,
   beginAgentIdle,
   endAgentIdle,
+  isAgentIdle,
   resetAgentIdle,
   takeAgentIdleMs,
 } from "./agentIdle.js";
@@ -22,4 +23,13 @@ test("idle accumulator only counts time between begin and end", async () => {
   const idle = takeAgentIdleMs();
   assert.ok(idle >= 30, `idle was ${String(idle)}`);
   assert.equal(takeAgentIdleMs(), 0);
+});
+
+test("isAgentIdle is true only between begin and end", () => {
+  resetAgentIdle();
+  assert.equal(isAgentIdle(), false);
+  beginAgentIdle();
+  assert.equal(isAgentIdle(), true);
+  endAgentIdle();
+  assert.equal(isAgentIdle(), false);
 });

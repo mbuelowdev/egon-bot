@@ -2,6 +2,8 @@ import type { SDKCustomTool } from "@cursor/sdk";
 import type { Client } from "discord.js";
 import type { Config } from "../config.js";
 import { postToChannel } from "../discord/channel.js";
+import { noLinkPreview } from "../discord/preview.js";
+import { PHASE_EMOJI } from "../format.js";
 import { waitForThreadAnswer } from "../discord/qaWaiters.js";
 import type { FeatureStore } from "../features/store.js";
 import { beginAgentIdle, endAgentIdle } from "./agentIdle.js";
@@ -46,7 +48,7 @@ export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
       }
       const botMention = deps.client.user ? `<@${deps.client.user.id}>` : "the bot";
       const prompt = [
-        `**Planner question for ${feature.name}**`,
+        `${PHASE_EMOJI.planning} **Planner question for ${feature.name}**`,
         question,
         "",
         `Reply in this thread and mention ${botMention} with your answer.`,
@@ -58,7 +60,7 @@ export function createAskDiscordUsersTool(deps: AskUsersDeps): SDKCustomTool {
       if (threadId) {
         const thread = await deps.client.channels.fetch(threadId);
         if (thread?.isTextBased() && !thread.isDMBased()) {
-          const posted = await thread.send(prompt);
+          const posted = await thread.send(noLinkPreview({ content: prompt }));
           deps.store.setDiscordIds(feature.id, { messageId: posted.id, threadId });
         } else {
           threadId = null;

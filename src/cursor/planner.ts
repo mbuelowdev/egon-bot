@@ -46,12 +46,17 @@ export async function runPlanner(options: {
   try {
     const message =
       options.followUp ?? plannerPrompt(options.feature, options.store.listNotes(options.feature.id));
-    const result = await sendAndWait(agent, message, {
-      local: {
-        customTools,
-        ...(options.followUp ? { force: true } : {}),
+    const result = await sendAndWait(
+      agent,
+      message,
+      {
+        local: {
+          customTools,
+          ...(options.followUp ? { force: true } : {}),
+        },
       },
-    });
+      { config: options.config, featureId: options.feature.id, role: "planner" },
+    );
     if (result.status !== "finished") {
       return {
         marker: "PLAN_BLOCKED",

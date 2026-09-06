@@ -1,5 +1,41 @@
+const DISCORD_MESSAGE_LIMIT = 2000;
+
+/** Discord prefix for pipeline phase logs. */
+export const PHASE_EMOJI = {
+  planning: "📋",
+  implementing: "🛠️",
+  testing: "🧪",
+  review: "👀",
+  stop: "🛑",
+} as const;
+
 function trimDecimal(value: string): string {
   return value.replace(/\.0$/, "");
+}
+
+/** Escape Discord markdown so user text cannot change surrounding formatting. */
+export function escapeDiscordMarkdown(text: string): string {
+  return text.replace(/([\\*_`~|])/g, "\\$1");
+}
+
+function flattenDiscordLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function formatNoteBullet(note: string): string {
+  const escaped = escapeDiscordMarkdown(flattenDiscordLine(note));
+  const body = escaped.replace(/^([-*] )/, "\\$1").replace(/^(\d+)([.)] )/, "$1\\$2");
+  return `- ${body}`;
+}
+
+/** Channel line when a plan run starts, with collected notes listed below. */
+export function formatPlanningStart(name: string, notes: string[]): string {
+  const title = `${PHASE_EMOJI.planning} Planning **${escapeDiscordMarkdown(flattenDiscordLine(name))}**.`;
+  const text = [title, ...notes.map(formatNoteBullet)].join("\n");
+  if (text.length <= DISCORD_MESSAGE_LIMIT) {
+    return text;
+  }
+  return `${text.slice(0, DISCORD_MESSAGE_LIMIT - 1)}…`;
 }
 
 /** Compact count: 1500 → 1.5k, 1_200_000 → 1.2M. */

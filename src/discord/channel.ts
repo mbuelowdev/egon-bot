@@ -1,4 +1,5 @@
 import { type Client, type Message } from "discord.js";
+import { noLinkPreview } from "./preview.js";
 
 const DISCORD_LIMIT = 2000;
 
@@ -14,7 +15,7 @@ export async function postToChannel(
   const chunks = splitContent(content);
   let last: Message | undefined;
   for (const chunk of chunks) {
-    last = await channel.send(chunk);
+    last = await channel.send(noLinkPreview({ content: chunk }));
   }
   if (!last) {
     throw new Error("Failed to post Discord message");
@@ -33,16 +34,15 @@ export async function postFiles(
     throw new Error("Cannot post files to that channel");
   }
   if (files.length === 0) {
-    await channel.send(content);
+    await channel.send(noLinkPreview({ content }));
     return;
   }
   const batchSize = 10;
   for (let i = 0; i < files.length; i += batchSize) {
     const slice = files.slice(i, i + batchSize);
-    await channel.send({
-      ...(i === 0 ? { content } : {}),
-      files: slice,
-    });
+    await channel.send(
+      i === 0 ? noLinkPreview({ content, files: slice }) : noLinkPreview({ files: slice }),
+    );
   }
 }
 

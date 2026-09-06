@@ -7,7 +7,7 @@ import { ensureWebExportPreset } from "./preset.js";
 
 const execFileAsync = promisify(execFile);
 
-export async function exportDebugWeb(gameRepoDir: string): Promise<string> {
+export async function exportDebugWeb(gameRepoDir: string, signal?: AbortSignal): Promise<string> {
   ensureWebExportPreset(gameRepoDir);
   rmSync(EXPORT_DIR, { recursive: true, force: true });
   mkdirSync(EXPORT_DIR, { recursive: true });
@@ -19,9 +19,12 @@ export async function exportDebugWeb(gameRepoDir: string): Promise<string> {
     await execFileAsync(
       "godot",
       ["--headless", "--path", gameRepoDir, "--export-debug", "Web", htmlPath],
-      { timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
+      { timeout: 180_000, maxBuffer: 10 * 1024 * 1024, signal },
     );
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw error;
+    }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`Godot web export failed: ${detail}`);
   }

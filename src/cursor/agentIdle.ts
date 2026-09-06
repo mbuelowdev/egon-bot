@@ -20,6 +20,10 @@ export function endAgentIdle(): void {
   waitStartedAt = undefined;
 }
 
+export function isAgentIdle(): boolean {
+  return waitStartedAt !== undefined;
+}
+
 export function takeAgentIdleMs(): number {
   endAgentIdle();
   const idle = accumulatedMs;

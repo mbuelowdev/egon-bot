@@ -4,13 +4,13 @@ import {
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
   type Client,
-  type CommandInteractionOption,
 } from "discord.js";
 import { catalogUrl, type Config } from "../config.js";
+import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import type { Pipeline } from "../pipeline/orchestrator.js";
-import { formatCommandAnnouncement, type CommandOptionValue } from "./announce.js";
+import { discordLink, noLinkPreview } from "./preview.js";
 
 export type CommandContext = {
   interaction: ChatInputCommandInteraction;
@@ -38,52 +38,13 @@ function command(
   return { name, description, data, handle };
 }
 
-function isOptionValue(value: unknown): value is CommandOptionValue {
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
-}
-
-function collectCommandOptions(
-  options: readonly CommandInteractionOption[],
-): { name: string; value: CommandOptionValue }[] {
-  const collected: { name: string; value: CommandOptionValue }[] = [];
-  for (const option of options) {
-    if (option.options && option.options.length > 0) {
-      collected.push(...collectCommandOptions(option.options));
-      continue;
-    }
-    if (isOptionValue(option.value)) {
-      collected.push({ name: option.name, value: option.value });
-    }
-  }
-  return collected;
-}
-
-function runnerName(interaction: ChatInputCommandInteraction): string {
-  const member = interaction.member;
-  if (member && "displayName" in member && member.displayName !== "") {
-    return member.displayName;
-  }
-  if (member && "nick" in member && typeof member.nick === "string" && member.nick !== "") {
-    return member.nick;
-  }
-  return interaction.user.displayName || interaction.user.username;
-}
-
-export function commandAnnouncement(interaction: ChatInputCommandInteraction): string {
-  return formatCommandAnnouncement({
-    runnerName: runnerName(interaction),
-    commandName: interaction.commandName,
-    options: collectCommandOptions(interaction.options.data),
-  });
-}
-
-/** Result of a slash command. Uses followUp when the invocation was already announced. */
+/** Result of a slash command. Follows up if the interaction was already replied to. */
 export async function replyCommand(
   interaction: ChatInputCommandInteraction,
   content: string,
   options?: { ephemeral?: boolean },
 ): Promise<void> {
-  const payload = { content, ephemeral: options?.ephemeral ?? false };
+  const payload = noLinkPreview({ content, ephemeral: options?.ephemeral ?? false });
   if (interaction.replied || interaction.deferred) {
     await interaction.followUp(payload);
     return;
@@ -98,9 +59,11 @@ function featureLine(feature: Feature, extra?: { noteCount?: number }): string {
       : extra.noteCount === 1
         ? "1 note"
         : `${String(extra.noteCount)} notes`;
-  const bits = [feature.state, notes, feature.githubPrUrl].filter(
-    (value): value is string => value !== undefined && value !== null && value !== "",
-  );
+  const bits = [
+    feature.state,
+    notes,
+    feature.githubPrUrl ? discordLink(feature.githubPrUrl) : undefined,
+  ].filter((value): value is string => value !== undefined && value !== null && value !== "");
   return `• **${feature.name}** — ${bits.join(", ")}`;
 }
 
@@ -181,7 +144,7 @@ export const COMMANDS: RegisteredCommand[] = [
       if (open.length === 0) {
         await replyCommand(
           interaction,
-          catalog ? `No open features.\n${catalog}` : "No open features.",
+          catalog ? `No open features.\n${discordLink(catalog)}` : "No open features.",
         );
         return;
       }
@@ -190,7 +153,7 @@ export const COMMANDS: RegisteredCommand[] = [
       );
       await replyCommand(
         interaction,
-        ["**Open features**", ...lines, catalog ? `Catalog: ${catalog}` : ""]
+        ["**Open features**", ...lines, catalog ? `Catalog: ${discordLink(catalog)}` : ""]
           .filter((line) => line !== "")
           .join("\n"),
       );
@@ -198,16 +161,26 @@ export const COMMANDS: RegisteredCommand[] = [
   ),
   command(
     "egon-plan",
-    "Start planner; fail if another pipeline is active",
+    "Start planner for a named feature, or this channel's latest",
     (builder) =>
       builder.addStringOption((option) =>
-        option.setName("name").setDescription("Feature name").setRequired(true).setMaxLength(100),
+        option
+          .setName("name")
+          .setDescription("Feature name; omit to plan the latest in this channel")
+          .setRequired(false)
+          .setMaxLength(100),
       ),
-    async ({ interaction, store, pipeline }) => {
-      const name = interaction.options.getString("name", true);
-      const feature = store.getFeatureByName(name);
+    async ({ interaction, store, pipeline, config }) => {
+      const name = interaction.options.getString("name")?.trim() ?? "";
+      const feature =
+        name === ""
+          ? store.getLatestFeatureForChannel(config.discordChannelId)
+          : store.getFeatureByName(name);
+      if (name === "" && !feature) {
+        throw new UserFacingError("No latest feature in this channel. Use /egon-new-feature first.");
+      }
       if (!feature) {
-        throw new UserFacingError(`No feature named "${name.trim()}".`);
+        throw new UserFacingError(`No feature named "${name}".`);
       }
       const planned = store.startPlanning(feature.id);
       await replyCommand(
@@ -237,6 +210,24 @@ export const COMMANDS: RegisteredCommand[] = [
     },
   ),
   command(
+    "egon-retry",
+    "Cancel a stuck run and continue the pipeline from this phase",
+    undefined,
+    async ({ interaction, pipeline }) => {
+      const message = await pipeline.retry();
+      await replyCommand(interaction, message);
+    },
+  ),
+  command(
+    "egon-stop",
+    "Stop current planning, implementation, or testing",
+    undefined,
+    async ({ interaction, pipeline }) => {
+      const message = await pipeline.stop();
+      await replyCommand(interaction, message);
+    },
+  ),
+  command(
     "egon-status",
     "Current pipeline feature + state",
     undefined,
@@ -246,15 +237,17 @@ export const COMMANDS: RegisteredCommand[] = [
         const catalog = catalogUrl(config);
         await replyCommand(
           interaction,
-          catalog ? `No active pipeline.\n${catalog}` : "No active pipeline.",
+          catalog ? `No active pipeline.\n${discordLink(catalog)}` : "No active pipeline.",
         );
         return;
       }
       const catalog = catalogUrl(config, `/features/${featureSlug(lock.feature.name)}`);
+      const activity = getActiveAgentActivity();
       const lines = [
         `Pipeline: **${lock.feature.name}** (${lock.feature.state}).`,
-        lock.feature.githubPrUrl ?? "",
-        catalog ?? "",
+        activity ? formatStatusActivity(activity) : "",
+        lock.feature.githubPrUrl ? discordLink(lock.feature.githubPrUrl) : "",
+        catalog ? discordLink(catalog) : "",
       ].filter((line) => line !== "");
       await replyCommand(interaction, lines.join("\n"));
     },

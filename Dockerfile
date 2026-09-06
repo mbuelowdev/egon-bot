@@ -68,7 +68,7 @@ RUN set -eux; \
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev \
-  && npx playwright install chromium --with-deps \
+  && npx playwright-core install --with-deps --no-shell chromium \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/dist ./dist

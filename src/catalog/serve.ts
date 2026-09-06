@@ -1,20 +1,26 @@
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
+import { createReadStream, existsSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, join, resolve } from "node:path";
 import { githubRepoWebUrl, type Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { featureSlug } from "../features/slug.js";
-import type { Feature, FeatureStore } from "../features/store.js";
+import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { mimeFor } from "../godot/headers.js";
+import { loadFeatureAgentLog } from "../cursor/agentLog.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubPullRequestEvent, verifyGithubSignature, type GithubPrEvent } from "./webhook.js";
 
+/** Shared catalog password for deleting collecting features. */
+export const CATALOG_DELETE_PASSWORD = "ente123";
+
 let server: Server | undefined;
 
-function plannedAndImplemented(
+function catalogSections(
   store: FeatureStore,
   config: Config,
-): { planned: Feature[]; implemented: Feature[] } {
+): { collecting: Feature[]; planned: Feature[]; implemented: Feature[] } {
+  const collecting: Feature[] = [];
   const planned: Feature[] = [];
   const implemented: Feature[] = [];
   for (const feature of store.listAllFeatures()) {
@@ -23,11 +29,15 @@ function plannedAndImplemented(
       implemented.push(feature);
       continue;
     }
+    if (feature.state === "collecting") {
+      collecting.push(feature);
+      continue;
+    }
     if (existsSync(specPath)) {
       planned.push(feature);
     }
   }
-  return { planned, implemented };
+  return { collecting, planned, implemented };
 }
 
 export function findFeatureBySlug(store: FeatureStore, slug: string): Feature | undefined {
@@ -43,8 +53,34 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
 }
 
 function send(res: ServerResponse, status: number, body: string, contentType: string): void {
-  res.writeHead(status, { "Content-Type": contentType });
+  const headers: Record<string, string> = { "Content-Type": contentType };
+  if (contentType.startsWith("text/html")) {
+    headers["Cache-Control"] = "no-store";
+  }
+  res.writeHead(status, headers);
   res.end(body);
+}
+
+function catalogPasswordOk(password: string): boolean {
+  const expected = Buffer.from(CATALOG_DELETE_PASSWORD);
+  const given = Buffer.from(password);
+  if (given.length !== expected.length) {
+    return false;
+  }
+  return timingSafeEqual(given, expected);
+}
+
+function parsePassword(raw: Buffer): string | undefined {
+  try {
+    const parsed = JSON.parse(raw.toString("utf8")) as unknown;
+    if (parsed !== null && typeof parsed === "object" && "password" in parsed) {
+      const password = (parsed as { password: unknown }).password;
+      return typeof password === "string" ? password : undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 function sendFile(res: ServerResponse, filePath: string): void {
@@ -121,24 +157,56 @@ async function handleRequest(
     return;
   }
 
+  const deleteMatch = urlPath.match(/^\/features\/([^/]+)\/delete\/?$/);
+  if (req.method === "POST" && deleteMatch && deleteMatch[1]) {
+    const feature = findFeatureBySlug(options.store, deleteMatch[1]);
+    if (!feature) {
+      send(res, 404, "Not found", "text/plain; charset=utf-8");
+      return;
+    }
+    const password = parsePassword(await readBody(req));
+    if (password === undefined || !catalogPasswordOk(password)) {
+      send(res, 403, "Wrong password", "text/plain; charset=utf-8");
+      return;
+    }
+    try {
+      options.store.deleteCollectingFeature(feature.id);
+    } catch (error) {
+      if (error instanceof UserFacingError) {
+        send(res, 409, error.message, "text/plain; charset=utf-8");
+        return;
+      }
+      throw error;
+    }
+    rmSync(featurePaths(options.config.dataDir, feature.id).root, { recursive: true, force: true });
+    send(res, 204, "", "text/plain; charset=utf-8");
+    return;
+  }
+
   if (req.method !== "GET") {
     send(res, 405, "Method not allowed", "text/plain; charset=utf-8");
     return;
   }
 
   if (urlPath === "/") {
-    const { planned, implemented } = plannedAndImplemented(options.store, options.config);
+    const { collecting, planned, implemented } = catalogSections(options.store, options.config);
     send(
       res,
       200,
-      indexPage(planned, implemented, {
-        tokens: options.store.totalAgentTokens(),
-        implemented: options.store.countAcceptedFeatures(),
-        durationMs: options.store.totalAgentDurationMs(),
-      }, {
-        gamePublicUrl: options.config.gamePublicUrl,
-        gameRepoUrl: githubRepoWebUrl(options.config.gameRepoHttpsUrl),
-      }),
+      indexPage(
+        planned,
+        implemented,
+        {
+          tokens: options.store.totalAgentTokens(),
+          implemented: options.store.countAcceptedFeatures(),
+          durationMs: options.store.totalAgentDurationMs(),
+        },
+        {
+          gamePublicUrl: options.config.gamePublicUrl,
+          gameRepoUrl: githubRepoWebUrl(options.config.gameRepoHttpsUrl),
+        },
+        collecting,
+      ),
       "text/html; charset=utf-8",
     );
     return;
@@ -151,7 +219,17 @@ async function handleRequest(
       send(res, 404, "Not found", "text/plain; charset=utf-8");
       return;
     }
-    send(res, 200, featurePage(options.config, feature), "text/html; charset=utf-8");
+    send(
+      res,
+      200,
+      featurePage(
+        options.config,
+        feature,
+        options.store.listNotes(feature.id),
+        await loadFeatureAgentLog(options.config, feature),
+      ),
+      "text/html; charset=utf-8",
+    );
     return;
   }
 

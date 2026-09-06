@@ -8,6 +8,13 @@ type Waiter = {
 
 const waiters = new Map<string, Waiter>();
 
+export class ThreadWaitCancelledError extends Error {
+  constructor(message = "Pipeline stopped") {
+    super(message);
+    this.name = "ThreadWaitCancelledError";
+  }
+}
+
 export function waitForThreadAnswer(
   threadId: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
@@ -36,6 +43,15 @@ export function deliverThreadAnswer(threadId: string, answer: string): boolean {
   waiters.delete(threadId);
   waiter.resolve(answer);
   return true;
+}
+
+export function cancelAllThreadWaiters(reason = "Pipeline stopped"): void {
+  const pending = [...waiters.values()];
+  waiters.clear();
+  for (const waiter of pending) {
+    clearTimeout(waiter.timeout);
+    waiter.reject(new ThreadWaitCancelledError(reason));
+  }
 }
 
 export const ASK_DISCORD_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;

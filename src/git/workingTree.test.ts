@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../config.js";
-import { checkoutDefaultBranch, commitAndPush, createFeatureBranch } from "./workingTree.js";
+import { checkoutDefaultBranch, commitAndPush, createFeatureBranch, discardUncommittedWork } from "./workingTree.js";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -67,4 +67,15 @@ test("checkoutDefaultBranch returns to master", async () => {
   await createFeatureBranch(config, "dash");
   await checkoutDefaultBranch(config);
   assert.equal(git(work, ["rev-parse", "--abbrev-ref", "HEAD"]), "master");
+});
+
+test("discardUncommittedWork drops tracked and untracked edits", async () => {
+  const { work } = initBareAndClone();
+  const config = testConfig(work);
+  await createFeatureBranch(config, "dash");
+  writeFileSync(join(work, "README.md"), "dirty\n");
+  writeFileSync(join(work, "scratch.txt"), "tmp\n");
+  await discardUncommittedWork(config);
+  assert.equal(git(work, ["status", "--porcelain"]), "");
+  assert.equal(git(work, ["show", "HEAD:README.md"]), "game");
 });

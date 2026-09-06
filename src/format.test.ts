@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration, formatTokenCount } from "./format.js";
+import { escapeDiscordMarkdown, formatDuration, formatPlanningStart, formatTokenCount, PHASE_EMOJI } from "./format.js";
 
 test("formatTokenCount compacts thousands and millions", () => {
   assert.equal(formatTokenCount(0), "0");
@@ -19,4 +19,32 @@ test("formatDuration compacts wall-clock", () => {
   assert.equal(formatDuration(120_000), "2m");
   assert.equal(formatDuration(3_720_000), "1h 2m");
   assert.equal(formatDuration(90_000_000), "1d 1h");
+});
+
+test("escapeDiscordMarkdown keeps user markdown from applying", () => {
+  assert.equal(escapeDiscordMarkdown("use **bold** and _italics_"), "use \\*\\*bold\\*\\* and \\_italics\\_");
+  assert.equal(escapeDiscordMarkdown("code `x` spoil ||y||"), "code \\`x\\` spoil \\|\\|y\\|\\|");
+});
+
+test("formatPlanningStart lists notes and escapes formatting chars", () => {
+  const text = formatPlanningStart("Dash *HUD*", [
+    "jump **higher**",
+    "- already a bullet\nand a newline",
+    "1. numbered",
+  ]);
+  assert.equal(
+    text,
+    [
+      `${PHASE_EMOJI.planning} Planning **Dash \\*HUD\\***.`,
+      "- jump \\*\\*higher\\*\\*",
+      "- \\- already a bullet and a newline",
+      "- 1\\. numbered",
+    ].join("\n"),
+  );
+});
+
+test("formatPlanningStart stays within Discord's message limit", () => {
+  const text = formatPlanningStart("Dash", ["x".repeat(2500)]);
+  assert.ok(text.length <= 2000);
+  assert.equal(text.endsWith("…"), true);
 });

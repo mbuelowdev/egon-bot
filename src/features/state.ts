@@ -13,16 +13,25 @@ export const FEATURE_STATES = [
 
 export type FeatureState = (typeof FEATURE_STATES)[number];
 
+export const STOPPABLE_PIPELINE_STATES = [
+  "planning",
+  "implementing",
+  "exporting",
+  "testing",
+  "fixing",
+  "pivoting",
+] as const satisfies readonly FeatureState[];
+
 const TRANSITIONS: Record<FeatureState, readonly FeatureState[]> = {
   collecting: ["planning"],
-  planning: ["implementing", "accepted", "rejected"],
-  implementing: ["exporting", "accepted", "rejected"],
-  exporting: ["testing", "accepted", "rejected"],
-  testing: ["fixing", "awaiting_review", "accepted", "rejected"],
-  fixing: ["exporting", "accepted", "rejected"],
+  planning: ["implementing", "accepted", "rejected", "collecting", "awaiting_review"],
+  implementing: ["exporting", "accepted", "rejected", "awaiting_review", "collecting"],
+  exporting: ["testing", "accepted", "rejected", "awaiting_review", "collecting"],
+  testing: ["fixing", "awaiting_review", "accepted", "rejected", "collecting"],
+  fixing: ["exporting", "accepted", "rejected", "awaiting_review", "collecting"],
   awaiting_review: ["accepted", "rejected", "pivoting"],
   rejected: ["pivoting", "accepted"],
-  pivoting: ["implementing", "accepted", "rejected"],
+  pivoting: ["implementing", "accepted", "rejected", "awaiting_review", "collecting"],
   accepted: [],
 };
 
@@ -42,4 +51,8 @@ export function assertTransition(from: FeatureState, to: FeatureState): void {
 
 export function isOpenState(state: FeatureState): boolean {
   return state !== "accepted";
+}
+
+export function isStoppablePipelineState(state: FeatureState): boolean {
+  return (STOPPABLE_PIPELINE_STATES as readonly FeatureState[]).includes(state);
 }

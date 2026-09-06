@@ -6,6 +6,11 @@ import type { Feature } from "../features/store.js";
 import { featureSlug } from "../features/slug.js";
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
 import {
+  assertPlaywrightChromiumLaunches,
+  ensurePlaywrightChromium,
+  playwrightMcpServer,
+} from "./playwrightMcp.js";
+import {
   featurePaths,
   parseAcceptanceCriteria,
   parseTestReport,
@@ -101,47 +106,30 @@ export async function runTester(options: {
   mkdirSync(paths.screenshotsDir, { recursive: true });
 
   const customTools = testerTools(paths.screenshotsDir, paths.reportPath);
+  const executablePath = await ensurePlaywrightChromium();
+  await assertPlaywrightChromiumLaunches(executablePath);
+  const mcpServers = {
+    playwright: playwrightMcpServer({
+      screenshotsDir: paths.screenshotsDir,
+      executablePath,
+    }),
+  };
   const base = localAgentOptions(options.config, customTools);
   const agent = await Agent.create({
     ...base,
     tools: ["read", "glob", "ls", "mcp"],
-    mcpServers: {
-      playwright: {
-        command: "npx",
-        args: [
-          "@playwright/mcp",
-          "--headless",
-          "--browser=chromium",
-          "--isolated",
-          "--no-sandbox",
-          "--output-dir",
-          paths.screenshotsDir,
-          "--config",
-          join(process.cwd(), "playwright-mcp.json"),
-        ],
-      },
-    },
+    mcpServers,
   });
   try {
-    const result = await sendAndWait(agent, testerPrompt(options.feature, options.config, criteria, specPath), {
-      local: { customTools },
-      mcpServers: {
-        playwright: {
-          command: "npx",
-          args: [
-            "@playwright/mcp",
-            "--headless",
-            "--browser=chromium",
-            "--isolated",
-            "--no-sandbox",
-            "--output-dir",
-            paths.screenshotsDir,
-            "--config",
-            join(process.cwd(), "playwright-mcp.json"),
-          ],
-        },
+    const result = await sendAndWait(
+      agent,
+      testerPrompt(options.feature, options.config, criteria, specPath),
+      {
+        local: { customTools },
+        mcpServers,
       },
-    });
+      { config: options.config, featureId: options.feature.id, role: "tester" },
+    );
     if (result.status !== "finished") {
       writeFileSync(
         paths.reportPath,

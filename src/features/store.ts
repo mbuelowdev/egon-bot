@@ -1,7 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { assertTransition, isFeatureState, type FeatureState } from "./state.js";
+import {
+  assertTransition,
+  isFeatureState,
+  isStoppablePipelineState,
+  type FeatureState,
+} from "./state.js";
 
 export class UserFacingError extends Error {
   constructor(message: string) {
@@ -299,6 +304,52 @@ export class FeatureStore {
     this.db.exec("DELETE FROM pipeline_lock WHERE id = 1");
   }
 
+  /**
+   * Cancel in-flight pipeline work. No PR → collecting and release the lock.
+   * With a PR → awaiting_review and keep the lock.
+   */
+  stopPipelineWork(): { feature: Feature; releasedLock: boolean } {
+    const lock = this.getPipelineLock();
+    if (!lock) {
+      throw new UserFacingError("Nothing to stop. No active pipeline.");
+    }
+    if (!isStoppablePipelineState(lock.feature.state)) {
+      throw new UserFacingError(
+        `Nothing to stop. **${lock.feature.name}** is ${lock.feature.state}.`,
+      );
+    }
+    this.clearPendingQuestion(lock.feature.id);
+    const next: FeatureState = lock.feature.githubPrNumber === null ? "collecting" : "awaiting_review";
+    assertTransition(lock.feature.state, next);
+    const updatedAt = nowIso();
+    this.db.exec("BEGIN");
+    try {
+      if (next === "collecting") {
+        this.db
+          .prepare(
+            `UPDATE features
+             SET state = ?, planner_agent_id = NULL, pending_question = NULL,
+                 pending_answer = NULL, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(next, updatedAt, lock.feature.id);
+        this.db.exec("DELETE FROM pipeline_lock WHERE id = 1");
+      } else {
+        this.db
+          .prepare("UPDATE features SET state = ?, updated_at = ? WHERE id = ?")
+          .run(next, updatedAt, lock.feature.id);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return {
+      feature: this.requireFeature(lock.feature.id),
+      releasedLock: next === "collecting",
+    };
+  }
+
   setDiscordIds(
     featureId: number,
     ids: { messageId?: string | null; threadId?: string | null },
@@ -453,6 +504,31 @@ export class FeatureStore {
       .prepare("SELECT COUNT(*) AS total FROM features WHERE state = 'accepted'")
       .get() as { total: number | bigint };
     return Number(row.total);
+  }
+
+  /** Remove a collecting (unplanned) feature, its notes, and channel-latest pointers. */
+  deleteCollectingFeature(featureId: number): Feature {
+    const feature = this.requireFeature(featureId);
+    if (feature.state !== "collecting") {
+      throw new UserFacingError(
+        `Only collecting features can be deleted. "${feature.name}" is ${feature.state}.`,
+      );
+    }
+    const lock = this.getPipelineLock();
+    if (lock?.feature.id === featureId) {
+      throw new UserFacingError(`Cannot delete "${feature.name}" while the pipeline is using it.`);
+    }
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM notes WHERE feature_id = ?").run(featureId);
+      this.db.prepare("DELETE FROM channel_latest WHERE feature_id = ?").run(featureId);
+      this.db.prepare("DELETE FROM features WHERE id = ?").run(featureId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return feature;
   }
 
   private requireFeature(featureId: number): Feature {

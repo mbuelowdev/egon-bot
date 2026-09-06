@@ -53,7 +53,7 @@ One Docker container runs all of this. Cursor IDE is **not** installed. Local ag
 
 ## Concurrency
 
-Many features may collect ideas at once. **Only one feature may be in plan → implement → test at a time**, because there is a single game working tree. `/egon-plan` fails if another pipeline is active. The pipeline lock stays held until the GitHub PR is merged (or closed without merge).
+Many features may collect ideas at once. **Only one feature may be in plan → implement → test at a time**, because there is a single game working tree. `/egon-plan` fails if another pipeline is active. `/egon-stop` cancels that active work. If planning never opened a PR, the feature returns to `collecting` and the lock is released. After a PR exists, the feature goes to `awaiting_review` and the lock stays until the GitHub PR is merged (or closed without merge). Uncommitted agent edits are discarded.
 
 ## Feature state machine
 
@@ -104,13 +104,15 @@ Keep **one registry** (name + short description + handler). `/egon-help` renders
 | `/egon-add text` | Append note to latest feature in this channel |
 | `/egon-add-to-feature name text` | Append to a named feature |
 | `/egon-list` | Open features (not `accepted`): name, state, note count, PR link |
-| `/egon-plan name` | Start planner; fail if another pipeline is active |
+| `/egon-plan [name]` | Start planner for a named feature, or this channel's latest if omitted; fail if another pipeline is active |
 | `/egon-pivot text` | Change request from `awaiting_review` or `rejected`; re-enter implement + test |
-| `/egon-status` | Current pipeline feature + state + PR link |
+| `/egon-retry` | Cancel a stuck planner/implementer/tester and continue from the current phase (or from `awaiting_review` / `rejected`) |
+| `/egon-stop` | Cancel the in-flight planner, implementer, or tester (and any Discord Q&A wait) |
+| `/egon-status` | Current pipeline feature + state + last agent activity + PR link |
 
 There is **no** `/egon-accept` or `/egon-reject`. Merge on GitHub; pivot in Discord.
 
-`/egon-add` errors if this channel has no latest feature.
+`/egon-add` errors if this channel has no latest feature. `/egon-plan` without `name` uses that same latest feature and errors the same way if there is none.
 
 ### Q&A threads
 
@@ -120,7 +122,7 @@ Enable Message Content Intent, Guilds, and GuildMessages.
 
 ## Cursor SDK
 
-Always pass `local: { cwd: GAME_REPO_DIR }` and `apiKey` explicitly. Model from `CURSOR_MODEL` (default `grok-4.6`) with `params: [{ id: "reasoning", value: "high" }]`. Use `Agent.create` + `send` + `wait`, not one-shot `prompt`. Log `agent.agentId` and `run.id` immediately after `send()`. Distinguish `CursorAgentError` (never started) from `result.status === "error"` (ran and failed). Dispose with `await using` / `close()`. Persist local agent state under `$DATA_DIR/cursor-agents`.
+Always pass `local: { cwd: GAME_REPO_DIR }` and `apiKey` explicitly. Model from `CURSOR_MODEL` (default `grok-4.6`) with `params: [{ id: "reasoning", value: "high" }]`. Use `Agent.create` + `send` + `wait`, not one-shot `prompt`. Log `agent.agentId` and `run.id` immediately after `send()`. Stream tool calls to docker logs. If stream events stop, docker heartbeats and `/egon-status` / the catalog show last activity; after **60 minutes** of silence cancel the run (no Discord warning). Waiting on `ask_discord_users` is idle, not stuck. `/egon-retry` cancels a stuck run and continues the pipeline from the current phase. Distinguish `CursorAgentError` (never started) from `result.status === "error"` (ran and failed). Dispose with `await using` / `close()`. Persist local agent state under `$DATA_DIR/cursor-agents`.
 
 Do **not** install the Cursor IDE. The SDK local executor runs in-process.
 
@@ -140,7 +142,7 @@ Prompt includes one extra line: bump the version field in `deployment.json` (cha
 
 ### Tester
 
-**New agent every test cycle.** Playwright MCP (`npx @playwright/mcp --headless --browser=chromium`) plus prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list. Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` that marks each criterion `PASS`/`FAIL`. Overall `PASS` only if every criterion passes. On failure the orchestrator `send`s the report to the implementer.
+**New agent every test cycle.** Before creating it, confirm Playwright Chrome for Testing exists **and actually launches**. Playwright MCP from the bot install (`node node_modules/@playwright/mcp/cli.js --headless --browser=chromium`), not `npx` in the game tree. Prompt pointing at `http://127.0.0.1:{WEB_SERVE_PORT}`. Given the SPEC acceptance-criteria list. Writes screenshots under `$DATA_DIR/features/{id}/screenshots/` and a `TEST_REPORT.md` that marks each criterion `PASS`/`FAIL`. Overall `PASS` only if every criterion passes. On failure the orchestrator `send`s the report to the implementer.
 
 Planner and implementer do **not** need a browser. The tester does. Chromium lives in the same container.
 
@@ -181,7 +183,7 @@ Serve with:
 
 (SharedArrayBuffer.) One local port; stop/replace the server each export.
 
-Headless Chromium can screenshot without a host desktop/X11. Install Chromium plus Linux libs (`npx playwright install chromium --with-deps`). Godot WebGL in Docker usually needs software GL (`--use-gl=angle` / SwiftShader). If the canvas is blank, add `xvfb` as a fallback.
+Headless Chromium can screenshot without a host desktop/X11. Install Playwright Chrome for Testing plus Linux libs (`npx playwright-core install --with-deps --no-shell chromium`). Godot WebGL in Docker usually needs software GL (`--use-gl=angle` / SwiftShader). If the canvas is blank, add `xvfb` as a fallback.
 
 ## GitHub PRs, pivot, merge
 
@@ -193,6 +195,10 @@ Headless Chromium can screenshot without a host desktop/X11. Install Chromium pl
 
 **`/egon-pivot`:** valid from `awaiting_review` or `rejected`. Append the change request, re-enter implement + test on the same branch and PR.
 
+**`/egon-stop`:** valid while the locked feature is `planning`, `implementing`, `exporting`, `testing`, `fixing`, or `pivoting`. Cancels the Cursor run, any Discord Q&A waiter, and Godot export. No PR → `collecting` and release the lock (fresh `/egon-plan` later). With a PR → `awaiting_review` (merge on GitHub, `/egon-retry` to continue the same work, or `/egon-pivot`).
+
+**`/egon-retry`:** valid while the pipeline lock is held in a plan/implement/test state, `awaiting_review`, or `rejected`. Cancels the in-flight Cursor run if any, keeps feature state (or re-enters `pivoting` from review/rejected), and continues the chain. Does not discard uncommitted work.
+
 **Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock, post `Feature {name} merged to master.` Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`.
 
 Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepted feature that already has a PR number (catch up if a webhook arrived while the process was down).
@@ -201,8 +207,9 @@ Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepte
 
 A public HTTP server (separate from the Godot debug server) binds `0.0.0.0:$FEATURES_HTTP_PORT`:
 
-- Index: Planned (has a spec, not `accepted`) and Implemented (`accepted`), with links to detail.
-- Detail `/features/{slug}`: name, state, PR link, SPEC, proof screenshots.
+- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Collecting cards (and the collecting detail page) have a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Planned or later states cannot be deleted this way.
+- Detail `/features/{slug}`: name, state, PR link, collected notes, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Index cards also link to `#agent-log`.
+- Persist each planner / implementer / tester run under `$DATA_DIR/features/{id}/agent-log.jsonl`. The file is written when the run starts (prompt) and updated as stream events arrive, so a catalog refresh shows in-flight output — not only the finished run. A running entry that has gone silent is marked possibly stuck. If that file is missing, the catalog hydrates from the Cursor agent store using `plannerAgentId` / `implementerAgentId`.
 - `POST /github/webhook` as above.
 
 Catalog reads SQLite plus `$DATA_DIR/features/{id}/` so it does not depend on which git branch is checked out.

@@ -56,3 +56,9 @@ export async function checkoutDefaultBranch(config: Config): Promise<void> {
   await git(config.gameRepoDir, ["checkout", config.gameRepoBranch], env);
   await git(config.gameRepoDir, ["reset", "--hard", `origin/${config.gameRepoBranch}`], env);
 }
+
+export async function discardUncommittedWork(config: Config): Promise<void> {
+  const env = ghEnv(config);
+  await git(config.gameRepoDir, ["reset", "--hard", "HEAD"], env);
+  await git(config.gameRepoDir, ["clean", "-fd"], env);
+}

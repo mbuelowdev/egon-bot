@@ -48,6 +48,7 @@ export function featurePaths(dataDir: string, featureId: number): {
   screenshotsDir: string;
   reportPath: string;
   specPath: string;
+  agentLogPath: string;
 } {
   const root = join(dataDir, "features", String(featureId));
   return {
@@ -55,5 +56,6 @@ export function featurePaths(dataDir: string, featureId: number): {
     screenshotsDir: join(root, "screenshots"),
     reportPath: join(root, "TEST_REPORT.md"),
     specPath: join(root, "SPEC.md"),
+    agentLogPath: join(root, "agent-log.jsonl"),
   };
 }
