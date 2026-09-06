@@ -116,7 +116,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.match(indexHtml, /PR #7/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
     assert.match(indexHtml, /data-delete-slug="wall-run"/);
-    assert.doesNotMatch(indexHtml, /data-delete-slug="dash-hud"/);
+    assert.match(indexHtml, /data-delete-slug="dash-hud"/);
     assert.doesNotMatch(indexHtml, /data-delete-slug="jump"/);
 
     const idea = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
@@ -170,7 +170,7 @@ test("catalog lists collecting, planned, and implemented features with spec and 
   }
 });
 
-test("catalog deletes collecting features after the shared password", async () => {
+test("catalog deletes collecting and planned features after the shared password", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-delete-"));
   const store = new FeatureStore(":memory:");
   const collecting = store.createFeature("Wall run", "channel-1");
@@ -179,6 +179,16 @@ test("catalog deletes collecting features after the shared password", async () =
   writeFileSync(join(dataDir, "features", String(collecting.id), "notes.txt"), "scratch");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
+  store.setGithubPr(planned.id, {
+    branch: "egon/dash-hud",
+    number: 12,
+    url: "https://github.com/org/game/pull/12",
+  });
+  const done = store.createFeature("Jump", "channel-1");
+  store.transition(done.id, "planning");
+  store.transition(done.id, "implementing");
+  store.transition(done.id, "accepted");
+  const closedPrs: number[] = [];
 
   const port = await freePort();
   const config = loadConfig({
@@ -197,6 +207,9 @@ test("catalog deletes collecting features after the shared password", async () =
     store,
     config,
     onGithubEvent: async () => {},
+    closePullRequest: async (number) => {
+      closedPrs.push(number);
+    },
   });
   try {
     const wrong = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/delete`, {
@@ -207,13 +220,13 @@ test("catalog deletes collecting features after the shared password", async () =
     assert.equal(wrong.status, 403);
     assert.equal(store.getFeatureById(collecting.id)?.name, "Wall run");
 
-    const blocked = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/delete`, {
+    const implemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump/delete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
     });
-    assert.equal(blocked.status, 409);
-    assert.equal(store.getFeatureById(planned.id)?.state, "planning");
+    assert.equal(implemented.status, 409);
+    assert.equal(store.getFeatureById(done.id)?.state, "accepted");
 
     const ok = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run/delete`, {
       method: "POST",
@@ -227,13 +240,22 @@ test("catalog deletes collecting features after the shared password", async () =
     const gone = await fetch(`http://127.0.0.1:${String(port)}/features/wall-run`);
     assert.equal(gone.status, 404);
 
-    const stillPlanned = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
-    assert.equal(stillPlanned.status, 200);
-    assert.equal(store.getFeatureById(planned.id)?.state, "planning");
+    const plannedOk = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(plannedOk.status, 204);
+    assert.equal(store.getFeatureById(planned.id), undefined);
+    assert.deepEqual(closedPrs, [12]);
+
+    const stillImplemented = await fetch(`http://127.0.0.1:${String(port)}/features/jump`);
+    assert.equal(stillImplemented.status, 200);
 
     const index = await fetch(`http://127.0.0.1:${String(port)}/`);
     const indexHtml = await index.text();
     assert.doesNotMatch(indexHtml, /Wall run/);
+    assert.doesNotMatch(indexHtml, /Dash HUD/);
   } finally {
     await stopCatalogServer();
     store.close();

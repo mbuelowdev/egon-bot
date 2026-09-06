@@ -52,8 +52,9 @@ test("index page links to the live game, repo, file sharing, and each feature PR
   assert.match(html, /Host sprites, audio, and other files on the sharing service/);
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together\/pull\/12"/);
   assert.match(html, /PR #12/);
-  assert.match(html, /href="\/features\/dash-hud#agent-log"/);
-  assert.match(html, />Agent log</);
+  assert.doesNotMatch(html, /#agent-log/);
+  assert.doesNotMatch(html, />Agent log</);
+  assert.match(html, /data-delete-slug="dash-hud"/);
 });
 
 test("index page lists collecting features separately from planned", () => {
@@ -75,14 +76,18 @@ test("index page lists collecting features separately from planned", () => {
   assert.match(html, /Ideas still being collected/);
   assert.match(html, /data-delete-slug="double-jump"/);
   assert.match(html, /window\.prompt\("Password"\)/);
-  assert.doesNotMatch(html, /data-delete-slug="dash-hud"/);
+  assert.match(html, /data-delete-slug="dash-hud"/);
 });
 
-test("collecting feature page includes a delete action; planned does not", () => {
+test("collecting and planned feature pages include a delete action; implemented does not", () => {
   const store = new FeatureStore(":memory:");
   const idea = store.createFeature("Wall run", "channel-1");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
+  const done = store.createFeature("Jump", "channel-1");
+  store.transition(done.id, "planning");
+  store.transition(done.id, "implementing");
+  store.transition(done.id, "accepted");
   const collectingHtml = featurePage(
     { dataDir: "/tmp/egon-missing" } as Config,
     store.getFeatureById(idea.id)!,
@@ -91,9 +96,42 @@ test("collecting feature page includes a delete action; planned does not", () =>
     { dataDir: "/tmp/egon-missing" } as Config,
     store.getFeatureById(planned.id)!,
   );
+  const doneHtml = featurePage(
+    { dataDir: "/tmp/egon-missing" } as Config,
+    store.getFeatureById(done.id)!,
+  );
   store.close();
   assert.match(collectingHtml, /data-delete-slug="wall-run"/);
-  assert.doesNotMatch(plannedHtml, /data-delete-slug="dash-hud"/);
+  assert.match(collectingHtml, /class="back" href="\/"/);
+  assert.match(collectingHtml, /aria-label="Back to feature log"/);
+  assert.match(collectingHtml, /class="back"[^>]*>\s*<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.doesNotMatch(collectingHtml, />←</);
+  assert.doesNotMatch(collectingHtml, /title-row/);
+  assert.doesNotMatch(collectingHtml, />Feature log</);
+  assert.doesNotMatch(collectingHtml, /href="#agent-log"/);
+  assert.match(plannedHtml, /data-delete-slug="dash-hud"/);
+  assert.doesNotMatch(plannedHtml, /href="#agent-log"/);
+  assert.doesNotMatch(doneHtml, /data-delete-slug="jump"/);
+});
+
+test("closed PR is labeled closed on index and detail pages", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+  store.setGithubPr(feature.id, {
+    branch: "egon/dash-hud",
+    number: 12,
+    url: "https://github.com/mbuelowdev/lets-vibe-together/pull/12",
+  });
+  store.transition(feature.id, "rejected");
+  const closed = store.getFeatureById(feature.id)!;
+  const indexHtml = indexPage([closed], [], emptyStats, links);
+  const detailHtml = featurePage({ dataDir: "/tmp/egon-missing" } as Config, closed);
+  store.close();
+  assert.match(indexHtml, /PR #12 \(closed\)/);
+  assert.match(detailHtml, /class="github-pr closed"/);
+  assert.match(detailHtml, /PR #12 \(closed\)/);
+  assert.match(detailHtml, /data-delete-slug="dash-hud"/);
 });
 
 test("feature page PR is a GitHub-icon button", () => {
@@ -191,6 +229,36 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
   assert.match(html, /<li>consider the spec<\/li>/);
   assert.match(html, /class="log-msg thinking"/);
   assert.match(html, /class="thinking-body spec"/);
+  assert.match(html, /data-run-id="r1"/);
+  assert.match(html, /class="log-run" data-run-id="r1" open>/);
+  assert.match(html, /egon-agent-log:/);
+  assert.match(html, /localStorage/);
+});
+
+test("renderAgentLog leaves every run collapsed except the last", () => {
+  const html = renderAgentLog([
+    {
+      at: "2026-09-06T12:00:00.000Z",
+      role: "planner",
+      agentId: "p1",
+      runId: "r1",
+      status: "finished",
+      user: "plan it",
+      steps: [],
+    },
+    {
+      at: "2026-09-06T12:10:00.000Z",
+      role: "implementer",
+      agentId: "i1",
+      runId: "r2",
+      status: "finished",
+      user: "build it",
+      steps: [],
+    },
+  ]);
+  assert.match(html, /class="log-run" data-run-id="r1">/);
+  assert.match(html, /class="log-run" data-run-id="r2" open>/);
+  assert.doesNotMatch(html, /data-run-id="r1" open/);
 });
 
 test("renderAgentLog marks an in-progress run", () => {

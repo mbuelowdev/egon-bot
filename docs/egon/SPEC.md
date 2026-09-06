@@ -201,7 +201,7 @@ Headless Chromium can screenshot without a host desktop/X11. Install Playwright 
 
 **`/egon-retry`:** valid while the pipeline lock is held in a plan/implement/test state, `awaiting_review`, or `rejected`. Cancels the in-flight Cursor run if any, keeps feature state (or re-enters `pivoting` from review/rejected), and continues the chain. Does not discard uncommitted work.
 
-**Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock, post `Feature {name} merged to master.` Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`.
+**Merge:** humans merge on GitHub. The bot does **not** merge. `POST /github/webhook` verifies `X-Hub-Signature-256`, then on `pull_request` `closed` + `merged: true`: fetch, checkout `$GAME_REPO_BRANCH`, pull, stop the web server, delete the export dir, mark `accepted`, **keep** spec copy and screenshots, release the pipeline lock, post `Feature {name} merged to master.` Closed without merge → `rejected` and a Discord notice; lock stays so humans can `/egon-pivot`. The catalog keeps the feature and labels the PR **closed**. Delete from the catalog removes it and closes the PR if it is still open.
 
 Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepted feature that already has a PR number (catch up if a webhook arrived while the process was down).
 
@@ -209,8 +209,8 @@ Do **not** poll GitHub on an interval. On boot, one `gh pr view` per non-accepte
 
 A public HTTP server (separate from the Godot debug server) binds `0.0.0.0:$FEATURES_HTTP_PORT`:
 
-- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Collecting cards (and the collecting detail page) have a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Planned or later states cannot be deleted this way.
-- Detail `/features/{slug}`: name, state, PR link, collected notes, Discord reference images, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Index cards also link to `#agent-log`. Images are served at `/features/{slug}/attachments/{file}`.
+- Index: Collecting (`collecting` ideas from `/egon-new-feature` and `/egon-add`), Planned (has a spec, not `accepted`), and Implemented (`accepted`), with links to detail. Collecting and planned cards (and their detail pages) have a **Delete** action. It prompts for password `ente123`, then `POST /features/{slug}/delete`. Wrong password → 403. Implemented features cannot be deleted. If the feature still has an open GitHub PR, delete closes it (`gh pr close`). A closed-unmerged PR stays in Planned labeled **PR #N (closed)** until someone deletes it.
+- Detail `/features/{slug}`: name, state, PR link, collected notes, Discord reference images, SPEC, proof screenshots, and the full agent log (prompts we sent plus what the agent printed, including tool calls). Images are served at `/features/{slug}/attachments/{file}`.
 - Persist each planner / implementer / tester run under `$DATA_DIR/features/{id}/agent-log.jsonl`. The file is written when the run starts (prompt) and updated as stream events arrive, so a catalog refresh shows in-flight output — not only the finished run. A running entry that has gone silent is marked possibly stuck. If that file is missing, the catalog hydrates from the Cursor agent store using `plannerAgentId` / `implementerAgentId`.
 - `POST /github/webhook` as above.
 

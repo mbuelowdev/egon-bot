@@ -6,13 +6,22 @@ import { githubRepoWebUrl, type Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
+import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
 import { loadFeatureAgentLog } from "../cursor/agentLog.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubPullRequestEvent, verifyGithubSignature, type GithubPrEvent } from "./webhook.js";
 
-/** Shared catalog password for deleting collecting features. */
+/** Shared catalog password for deleting features that are not yet implemented. */
 export const CATALOG_DELETE_PASSWORD = "ente123";
+
+export type CatalogServerOptions = {
+  store: FeatureStore;
+  config: Config;
+  onGithubEvent: (event: GithubPrEvent) => Promise<void>;
+  beforeDelete?: (feature: Feature) => Promise<void>;
+  closePullRequest?: (prNumber: number) => Promise<void>;
+};
 
 let server: Server | undefined;
 
@@ -103,11 +112,7 @@ export async function stopCatalogServer(): Promise<void> {
   });
 }
 
-export async function serveCatalog(options: {
-  store: FeatureStore;
-  config: Config;
-  onGithubEvent: (event: GithubPrEvent) => Promise<void>;
-}): Promise<Server> {
+export async function serveCatalog(options: CatalogServerOptions): Promise<Server> {
   await stopCatalogServer();
   const httpServer = createServer((req, res) => {
     void handleRequest(req, res, options).catch((error: unknown) => {
@@ -129,7 +134,7 @@ export async function serveCatalog(options: {
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  options: { store: FeatureStore; config: Config; onGithubEvent: (event: GithubPrEvent) => Promise<void> },
+  options: CatalogServerOptions,
 ): Promise<void> {
   const urlPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
   if (req.method === "POST" && urlPath === "/github/webhook") {
@@ -169,8 +174,16 @@ async function handleRequest(
       send(res, 403, "Wrong password", "text/plain; charset=utf-8");
       return;
     }
+    if (feature.state === "accepted") {
+      send(res, 409, `Implemented features cannot be deleted. "${feature.name}" already merged.`, "text/plain; charset=utf-8");
+      return;
+    }
+    if (options.beforeDelete) {
+      await options.beforeDelete(feature);
+    }
+    const prNumber = feature.githubPrNumber;
     try {
-      options.store.deleteCollectingFeature(feature.id);
+      options.store.deleteFeature(feature.id);
     } catch (error) {
       if (error instanceof UserFacingError) {
         send(res, 409, error.message, "text/plain; charset=utf-8");
@@ -179,6 +192,14 @@ async function handleRequest(
       throw error;
     }
     rmSync(featurePaths(options.config.dataDir, feature.id).root, { recursive: true, force: true });
+    if (prNumber !== null && feature.state !== "rejected") {
+      const close = options.closePullRequest ?? ((number) => closePullRequest(options.config, number));
+      try {
+        await close(prNumber);
+      } catch (error) {
+        console.error(`failed to close PR #${String(prNumber)} after catalog delete`, error);
+      }
+    }
     send(res, 204, "", "text/plain; charset=utf-8");
     return;
   }

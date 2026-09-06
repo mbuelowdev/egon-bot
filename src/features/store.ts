@@ -574,20 +574,18 @@ export class FeatureStore {
     return Number(row.total);
   }
 
-  /** Remove a collecting (unplanned) feature, its notes, attachments, and channel-latest pointers. */
-  deleteCollectingFeature(featureId: number): Feature {
+  /** Remove a feature that is not yet implemented, plus notes, attachments, and channel-latest pointers. */
+  deleteFeature(featureId: number): Feature {
     const feature = this.requireFeature(featureId);
-    if (feature.state !== "collecting") {
-      throw new UserFacingError(
-        `Only collecting features can be deleted. "${feature.name}" is ${feature.state}.`,
-      );
+    if (feature.state === "accepted") {
+      throw new UserFacingError(`Implemented features cannot be deleted. "${feature.name}" already merged.`);
     }
     const lock = this.getPipelineLock();
-    if (lock?.feature.id === featureId) {
-      throw new UserFacingError(`Cannot delete "${feature.name}" while the pipeline is using it.`);
-    }
     this.db.exec("BEGIN");
     try {
+      if (lock?.feature.id === featureId) {
+        this.db.exec("DELETE FROM pipeline_lock WHERE id = 1");
+      }
       this.db.prepare("DELETE FROM attachments WHERE feature_id = ?").run(featureId);
       this.db.prepare("DELETE FROM notes WHERE feature_id = ?").run(featureId);
       this.db.prepare("DELETE FROM channel_latest WHERE feature_id = ?").run(featureId);

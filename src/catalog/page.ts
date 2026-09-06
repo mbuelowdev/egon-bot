@@ -43,6 +43,38 @@ body {
 }
 header, main { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem; }
 header { padding-bottom: 0; }
+.feature header,
+.feature main {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 920px);
+  column-gap: 0.85rem;
+  justify-content: center;
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 2rem 1.25rem 0;
+}
+.feature header { padding-bottom: 0; }
+.feature header > :not(.back),
+.feature main > * {
+  grid-column: 2;
+}
+.back {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: center;
+  justify-self: end;
+  display: flex;
+  color: var(--header);
+  text-decoration: none;
+}
+.back svg {
+  width: 2.15rem;
+  height: 2.15rem;
+  display: block;
+}
+.back:hover { color: var(--accent-hover); }
+.feature h1 { grid-row: 2; }
 .kicker {
   font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
   font-size: 0.75rem;
@@ -134,7 +166,6 @@ a:hover { color: var(--accent-hover); }
 .shots figure { margin: 0; background: var(--elevated); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .shots img { display: block; width: 100%; height: auto; }
 .shots figcaption { padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--muted); }
-.back { display: inline-block; margin-bottom: 1.25rem; }
 .card-actions { margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .card-actions a, .card-actions button, .log-jump, .github-pr {
   display: inline-block;
@@ -165,6 +196,13 @@ a:hover { color: var(--accent-hover); }
   width: 0.95rem;
   height: 0.95rem;
   flex-shrink: 0;
+}
+.github-pr.closed {
+  color: var(--muted);
+}
+.github-pr.closed:hover {
+  border-color: var(--muted);
+  color: var(--header);
 }
 [data-delete-slug] { color: var(--danger); }
 [data-delete-slug]:hover { border-color: var(--danger); color: var(--danger); }
@@ -267,6 +305,51 @@ const DELETE_SCRIPT = `<script>
 })();
 </script>`;
 
+const AGENT_LOG_SCRIPT = `<script>
+(() => {
+  const runs = document.querySelectorAll("details.log-run[data-run-id]");
+  if (runs.length === 0) {
+    return;
+  }
+  const key = "egon-agent-log:" + window.location.pathname;
+  let saved = {};
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        saved = parsed;
+      }
+    }
+  } catch {
+    saved = {};
+  }
+  for (const el of runs) {
+    const id = el.getAttribute("data-run-id");
+    if (id && Object.prototype.hasOwnProperty.call(saved, id)) {
+      el.open = Boolean(saved[id]);
+    }
+  }
+  const persist = () => {
+    const next = {};
+    for (const el of runs) {
+      const id = el.getAttribute("data-run-id");
+      if (id) {
+        next[id] = el.open;
+      }
+    }
+    try {
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  };
+  for (const el of runs) {
+    el.addEventListener("toggle", persist);
+  }
+})();
+</script>`;
+
 function layout(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -279,6 +362,7 @@ function layout(title: string, body: string): string {
 <body>
 ${body}
 ${DELETE_SCRIPT}
+${AGENT_LOG_SCRIPT}
 </body>
 </html>`;
 }
@@ -287,14 +371,22 @@ function deleteButton(slug: string): string {
   return `<button type="button" class="log-jump" data-delete-slug="${escapeHtml(slug)}">Delete</button>`;
 }
 
+const BACK_ARROW = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
 const GITHUB_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
+
+function githubPrCaption(feature: Feature, untitled: string): string {
+  const base =
+    feature.githubPrNumber !== null ? `PR #${String(feature.githubPrNumber)}` : untitled;
+  return feature.state === "rejected" ? `${base} (closed)` : base;
+}
 
 function githubPrButton(feature: Feature): string {
   if (!feature.githubPrUrl) {
     return "";
   }
-  const label = feature.githubPrNumber !== null ? `PR #${String(feature.githubPrNumber)}` : "GitHub pull request";
-  return `<a class="github-pr" href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${GITHUB_MARK}${escapeHtml(label)}</a>`;
+  const closed = feature.state === "rejected";
+  const cls = closed ? "github-pr closed" : "github-pr";
+  return `<a class="${cls}" href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${GITHUB_MARK}${escapeHtml(githubPrCaption(feature, "GitHub pull request"))}</a>`;
 }
 
 const ROLE_LABEL: Record<AgentRole, string> = {
@@ -420,7 +512,7 @@ export function renderAgentLog(entries: AgentLogEntry[], now: number = Date.now(
     return `<p class="empty">No agent log yet. Prompts and replies show up while a run is in progress — refresh to pick up new output.</p>`;
   }
   return entries
-    .map((entry) => {
+    .map((entry, index) => {
       const running = entry.status === "running" ? runningStatusLabel(entry, now) : undefined;
       const statusClass =
         entry.status === "error" || entry.status === "cancelled"
@@ -441,7 +533,8 @@ export function renderAgentLog(entries: AgentLogEntry[], now: number = Date.now(
         entry.errorMessage && entry.status !== "finished"
           ? `<div class="log-msg assistant"><div class="log-label">Error</div><pre>${escapeHtml(entry.errorMessage)}</pre></div>`
           : "";
-      return `<details class="log-run" open>
+      const open = index === entries.length - 1 ? " open" : "";
+      return `<details class="log-run" data-run-id="${escapeHtml(entry.runId)}"${open}>
         <summary>
           <span class="log-role">${escapeHtml(ROLE_LABEL[entry.role] ?? entry.role)}</span>
           <span class="meta${statusClass}">${escapeHtml(statusText)}</span>
@@ -471,17 +564,15 @@ export function indexPage(
 ): string {
   const card = (feature: Feature): string => {
     const slug = featureSlug(feature.name);
-    const pr =
-      feature.githubPrUrl && feature.githubPrNumber !== null
-        ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">PR #${String(feature.githubPrNumber)}</a>`
-        : feature.githubPrUrl
-          ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">PR</a>`
-          : "";
-    const del = feature.state === "collecting" ? deleteButton(slug) : "";
+    const pr = feature.githubPrUrl
+      ? ` · <a href="${escapeHtml(feature.githubPrUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(githubPrCaption(feature, "PR"))}</a>`
+      : "";
+    const actions =
+      feature.state === "accepted" ? "" : `<div class="card-actions">${deleteButton(slug)}</div>`;
     return `<article class="card">
       <h3><a href="/features/${encodeURIComponent(slug)}">${escapeHtml(feature.name)}</a></h3>
       <div class="meta">${escapeHtml(feature.state)}${pr}</div>
-      <div class="card-actions"><a href="/features/${encodeURIComponent(slug)}#agent-log">Agent log</a>${del}</div>
+      ${actions}
     </article>`;
   };
   const section = (title: string, features: Feature[]): string => {
@@ -568,12 +659,13 @@ export function featurePage(
       </section>`;
   return layout(
     feature.name,
-    `<header>
-      <a class="back" href="/">← Feature log</a>
+    `<div class="feature">
+    <header>
       <div class="kicker">${escapeHtml(feature.state)}</div>
+      <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>${escapeHtml(feature.name)}</h1>
       ${pr}
-      <p class="links"><a class="log-jump" href="#agent-log">Agent log</a>${feature.state === "collecting" ? ` ${deleteButton(slug)}` : ""}</p>
+      ${feature.state === "accepted" ? "" : `<p class="links">${deleteButton(slug)}</p>`}
     </header>
     <main>
       ${notesSection}
@@ -590,6 +682,7 @@ export function featurePage(
         <h2>Agent log</h2>
         ${renderAgentLog(agentLog)}
       </section>
-    </main>`,
+    </main>
+    </div>`,
   );
 }

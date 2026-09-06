@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadConfig, type Config } from "../config.js";
 import {
+  closePullRequest,
   createDraftPr,
   isClosedUnmergedView,
   isMergedView,
@@ -70,6 +71,24 @@ test("markPrReady is idempotent when already ready", async () => {
     throw new Error("Pull request #9 is already marked as ready for review");
   };
   await markPrReady(config, 9, execGh);
+});
+
+test("closePullRequest is idempotent when already closed", async () => {
+  const calls: string[][] = [];
+  const execGh: ExecGh = async (_cwd, args) => {
+    calls.push(args);
+    throw new Error("X Pull request gh/game#12 (Dash) is already closed");
+  };
+  await closePullRequest(config, 12, execGh);
+  assert.deepEqual(calls[0], ["pr", "close", "12"]);
+});
+
+test("closePullRequest closes an open PR", async () => {
+  const execGh: ExecGh = async (_cwd, args) => {
+    assert.deepEqual(args, ["pr", "close", "8"]);
+    return { stdout: "", stderr: "" };
+  };
+  await closePullRequest(config, 8, execGh);
 });
 
 test("viewPullRequest parses merged and closed JSON", async () => {

@@ -131,7 +131,7 @@ test("stopPipelineWork after a PR parks the feature in awaiting_review", () => {
   store.close();
 });
 
-test("deleteCollectingFeature removes notes and channel latest", () => {
+test("deleteFeature removes notes, attachments, and channel latest", () => {
   const store = openStore();
   const keep = store.createFeature("keep me", "channel-1");
   const gone = store.createFeature("drop me", "channel-1");
@@ -142,7 +142,7 @@ test("deleteCollectingFeature removes notes and channel latest", () => {
     storedName: "abc.png",
   });
   assert.equal(store.getLatestFeatureForChannel("channel-1")?.id, gone.id);
-  const deleted = store.deleteCollectingFeature(gone.id);
+  const deleted = store.deleteFeature(gone.id);
   assert.equal(deleted.name, "drop me");
   assert.equal(store.getFeatureById(gone.id), undefined);
   assert.equal(store.listNotes(gone.id).length, 0);
@@ -179,12 +179,29 @@ test("add and list attachments", () => {
   store.close();
 });
 
-test("deleteCollectingFeature rejects planned features", () => {
+test("deleteFeature removes planned features and releases the lock", () => {
   const store = openStore();
   const feature = store.createFeature("hud", "channel-1");
   store.startPlanning(feature.id);
-  assert.throws(() => store.deleteCollectingFeature(feature.id), /Only collecting features/);
-  assert.equal(store.getFeatureById(feature.id)?.state, "planning");
+  store.setGithubPr(feature.id, {
+    branch: "egon/hud",
+    number: 4,
+    url: "https://example.com/4",
+  });
+  store.deleteFeature(feature.id);
+  assert.equal(store.getFeatureById(feature.id), undefined);
+  assert.equal(store.getPipelineLock(), undefined);
+  store.close();
+});
+
+test("deleteFeature refuses accepted features", () => {
+  const store = openStore();
+  const feature = store.createFeature("hud", "channel-1");
+  store.startPlanning(feature.id);
+  store.transition(feature.id, "implementing");
+  store.transition(feature.id, "accepted");
+  assert.throws(() => store.deleteFeature(feature.id), /Implemented features cannot be deleted/);
+  assert.equal(store.getFeatureById(feature.id)?.state, "accepted");
   store.close();
 });
 

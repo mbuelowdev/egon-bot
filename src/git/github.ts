@@ -148,6 +148,22 @@ export async function markPrReady(
   }
 }
 
+export async function closePullRequest(
+  config: Config,
+  prNumber: number,
+  execGh: ExecGh = defaultExecGh,
+): Promise<void> {
+  try {
+    await execGh(config.gameRepoDir, ["pr", "close", String(prNumber)], ghEnv(config));
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (/already closed|is closed|not open/i.test(text)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 export function isMergedView(view: PullRequestView): boolean {
   return view.state.toUpperCase() === "MERGED" || view.mergedAt !== null;
 }

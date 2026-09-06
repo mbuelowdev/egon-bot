@@ -40,6 +40,7 @@ export type Pipeline = {
   stop: () => Promise<string>;
   handleGithubEvent: (event: GithubPrEvent) => Promise<void>;
   catchUpOpenPrs: () => Promise<void>;
+  interruptIfLocked: (featureId: number) => Promise<void>;
 };
 
 export function createPipeline(ctx: {
@@ -455,6 +456,26 @@ export function createPipeline(ctx: {
         } catch (error) {
           console.error(`github catch-up failed for PR #${String(feature.githubPrNumber)}`, error);
         }
+      }
+    },
+    interruptIfLocked: async (featureId: number) => {
+      const lock = ctx.store.getPipelineLock();
+      if (lock?.feature.id !== featureId) {
+        return;
+      }
+      jobAbort?.abort();
+      cancelAllThreadWaiters();
+      await cancelActiveAgentRun();
+      try {
+        await discardUncommittedWork(ctx.config);
+        await checkoutDefaultBranch(ctx.config);
+      } catch (error) {
+        console.error("failed to reset working tree after catalog delete", error);
+      }
+      try {
+        await stopWebServer();
+      } catch (error) {
+        console.error("failed to stop web server after catalog delete", error);
       }
     },
   };
