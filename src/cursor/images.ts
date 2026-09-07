@@ -1,8 +1,57 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import type { SDKImage, SDKUserMessage } from "@cursor/sdk";
-import type { FeatureAttachment } from "../features/store.js";
-import { featurePaths } from "./testReport.js";
+import { featurePaths, listCriterionScreenshots } from "./testReport.js";
+
+export type CursorImageFile = {
+  storedName: string;
+  mimeType: string;
+};
+
+function mimeForImageName(name: string): string {
+  const ext = extname(name).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") {
+    return "image/jpeg";
+  }
+  if (ext === ".webp") {
+    return "image/webp";
+  }
+  if (ext === ".gif") {
+    return "image/gif";
+  }
+  return "image/png";
+}
+
+function storedImagePath(
+  dataDir: string,
+  featureId: number,
+  storedName: string,
+): string | undefined {
+  if (storedName === "" || storedName.includes("/") || storedName.includes("\\")) {
+    return undefined;
+  }
+  const paths = featurePaths(dataDir, featureId);
+  const inAttachments = join(paths.attachmentsDir, storedName);
+  if (existsSync(inAttachments)) {
+    return inAttachments;
+  }
+  const inScreenshots = join(paths.screenshotsDir, storedName);
+  if (existsSync(inScreenshots)) {
+    return inScreenshots;
+  }
+  return undefined;
+}
+
+export function criterionScreenshotAttachments(
+  dataDir: string,
+  featureId: number,
+): CursorImageFile[] {
+  const { screenshotsDir } = featurePaths(dataDir, featureId);
+  return listCriterionScreenshots(screenshotsDir).map((name) => ({
+    storedName: name,
+    mimeType: mimeForImageName(name),
+  }));
+}
 
 export function logTextForMessage(message: string | SDKUserMessage): string {
   if (typeof message === "string") {
@@ -25,13 +74,12 @@ export function agentUserMessage(text: string, images: SDKImage[]): string | SDK
 export function loadCursorImages(
   dataDir: string,
   featureId: number,
-  attachments: FeatureAttachment[],
+  attachments: CursorImageFile[],
 ): SDKImage[] {
-  const dir = featurePaths(dataDir, featureId).attachmentsDir;
   const images: SDKImage[] = [];
   for (const attachment of attachments) {
-    const filePath = join(dir, attachment.storedName);
-    if (!existsSync(filePath)) {
+    const filePath = storedImagePath(dataDir, featureId, attachment.storedName);
+    if (filePath === undefined) {
       continue;
     }
     images.push({

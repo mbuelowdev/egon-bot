@@ -6,10 +6,17 @@ const REQUIRED_KEYS = [
   "DISCORD_CHANNEL_ID",
   "DISCORD_GUILD_ID",
   "CURSOR_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
   "GAME_REPO_HTTPS_URL",
   "GITHUB_TOKEN",
   "GITHUB_WEBHOOK_SECRET",
 ] as const;
+
+export const CURSOR_REASONING_LEVELS = ["none", "low", "medium", "high", "xhigh"] as const;
+export type CursorReasoning = (typeof CURSOR_REASONING_LEVELS)[number];
+export type CursorModelParams = Array<{ id: string; value: string }>;
+/** Cursor SDK roles. Planner uses the implementer model when Claude cannot start. */
+export type CursorSdkRole = "planner" | "implementer" | "tester";
 
 export type Config = {
   discordToken: string;
@@ -17,6 +24,7 @@ export type Config = {
   discordChannelId: string;
   discordGuildId: string;
   cursorApiKey: string;
+  claudeCodeOAuthToken: string;
   gameRepoHttpsUrl: string;
   githubToken: string;
   githubWebhookSecret: string;
@@ -24,8 +32,10 @@ export type Config = {
   gameRepoBranch: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
-  cursorModel: string;
-  cursorModelParams: Array<{ id: string; value: string }>;
+  cursorModelImplementer: string;
+  cursorModelImplementerParams: CursorModelParams;
+  cursorModelTester: string;
+  cursorModelTesterParams: CursorModelParams;
   dataDir: string;
   webServePort: number;
   featuresHttpPort: number;
@@ -65,6 +75,32 @@ function requiredHttpsGitUrl(env: NodeJS.ProcessEnv, key: "GAME_REPO_HTTPS_URL")
   return value;
 }
 
+function optionalReasoning(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  fallback: CursorReasoning,
+): CursorReasoning {
+  const value = optional(env, key, fallback);
+  if (!(CURSOR_REASONING_LEVELS as readonly string[]).includes(value)) {
+    throw new Error(`Invalid ${key}: expected one of ${CURSOR_REASONING_LEVELS.join(", ")}`);
+  }
+  return value as CursorReasoning;
+}
+
+function reasoningParams(value: CursorReasoning): CursorModelParams {
+  return [{ id: "reasoning", value }];
+}
+
+export function cursorModelForRole(
+  config: Config,
+  role: CursorSdkRole,
+): { id: string; params: CursorModelParams } {
+  if (role === "tester") {
+    return { id: config.cursorModelTester, params: config.cursorModelTesterParams };
+  }
+  return { id: config.cursorModelImplementer, params: config.cursorModelImplementerParams };
+}
+
 function optionalPort(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   const raw = env[key];
   if (raw === undefined || raw.trim() === "") {
@@ -88,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     discordChannelId: required(env, "DISCORD_CHANNEL_ID"),
     discordGuildId: required(env, "DISCORD_GUILD_ID"),
     cursorApiKey: required(env, "CURSOR_API_KEY"),
+    claudeCodeOAuthToken: required(env, "CLAUDE_CODE_OAUTH_TOKEN"),
     gameRepoHttpsUrl: requiredHttpsGitUrl(env, "GAME_REPO_HTTPS_URL"),
     githubToken: required(env, "GITHUB_TOKEN"),
     githubWebhookSecret: required(env, "GITHUB_WEBHOOK_SECRET"),
@@ -95,8 +132,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     gameRepoBranch: optional(env, "GAME_REPO_BRANCH", "master"),
     gitAuthorName: optional(env, "GIT_AUTHOR_NAME", "Egon"),
     gitAuthorEmail: optional(env, "GIT_AUTHOR_EMAIL", "egon@localhost"),
-    cursorModel: optional(env, "CURSOR_MODEL", "grok-4.6"),
-    cursorModelParams: [{ id: "reasoning", value: "high" }],
+    cursorModelImplementer: optional(env, "CURSOR_MODEL_IMPLEMENTER", "grok-4.6"),
+    cursorModelImplementerParams: reasoningParams(
+      optionalReasoning(env, "CURSOR_MODEL_IMPLEMENTER_EFFORT", "high"),
+    ),
+    cursorModelTester: optional(env, "CURSOR_MODEL_TESTER", "composer-2.5"),
+    cursorModelTesterParams: reasoningParams(
+      optionalReasoning(env, "CURSOR_MODEL_TESTER_EFFORT", "low"),
+    ),
     dataDir: optional(env, "DATA_DIR", "/data"),
     webServePort: optionalPort(env, "WEB_SERVE_PORT", 8080),
     featuresHttpPort: optionalPort(env, "FEATURES_HTTP_PORT", 10001),

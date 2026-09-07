@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import type { Config } from "../config.js";
 import { featurePaths } from "../cursor/testReport.js";
 import { featureSlug } from "./slug.js";
+import { specGateFailureMessage, validateFeatureSpec, type SpecValidation } from "./specValidate.js";
 import type { Feature, FeatureAttachment } from "./store.js";
 
 export function gameSpecPath(config: Config, feature: Feature): string {
@@ -13,10 +14,22 @@ export function featureAssetDir(slug: string): string {
   return join("assets", "egon", slug);
 }
 
+export function inspectFeatureSpec(config: Config, feature: Feature): SpecValidation {
+  const src = gameSpecPath(config, feature);
+  if (!existsSync(src)) {
+    return { ok: false, problems: [`Planner did not write ${src}`] };
+  }
+  return validateFeatureSpec(readFileSync(src, "utf8"));
+}
+
 export function copyFeatureSpec(config: Config, feature: Feature): void {
   const src = gameSpecPath(config, feature);
   if (!existsSync(src)) {
     throw new Error(`Planner did not write ${src}`);
+  }
+  const inspected = validateFeatureSpec(readFileSync(src, "utf8"));
+  if (!inspected.ok) {
+    throw new Error(specGateFailureMessage(inspected.problems));
   }
   const paths = featurePaths(config.dataDir, feature.id);
   mkdirSync(paths.root, { recursive: true });

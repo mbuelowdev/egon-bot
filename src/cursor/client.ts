@@ -9,13 +9,19 @@ import {
   type SDKUserMessage,
   type SendOptions,
 } from "@cursor/sdk";
-import type { Config } from "../config.js";
+import { cursorModelForRole, type Config } from "../config.js";
 import { recordRunTokens, refreshPresence } from "../discord/presence.js";
 import {
   isAgentCancelRequested,
   setActiveAgentRun,
 } from "./activeRun.js";
-import { beginLiveRunLog, persistRunLog, type AgentLogContext, type LiveRunLog } from "./agentLog.js";
+import {
+  beginLiveRunLog,
+  persistRunLog,
+  type AgentLogContext,
+  type AgentRole,
+  type LiveRunLog,
+} from "./agentLog.js";
 import { logTextForMessage } from "./images.js";
 import { activeRunDurationMs, resetAgentIdle, takeAgentIdleMs } from "./agentIdle.js";
 import {
@@ -35,11 +41,12 @@ export function configureCursorSdk(config: Config): void {
 
 export function localAgentOptions(
   config: Config,
+  role: AgentRole,
   customTools?: Record<string, SDKCustomTool>,
 ) {
   return {
     apiKey: config.cursorApiKey,
-    model: { id: config.cursorModel, params: config.cursorModelParams },
+    model: cursorModelForRole(config, role),
     local: {
       cwd: config.gameRepoDir,
       settingSources: [],

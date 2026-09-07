@@ -1,0 +1,14 @@
+/**
+ * Godot 4 web pitfalls compiled into the implementer prompt.
+ * Never loaded from disk and never feature-specific. Each bullet is a
+ * repeat failure class — do not drop or paraphrase away the names.
+ */
+export const GODOT_WEB_GOTCHAS_PROMPT = [
+  "Godot 4 web gotchas. Each is a repeat failure class. Do not reintroduce them.",
+  "- thread_support=true means SharedArrayBuffer and COOP/COEP. The orchestrator already serves those headers. Do not disable threads to paper over a blank canvas.",
+  "- Guard every JavaScriptBridge call with `OS.has_feature(\"web\")`. Headless CLI is not web; unguarded calls crash `--quit-after`.",
+  "- Never hand-edit `.uid` files. Let `--import` assign them.",
+  "- `class_name` must be globally unique. Reusing a name fails parse or export.",
+  "- No addons. Do not add, enable, or depend on `addons/`.",
+  "- Do not touch `export_presets.cfg`. `ensureWebExportPreset` owns the Web preset.",
+].join("\n");

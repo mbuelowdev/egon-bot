@@ -14,6 +14,7 @@ function testConfig(gameRepoDir: string, dataDir?: string) {
     DISCORD_CHANNEL_ID: "channel",
     DISCORD_GUILD_ID: "guild",
     CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
     GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
     GITHUB_TOKEN: "ghp_test",
     GITHUB_WEBHOOK_SECRET: "whsec",

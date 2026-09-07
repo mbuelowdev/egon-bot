@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { FeatureStore } from "../features/store.js";
-import { agentUserMessage, loadCursorImages, logTextForMessage } from "./images.js";
+import {
+  agentUserMessage,
+  criterionScreenshotAttachments,
+  loadCursorImages,
+  logTextForMessage,
+} from "./images.js";
 import { buildImplementerSendMessage } from "./implementer.js";
 import { buildPlannerSendMessage } from "./planner.js";
 import { featurePaths } from "./testReport.js";
@@ -42,6 +47,21 @@ test("loadCursorImages encodes stored files as base64", () => {
   });
   const images = loadCursorImages(dataDir, feature.id, [attachment]);
   assert.deepEqual(images, [{ data: Buffer.from("png-bytes").toString("base64"), mimeType: "image/png" }]);
+  store.close();
+});
+
+test("loadCursorImages encodes tester screenshots from the screenshots dir", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-cursor-shot-img-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
+  const dir = featurePaths(dataDir, feature.id).screenshotsDir;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "criterion-1.png"), "shot-bytes");
+  writeFileSync(join(dir, "page-viewport.png"), "dump");
+  const shots = criterionScreenshotAttachments(dataDir, feature.id);
+  assert.deepEqual(shots, [{ storedName: "criterion-1.png", mimeType: "image/png" }]);
+  const images = loadCursorImages(dataDir, feature.id, shots);
+  assert.deepEqual(images, [{ data: Buffer.from("shot-bytes").toString("base64"), mimeType: "image/png" }]);
   store.close();
 });
 
@@ -148,6 +168,32 @@ test("implementer pivot follow-up attaches the new image", () => {
   assert.match(followUp.text, /requested a pivot/);
   assert.equal(followUp.images?.length, 1);
   assert.equal(followUp.images?.[0]?.mimeType, "image/png");
+  store.close();
+});
+
+test("implementer fix follow-up attaches tester screenshots", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-impl-fix-img-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
+  const dir = featurePaths(dataDir, feature.id).screenshotsDir;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "criterion-1.png"), "shot-bytes");
+  const followUp = buildImplementerSendMessage({
+    feature,
+    notes: [],
+    attachments: [],
+    dataDir,
+    followUp: "The tester found failures.\n1. [FAIL] sprite at the wrong anchor",
+    followUpAttachments: criterionScreenshotAttachments(dataDir, feature.id),
+  });
+  assert.equal(typeof followUp, "object");
+  if (typeof followUp === "string") {
+    throw new Error("expected images");
+  }
+  assert.match(followUp.text, /wrong anchor/);
+  assert.equal(followUp.images?.length, 1);
+  assert.equal(followUp.images?.[0]?.mimeType, "image/png");
+  assert.equal(followUp.images?.[0]?.data, Buffer.from("shot-bytes").toString("base64"));
   store.close();
 });
 

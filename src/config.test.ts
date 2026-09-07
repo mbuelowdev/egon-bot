@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { catalogUrl, featurePageUrl, githubRepoSlug, githubRepoWebUrl, loadConfig } from "./config.js";
+import {
+  catalogUrl,
+  cursorModelForRole,
+  featurePageUrl,
+  githubRepoSlug,
+  githubRepoWebUrl,
+  loadConfig,
+} from "./config.js";
 
 const validEnv: NodeJS.ProcessEnv = {
   DISCORD_TOKEN: "token",
@@ -8,6 +15,7 @@ const validEnv: NodeJS.ProcessEnv = {
   DISCORD_CHANNEL_ID: "channel",
   DISCORD_GUILD_ID: "guild",
   CURSOR_API_KEY: "cursor",
+  CLAUDE_CODE_OAUTH_TOKEN: "oauth",
   GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
   GITHUB_TOKEN: "ghp_test",
   GITHUB_WEBHOOK_SECRET: "whsec",
@@ -33,6 +41,10 @@ test("loadConfig fails fast when GitHub vars are missing", () => {
     () => loadConfig({ ...validEnv, GAME_REPO_HTTPS_URL: "" }),
     /Missing required environment variable: GAME_REPO_HTTPS_URL/,
   );
+  assert.throws(
+    () => loadConfig({ ...validEnv, CLAUDE_CODE_OAUTH_TOKEN: "" }),
+    /Missing required environment variable: CLAUDE_CODE_OAUTH_TOKEN/,
+  );
 });
 
 test("loadConfig rejects a non-HTTPS game repo URL", () => {
@@ -48,8 +60,23 @@ test("loadConfig applies documented defaults", () => {
   assert.equal(config.gameRepoBranch, "master");
   assert.equal(config.gitAuthorName, "Egon");
   assert.equal(config.gitAuthorEmail, "egon@localhost");
-  assert.equal(config.cursorModel, "grok-4.6");
-  assert.deepEqual(config.cursorModelParams, [{ id: "reasoning", value: "high" }]);
+  assert.equal(config.cursorModelImplementer, "grok-4.6");
+  assert.deepEqual(config.cursorModelImplementerParams, [{ id: "reasoning", value: "high" }]);
+  assert.equal(config.cursorModelTester, "composer-2.5");
+  assert.deepEqual(config.cursorModelTesterParams, [{ id: "reasoning", value: "low" }]);
+  assert.deepEqual(cursorModelForRole(config, "implementer"), {
+    id: "grok-4.6",
+    params: [{ id: "reasoning", value: "high" }],
+  });
+  assert.deepEqual(cursorModelForRole(config, "planner"), {
+    id: "grok-4.6",
+    params: [{ id: "reasoning", value: "high" }],
+  });
+  assert.deepEqual(cursorModelForRole(config, "tester"), {
+    id: "composer-2.5",
+    params: [{ id: "reasoning", value: "low" }],
+  });
+  assert.equal(config.claudeCodeOAuthToken, "oauth");
   assert.equal(config.dataDir, "/data");
   assert.equal(config.webServePort, 8080);
   assert.equal(config.featuresHttpPort, 10001);
@@ -60,6 +87,31 @@ test("loadConfig applies documented defaults", () => {
   assert.equal(config.githubWebhookSecret, "whsec");
   assert.equal(config.gameRepoHttpsUrl, "https://github.com/org/game.git");
   assert.equal(config.gamePublicUrl, "https://lets-vibe-together.mbuelow.dev");
+});
+
+test("loadConfig splits implementer and tester Cursor models and effort", () => {
+  const config = loadConfig({
+    ...validEnv,
+    CURSOR_MODEL_IMPLEMENTER: "composer-2.5",
+    CURSOR_MODEL_IMPLEMENTER_EFFORT: "xhigh",
+    CURSOR_MODEL_TESTER: "grok-4.6",
+    CURSOR_MODEL_TESTER_EFFORT: "medium",
+  });
+  assert.deepEqual(cursorModelForRole(config, "implementer"), {
+    id: "composer-2.5",
+    params: [{ id: "reasoning", value: "xhigh" }],
+  });
+  assert.deepEqual(cursorModelForRole(config, "tester"), {
+    id: "grok-4.6",
+    params: [{ id: "reasoning", value: "medium" }],
+  });
+});
+
+test("loadConfig rejects an unknown Cursor reasoning effort", () => {
+  assert.throws(
+    () => loadConfig({ ...validEnv, CURSOR_MODEL_TESTER_EFFORT: "ultra" }),
+    /Invalid CURSOR_MODEL_TESTER_EFFORT: expected one of none, low, medium, high, xhigh/,
+  );
 });
 
 test("catalogUrl strips trailing slash on FEATURES_PUBLIC_URL", () => {

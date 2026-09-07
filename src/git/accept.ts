@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { Config } from "../config.js";
 import type { FeatureStore } from "../features/store.js";
 import { removeExportDir } from "../godot/export.js";
+import { writeGameMap } from "../godot/gameMap.js";
 import { stopWebServer } from "../godot/serve.js";
 import { bumpVersion, readDeploymentVersion, versionIncreased, writeDeploymentVersion } from "./version.js";
 import { git } from "./workingTree.js";
@@ -58,4 +59,9 @@ export async function cleanupAfterMerge(
   }
   store.markPendingDeployAnnounce(featureId);
   store.releasePipelineLock();
+  try {
+    writeGameMap(config);
+  } catch (error) {
+    console.error("failed to write GAME_MAP.md", error);
+  }
 }

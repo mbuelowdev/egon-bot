@@ -1,19 +1,23 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 COPY tsconfig.json ./
 COPY src ./src
+COPY templates ./templates
+COPY docs/godot-cli.md ./docs/godot-cli.md
 RUN npm ci && npm run build
 
-FROM node:22-bookworm-slim
+# Stock Playwright has no Mesa hardware drivers and silently uses SwiftShader.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
+USER root
 WORKDIR /app
 ENV NODE_ENV=production \
     HOME=/root \
     PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
-    GODOT_VERSION=4.5.2 \
+    GODOT_VERSION=4.7.2 \
     GH_VERSION=2.80.0
 ARG TARGETARCH=amd64
-ARG GODOT_VERSION=4.5.2
+ARG GODOT_VERSION=4.7.2
 ARG GH_VERSION=2.80.0
 
 RUN apt-get update \
@@ -52,6 +56,13 @@ RUN apt-get update \
     libxi6 \
     libxinerama1 \
     libxrandr2 \
+    libgl1-mesa-dri \
+    libglx-mesa0 \
+    libegl-mesa0 \
+    libgbm1 \
+    libvulkan1 \
+    mesa-vulkan-drivers \
+    mesa-va-drivers \
   && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
   && rm -rf /var/lib/apt/lists/*
 
@@ -85,7 +96,7 @@ RUN set -eux; \
   rm -rf /tmp/gh.tgz "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}"; \
   gh --version
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev \
   && npx playwright-core install --with-deps --no-shell chromium \
   && rm -rf /var/lib/apt/lists/*

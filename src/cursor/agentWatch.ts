@@ -8,6 +8,8 @@ export const AGENT_HEARTBEAT_MS = 60_000;
 export const AGENT_STUCK_TOOL_MS = 3 * 60_000;
 /** No stream events at all (including thinking). */
 export const AGENT_STUCK_SILENT_MS = 10 * 60_000;
+/** Fable xhigh thinking can stay quiet longer than implementer/tester runs. */
+export const PLANNER_STUCK_SILENT_MS = 30 * 60_000;
 /** Cancel a silent run so the pipeline is not blocked forever. */
 export const AGENT_STUCK_CANCEL_MS = 60 * 60_000;
 export const AGENT_WATCH_INTERVAL_MS = 15_000;
@@ -154,6 +156,7 @@ export function stuckKind(
     lastEventAt: number;
     openToolName?: string;
     openToolAt?: number;
+    role?: AgentRole;
   },
   now: number,
 ): StuckKind | undefined {
@@ -166,7 +169,8 @@ export function stuckKind(
       return "open_tool";
     }
   }
-  if (now - input.lastEventAt >= AGENT_STUCK_SILENT_MS) {
+  const silentMs = input.role === "planner" ? PLANNER_STUCK_SILENT_MS : AGENT_STUCK_SILENT_MS;
+  if (now - input.lastEventAt >= silentMs) {
     return "silent";
   }
   return undefined;
@@ -199,6 +203,7 @@ export function logEntryStuckKind(entry: AgentLogEntry, now: number): StuckKind 
       lastEventAt,
       openToolName: hangingToolName(entry.steps),
       openToolAt: lastEventAt,
+      role: entry.role,
     },
     now,
   );

@@ -15,6 +15,13 @@ export class QuestionWaitCancelledError extends Error {
   }
 }
 
+export class QuestionWaitTimeoutError extends Error {
+  constructor(message = "Timed out waiting for a Discord answer") {
+    super(message);
+    this.name = "QuestionWaitTimeoutError";
+  }
+}
+
 export function waitForQuestionAnswer(
   featureId: number,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
@@ -28,7 +35,7 @@ export function waitForQuestionAnswer(
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       waiters.delete(featureId);
-      reject(new Error("Timed out waiting for a Discord answer"));
+      reject(new QuestionWaitTimeoutError());
     }, timeoutMs);
     waiters.set(featureId, { resolve, reject, timeout });
   });
@@ -55,3 +62,5 @@ export function cancelAllQuestionWaiters(reason = "Pipeline stopped"): void {
 }
 
 export const ASK_DISCORD_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
+/** MCP tool timeout is per round; keep a buffer so unanswered items can take their defaults. */
+export const ASK_DISCORD_MCP_TIMEOUT_MS = ASK_DISCORD_TIMEOUT_MS + 5 * 60 * 1000;

@@ -1,4 +1,8 @@
-import { overallTestLabel, type TestReport } from "./cursor/testReport.js";
+import {
+  criterionStatusLabel,
+  overallTestLabel,
+  type TestReport,
+} from "./cursor/testReport.js";
 import { discordLink } from "./discord/preview.js";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
@@ -61,9 +65,45 @@ export function formatTestingStart(name: string, pageUrl?: string): string {
   return `${PHASE_EMOJI.testing} Testing started for ${formatFeatureName(name, pageUrl)}`;
 }
 
-/** Tester summary: overall PASS/FAIL only. Criteria live on the catalog. */
+function sanitizeCodeCell(text: string): string {
+  return flattenDiscordLine(text).replaceAll("```", "'''");
+}
+
+function formatMonospaceTable(rows: string[][]): string {
+  const columnCount = Math.max(0, ...rows.map((row) => row.length));
+  const widths = Array.from({ length: columnCount }, (_, col) =>
+    Math.max(0, ...rows.map((row) => row[col]?.length ?? 0)),
+  );
+  return rows
+    .map((row) =>
+      row
+        .map((cell, col) => (col === columnCount - 1 ? cell : cell.padEnd(widths[col] ?? 0)))
+        .join("  "),
+    )
+    .join("\n");
+}
+
+/** Tester summary with per-criterion PASS / FAIL / COULD NOT VERIFY. */
 export function formatTestReport(report: TestReport): string {
-  return `${PHASE_EMOJI.testing} **${overallTestLabel(report)}**`;
+  const table = formatMonospaceTable([
+    ["#", "Result", "Criterion"],
+    ...report.criteria.map((item) => [
+      String(item.index),
+      criterionStatusLabel(item.status),
+      sanitizeCodeCell(item.text),
+    ]),
+  ]);
+  return clipDiscordMessage(`${PHASE_EMOJI.testing} **${overallTestLabel(report)}**\n\`\`\`\n${table}\n\`\`\``);
+}
+
+/** Review-ready line after overall tester PASS. */
+export function formatTesterPassOutcome(name: string, unverified: number, pageUrl?: string): string {
+  const feature = formatFeatureName(name, pageUrl);
+  if (unverified > 0) {
+    const noun = unverified === 1 ? "acceptance criterion" : "acceptance criteria";
+    return `${feature} could not verify ${String(unverified)} ${noun}.`;
+  }
+  return `${feature} passed every acceptance criterion.`;
 }
 
 /** Channel line when a PR is ready for review. */
@@ -81,16 +121,10 @@ export type DeployNotice = {
   commitMessage: string;
 };
 
-/** Discord notice matching ssh-docker-deployment's notify-discord.sh. */
-export function formatDeploySuccess(notice: DeployNotice): string {
+/** Discord one-liner when a game deploy succeeds. `title` is already catalog-linked when known. */
+export function formatDeploySuccess(notice: Pick<DeployNotice, "title" | "gameUrl">): string {
   return clipDiscordMessage(
-    [
-      `**✅ Successfully deployed: ${notice.title}**`,
-      `- **Source code**: ${discordLink(notice.repoUrl)}`,
-      `- **Deployed to**: ${discordLink(notice.gameUrl)}`,
-      `- **Metadata**: ${deployMetadata(notice)}`,
-      `- **Commit**: ${flattenDiscordLine(escapeDiscordMarkdown(notice.commitMessage))}`,
-    ].join("\n"),
+    `✅ Successfully deployed feature ${notice.title}. You can [test it live](${discordLink(notice.gameUrl)}) now!`,
   );
 }
 
@@ -105,18 +139,14 @@ export function formatDeployFailure(notice: DeployNotice & { workflowUrl: string
   );
 }
 
-function deployMetadata(notice: DeployNotice): string {
-  const parts: string[] = [];
-  if (notice.version !== undefined && notice.version !== "") {
-    parts.push(`Version ${flattenDiscordLine(escapeDiscordMarkdown(notice.version))}`);
-  }
-  parts.push(`built in ~${String(Math.max(1, notice.durationMinutes))}min.`);
-  return parts.join(", ");
-}
-
 /** Confirmation after /egon-plan. */
 export function formatPlanStarted(name: string, pageUrl?: string): string {
   return `${PHASE_EMOJI.planning} Started planning ${formatFeatureName(name, pageUrl)}. Progress will be posted in this channel.`;
+}
+
+/** Channel line when Claude planning cannot start because of usage limits. */
+export function formatPlannerFallback(name: string, pageUrl?: string): string {
+  return `${PHASE_EMOJI.planning} Claude usage limit while planning ${formatFeatureName(name, pageUrl)}. Falling back to the Cursor planner.`;
 }
 
 /** Channel line when a plan run starts, with collected notes listed below. */

@@ -3,6 +3,11 @@ import { join } from "node:path";
 
 export const MAX_ACCEPTANCE_CRITERIA = 3;
 
+/** Implicit tester check: no Godot SCRIPT ERROR in the browser console. Not a SPEC §7 item. */
+export const IMPLICIT_CONSOLE_CRITERION_INDEX = 0;
+export const MISSING_CONSOLE_CRITERION_LINE =
+  "0. [FAIL] missing implicit console check (no SCRIPT ERROR in console)";
+
 export type CriterionStatus = "PASS" | "FAIL" | "COULD_NOT_VERIFY";
 
 export type CriterionResult = {
@@ -19,12 +24,22 @@ export type TestReport = {
 };
 
 export function parseAcceptanceCriteria(markdown: string): string[] {
-  const heading = markdown.search(/^#{1,3}\s*acceptance criteria\s*$/im);
-  const section = heading === -1 ? markdown : markdown.slice(heading);
+  const headingRe = /^#{1,3}\s*(?:\d+\.\s*)?acceptance criteria\s*$/im;
+  const headingMatch = headingRe.exec(markdown);
+  let section: string;
+  if (headingMatch?.index === undefined) {
+    section = markdown;
+  } else {
+    const hashes = headingMatch[0].match(/^#+/)?.[0] ?? "##";
+    const rest = markdown.slice(headingMatch.index + headingMatch[0].length);
+    const nextHeading = new RegExp(`^#{1,${String(hashes.length)}}\\s+`, "m");
+    const next = nextHeading.exec(rest);
+    section = next?.index === undefined ? rest : rest.slice(0, next.index);
+  }
   const items: string[] = [];
   for (const match of section.matchAll(/^\s*(?:\d+[\.\)]\s+|[-*]\s+\d+[\.\)]\s+|[-*]\s+)(.+?)\s*$/gm)) {
     const line = match[1]?.trim() ?? "";
-    if (line === "" || /^acceptance criteria$/i.test(line)) {
+    if (line === "" || /^(?:\d+\.\s*)?acceptance criteria$/i.test(line)) {
       continue;
     }
     items.push(line);
@@ -62,13 +77,37 @@ export function parseTestReport(raw: string): TestReport {
       text,
     });
   }
-  const hasFailure = criteria.some((item) => item.status === "FAIL");
-  const overallPass = criteria.length > 0 && !hasFailure;
+  const consoleCheck = criteria.find((item) => item.index === IMPLICIT_CONSOLE_CRITERION_INDEX);
+  const hasListedFailure = criteria.some((item) => item.status === "FAIL");
+  const consolePassed = consoleCheck?.status === "PASS";
+  const hasFailure = hasListedFailure || (criteria.length > 0 && !consolePassed);
+  const overallPass = criteria.length > 0 && !hasListedFailure && consolePassed;
   return { overallPass, hasFailure, criteria, raw };
+}
+
+/** Prepend a FAIL for implicit criterion 0 when listed checks exist but the console was never marked. */
+export function ensureImplicitConsoleCriterion(raw: string): string {
+  const report = parseTestReport(raw);
+  if (
+    report.criteria.some((item) => item.index === IMPLICIT_CONSOLE_CRITERION_INDEX) ||
+    report.criteria.length === 0
+  ) {
+    return raw;
+  }
+  return `${MISSING_CONSOLE_CRITERION_LINE}\n${raw}`;
 }
 
 export function overallTestLabel(report: TestReport): "PASS" | "FAIL" {
   return report.overallPass ? "PASS" : "FAIL";
+}
+
+/** Discord / TEST_REPORT.md tag for a parsed status. */
+export function criterionStatusLabel(status: CriterionStatus): "PASS" | "FAIL" | "COULD NOT VERIFY" {
+  return status === "COULD_NOT_VERIFY" ? "COULD NOT VERIFY" : status;
+}
+
+export function unverifiedCount(report: TestReport): number {
+  return report.criteria.filter((item) => item.status === "COULD_NOT_VERIFY").length;
 }
 
 const CRITERION_SCREENSHOT = /^criterion-(\d+)\.(png|jpe?g|webp)$/i;
@@ -107,6 +146,7 @@ export function featurePaths(dataDir: string, featureId: number): {
   reportPath: string;
   specPath: string;
   agentLogPath: string;
+  implementerSummaryPath: string;
 } {
   const root = join(dataDir, "features", String(featureId));
   return {
@@ -116,5 +156,6 @@ export function featurePaths(dataDir: string, featureId: number): {
     reportPath: join(root, "TEST_REPORT.md"),
     specPath: join(root, "SPEC.md"),
     agentLogPath: join(root, "agent-log.jsonl"),
+    implementerSummaryPath: join(root, "IMPLEMENT_SUMMARY.md"),
   };
 }

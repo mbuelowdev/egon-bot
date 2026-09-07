@@ -2,6 +2,14 @@ services:
   egon:
     build: .
     init: true
+    ipc: host
+    shm_size: "2g"
+    # renderD128 only — card1 needs DRM master and fails with amdgpu_get_auth.
+    # After host PCI changes: ls -l /dev/dri/by-path/
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "${RENDER_GID:-109}"
     env_file: .env
     ports:
       - "10001:10001"

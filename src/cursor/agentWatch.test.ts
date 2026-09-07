@@ -5,6 +5,7 @@ import {
   AGENT_STUCK_CANCEL_MS,
   AGENT_STUCK_SILENT_MS,
   AGENT_STUCK_TOOL_MS,
+  PLANNER_STUCK_SILENT_MS,
   applyActivityEvent,
   beginAgentWatch,
   formatStatusActivity,
@@ -75,6 +76,13 @@ test("stuckKind flags a hanging tool before total silence", () => {
   const silent = activity({ lastEventAt: 0 });
   assert.equal(stuckKind(silent, AGENT_STUCK_SILENT_MS - 1), undefined);
   assert.equal(stuckKind(silent, AGENT_STUCK_SILENT_MS), "silent");
+});
+
+test("stuckKind gives the planner a longer silent threshold", () => {
+  const planner = activity({ role: "planner", lastEventAt: 0 });
+  assert.equal(stuckKind(planner, AGENT_STUCK_SILENT_MS), undefined);
+  assert.equal(stuckKind(planner, PLANNER_STUCK_SILENT_MS - 1), undefined);
+  assert.equal(stuckKind(planner, PLANNER_STUCK_SILENT_MS), "silent");
 });
 
 test("stuckKind ignores Discord Q&A idle waits", () => {

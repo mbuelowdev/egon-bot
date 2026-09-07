@@ -1,5 +1,5 @@
 {
-  "version": "0.16.12",
+  "version": "0.16.13",
   "name": "home.mbuelow.dev/egon-bot",
   "tag": "latest",
   "url": "https://egon.mbuelow.dev",
@@ -7,13 +7,14 @@
   "_documentation1": "The arguments are being passed to docker run. They can be empty.",
   "_documentation2": "You can mount custom stuff via the path /deployments/home_mbuelow_dev_egon_bot/.",
   "_documentation3": "0.0.0.0 exposes the service publicly and 172.17.0.1 internally",
+  "_documentation4": "GPU: pass /dev/dri/renderD128 (never card1 — DRM master / amdgpu_get_auth failed). group-add is the host GID of that node. No DISPLAY, X socket, or Xorg. shm-size=2g avoids Chromium tab crashes. After host PCI changes: ls -l /dev/dri/by-path/",
   "deployImages": [
     {
       "name": "home.mbuelow.dev/egon-bot",
       "tag": "latest",
       "argPorts": "-p 172.17.0.1:10001:10001",
       "argVolumes": " -v /var/egon/data:/data -v /opt/whisper/ggml-small.bin:/models/ggml-small.bin:ro",
-      "argExtra": " -e DISCORD_CHANNEL_ID=1546208303598670005 -e DISCORD_APP_ID=1422897079751147642 -e DISCORD_GUILD_ID=234802941540696064 -e DISCORD_TOKEN -e CURSOR_API_KEY -e CURSOR_ADMIN_API_KEY -e GAME_REPO_HTTPS_URL -e GITHUB_TOKEN -e GITHUB_WEBHOOK_SECRET "
+      "argExtra": " --init --ipc=host --shm-size=2g --device=/dev/dri/renderD128 --group-add $(stat -c %g /dev/dri/renderD128) -e DISCORD_CHANNEL_ID=988545992544624661 -e DISCORD_APP_ID=1422897079751147642 -e DISCORD_GUILD_ID=874597259721969694 -e DISCORD_TOKEN -e CURSOR_API_KEY -e CLAUDE_CODE_OAUTH_TOKEN -e CURSOR_ADMIN_API_KEY -e GAME_REPO_HTTPS_URL -e GITHUB_TOKEN -e GITHUB_WEBHOOK_SECRET "
     }
   ]
 }

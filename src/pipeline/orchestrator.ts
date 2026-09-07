@@ -2,12 +2,11 @@ import type { Client } from "discord.js";
 import { featurePageUrl, githubRepoSlug, githubRepoWebUrl, type Config } from "../config.js";
 import { cancelActiveAgentRun, clearAgentCancel } from "../cursor/activeRun.js";
 import { StuckAgentError } from "../cursor/agentWatch.js";
-import { postPlannerQuestion } from "../cursor/askUsersTool.js";
 import { runImplementer } from "../cursor/implementer.js";
-import { runPlanner } from "../cursor/planner.js";
+import { persistImplementerSummary } from "../cursor/implementerSummary.js";
 import { postToChannel, removeAddNoteButton, removeMergeButton } from "../discord/channel.js";
 import { discordLink } from "../discord/preview.js";
-import { cancelAllQuestionWaiters, waitForQuestionAnswer } from "../discord/qaWaiters.js";
+import { cancelAllQuestionWaiters } from "../discord/qaWaiters.js";
 import {
   copyFeatureAssets,
   copyFeatureSpec,
@@ -20,7 +19,7 @@ import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
 import { formatDeployFailure, formatDeploySuccess, formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
-import { cleanupAfterMerge, ensureDeploymentBump, readOriginDeploymentVersion } from "../git/accept.js";
+import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
 import {
   createDraftPr,
   deployRunDurationMinutes,
@@ -40,6 +39,7 @@ import {
 import { stopWebServer } from "../godot/serve.js";
 import type { GithubWebhookEvent } from "../catalog/webhook.js";
 import { isPipelineStopError, shouldHaltPipeline } from "./halt.js";
+import { runFeaturePlanner } from "./runPlanner.js";
 import { runExportTestLoop } from "./testLoop.js";
 
 export type Pipeline = {
@@ -151,32 +151,18 @@ export function createPipeline(ctx: {
           config: ctx.config,
           featureId: feature.id,
         };
-        let followUp: string | undefined;
-        if (options.resume && feature.pendingQuestion) {
-          if (feature.pendingAnswer) {
-            followUp = `The humans answered:\n${feature.pendingAnswer}`;
-            ctx.store.clearPendingQuestion(feature.id);
-          } else {
-            await postPlannerQuestion(deps, feature, feature.pendingQuestion);
-            const answer = await waitForQuestionAnswer(feature.id);
-            ctx.store.clearPendingQuestion(feature.id);
-            followUp = `The humans answered:\n${answer}`;
-          }
-        } else if (options.resume && feature.plannerAgentId) {
-          followUp =
-            "Continue the plan. If the spec is done, end with PLAN_COMPLETE or PLAN_BLOCKED.";
-        }
-
         if (haltIfNeeded()) {
           return;
         }
         const latest = ctx.store.getFeatureById(feature.id) ?? feature;
-        const planned = await runPlanner({
+        const planned = await runFeaturePlanner({
           config: ctx.config,
           store: ctx.store,
           feature: latest,
           deps,
-          followUp,
+          resume: Boolean(options.resume),
+          notify,
+          catalogUrl: featureCatalogUrl(latest),
         });
         feature = ctx.store.getFeatureById(featureId) ?? latest;
         if (haltIfNeeded()) {
@@ -256,6 +242,7 @@ export function createPipeline(ctx: {
           );
           return;
         }
+        persistImplementerSummary(ctx.config.dataDir, feature.id, result.result);
         await pushImplementerWork(feature, `egon: implement ${feature.name}`);
         feature = ctx.store.getFeatureById(featureId) ?? feature;
         if (haltIfNeeded()) {
@@ -359,11 +346,7 @@ export function createPipeline(ctx: {
       event.kind === "deployed"
         ? formatDeploySuccess({
             title,
-            repoUrl: githubRepoWebUrl(ctx.config.gameRepoHttpsUrl),
             gameUrl: ctx.config.gamePublicUrl,
-            version: await readDeployVersion(),
-            durationMinutes: event.durationMinutes,
-            commitMessage: event.commitMessage,
           })
         : formatDeployFailure({
             title,
@@ -382,15 +365,6 @@ export function createPipeline(ctx: {
     }
     if (event.kind === "deployed") {
       ctx.store.markFeaturesDeployAnnounced(pending.map((item) => item.id));
-    }
-  };
-
-  const readDeployVersion = async (): Promise<string | undefined> => {
-    try {
-      return await readOriginDeploymentVersion(ctx.config);
-    } catch (error) {
-      console.error("failed to read deployment.json version", error);
-      return undefined;
     }
   };
 

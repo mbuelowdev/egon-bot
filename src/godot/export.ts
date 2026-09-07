@@ -7,6 +7,44 @@ import { ensureWebExportPreset } from "./preset.js";
 
 const execFileAsync = promisify(execFile);
 
+/** Keep the tail — Godot's actual error is usually last. */
+export const MAX_GODOT_EXPORT_LOG = 32_000;
+
+export class GodotExportError extends Error {
+  readonly output: string;
+
+  constructor(output: string) {
+    const clipped = clipGodotOutput(output);
+    super(`Godot web export failed: ${clipped}`);
+    this.name = "GodotExportError";
+    this.output = clipped;
+  }
+}
+
+export function clipGodotOutput(text: string, maxChars = MAX_GODOT_EXPORT_LOG): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) {
+    return trimmed;
+  }
+  return `…(truncated)\n${trimmed.slice(-maxChars)}`;
+}
+
+export function godotCommandOutput(error: unknown): string {
+  const err = error as { stdout?: string; stderr?: string; message?: string };
+  const stderr = typeof err.stderr === "string" ? err.stderr.trim() : "";
+  const stdout = typeof err.stdout === "string" ? err.stdout.trim() : "";
+  if (stderr !== "" && stdout !== "") {
+    return `${stderr}\n${stdout}`;
+  }
+  if (stderr !== "") {
+    return stderr;
+  }
+  if (stdout !== "") {
+    return stdout;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function exportDebugWeb(gameRepoDir: string, signal?: AbortSignal): Promise<string> {
   ensureWebExportPreset(gameRepoDir);
   rmSync(EXPORT_DIR, { recursive: true, force: true });
@@ -25,8 +63,7 @@ export async function exportDebugWeb(gameRepoDir: string, signal?: AbortSignal):
     if (error instanceof Error && error.name === "AbortError") {
       throw error;
     }
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Godot web export failed: ${detail}`);
+    throw new GodotExportError(godotCommandOutput(error));
   }
   return htmlPath;
 }

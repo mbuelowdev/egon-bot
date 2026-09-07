@@ -1,40 +1,27 @@
 import { Agent, type SDKUserMessage } from "@cursor/sdk";
 import type { Config } from "../config.js";
-import { featureAssetDir } from "../features/artifacts.js";
 import type { Feature, FeatureAttachment, FeatureStore } from "../features/store.js";
-import { featureSlug } from "../features/slug.js";
+import { loadGameDecisionsMarkdown } from "../features/gameDecisions.js";
+import { loadGameMapMarkdown } from "../godot/gameMap.js";
 import { createAskDiscordUsersTool, type AskUsersDeps } from "./askUsersTool.js";
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
-import { agentUserMessage, attachmentPromptLines, loadCursorImages } from "./images.js";
+import { agentUserMessage, loadCursorImages } from "./images.js";
 import { parsePlanMarker, type PlanMarker } from "./planMarker.js";
-import { featurePaths, MAX_ACCEPTANCE_CRITERIA } from "./testReport.js";
+import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "./plannerPrompt.js";
+import { featurePaths } from "./testReport.js";
 
 export function plannerPrompt(
   feature: Feature,
   notes: string[],
   attachmentsDir: string,
   attachments: FeatureAttachment[],
+  gameMap = "",
+  gameDecisions = "",
 ): string {
-  const slug = featureSlug(feature.name);
-  const noteBlock = notes.length > 0 ? notes.map((note) => `- ${note}`).join("\n") : "(none)";
   return [
-    "You are the Egon planner for a Godot web game in this working tree.",
-    `Feature name: ${feature.name}`,
-    `Write ONLY this file: docs/features/${slug}/SPEC.md`,
-    "You are on a feature branch. Do not write any other files. Do not commit or push.",
-    "You may read existing game code to ground the spec.",
+    PLANNER_INSTRUCTIONS,
     "",
-    `The spec MUST include an **Acceptance criteria** section: a numbered list of at most ${String(MAX_ACCEPTANCE_CRITERIA)} concrete, browser-verifiable checks (what to do, and what must be visible or true). Never write more than ${String(MAX_ACCEPTANCE_CRITERIA)} criteria.`,
-    "Each check must be decidable from a still screenshot of durable on-screen state. Do not require capturing a single frame of a fast animation (projectiles, particles, flashes).",
-    "",
-    "Make the spec as specific as possible. Name exact sizes, colors, positions, controls, counts, timing, and behavior so the implementer has nothing to guess.",
-    "Ask questions until everything material is precise and certain. Call ask_discord_users with a clear question and up to 3 numbered choices (1, 2, 3) plus Other. Wait for the answer. Do not invent unspecified details.",
-    "",
-    "Feature notes from Discord:",
-    noteBlock,
-    ...attachmentPromptLines(attachmentsDir, featureAssetDir(slug), attachments.length, false),
-    "",
-    "When finished, end your last message with a one-line marker exactly: PLAN_COMPLETE or PLAN_BLOCKED.",
+    plannerUserPrompt(feature, notes, attachmentsDir, attachments, gameMap, gameDecisions),
   ].join("\n");
 }
 
@@ -44,27 +31,41 @@ export function buildPlannerSendMessage(options: {
   attachments: FeatureAttachment[];
   dataDir: string;
   followUp?: string;
+  answersAppendix?: string;
+  gameMap?: string;
+  gameDecisions?: string;
 }): string | SDKUserMessage {
   if (options.followUp !== undefined) {
     return options.followUp;
   }
   const attachmentsDir = featurePaths(options.dataDir, options.feature.id).attachmentsDir;
-  const text = plannerPrompt(options.feature, options.notes, attachmentsDir, options.attachments);
+  let text = plannerPrompt(
+    options.feature,
+    options.notes,
+    attachmentsDir,
+    options.attachments,
+    options.gameMap ?? "",
+    options.gameDecisions ?? "",
+  );
+  if (options.answersAppendix !== undefined && options.answersAppendix !== "") {
+    text = `${text}\n\n${options.answersAppendix}`;
+  }
   return agentUserMessage(
     text,
     loadCursorImages(options.dataDir, options.feature.id, options.attachments),
   );
 }
 
-export async function runPlanner(options: {
+export async function runCursorPlanner(options: {
   config: Config;
   store: FeatureStore;
   feature: Feature;
   deps: AskUsersDeps;
   followUp?: string;
+  answersAppendix?: string;
 }): Promise<{ marker: PlanMarker | null; text?: string; agentId: string }> {
   const customTools = { ask_discord_users: createAskDiscordUsersTool(options.deps) };
-  const base = localAgentOptions(options.config, customTools);
+  const base = localAgentOptions(options.config, "planner", customTools);
   const createOptions = {
     ...base,
     disallowedTools: ["shell" as const],
@@ -72,6 +73,7 @@ export async function runPlanner(options: {
   const agent = options.feature.plannerAgentId
     ? await Agent.resume(options.feature.plannerAgentId, createOptions)
     : await Agent.create(createOptions);
+  options.store.setPlannerBackend(options.feature.id, "cursor");
   options.store.setPlannerAgentId(options.feature.id, agent.agentId);
   try {
     const message = buildPlannerSendMessage({
@@ -80,6 +82,9 @@ export async function runPlanner(options: {
       attachments: options.store.listAttachments(options.feature.id),
       dataDir: options.config.dataDir,
       followUp: options.followUp,
+      answersAppendix: options.answersAppendix,
+      gameMap: loadGameMapMarkdown(options.config),
+      gameDecisions: loadGameDecisionsMarkdown(options.config),
     });
     const result = await sendAndWait(
       agent,

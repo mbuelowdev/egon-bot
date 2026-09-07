@@ -52,16 +52,34 @@ test("first question answer is persisted once", () => {
   store.close();
 });
 
+test("planner ask usage round-trips and resets on a new plan", () => {
+  const store = openStore();
+  const feature = store.createFeature("dash", "channel-1");
+  assert.equal(feature.plannerAskRounds, 0);
+  assert.equal(feature.plannerAskQuestions, 0);
+  store.addPlannerAskUsage(feature.id, 3);
+  const used = store.getFeatureById(feature.id);
+  assert.equal(used?.plannerAskRounds, 1);
+  assert.equal(used?.plannerAskQuestions, 3);
+  store.startPlanning(feature.id);
+  const planned = store.getFeatureById(feature.id);
+  assert.equal(planned?.plannerAskRounds, 0);
+  assert.equal(planned?.plannerAskQuestions, 0);
+  store.close();
+});
+
 test("agent ids and pending question round-trip", () => {
   const store = openStore();
   const feature = store.createFeature("dash", "channel-1");
   store.setPlannerAgentId(feature.id, "planner-1");
+  store.setPlannerBackend(feature.id, "cursor");
   store.setImplementerAgentId(feature.id, "impl-1");
   store.setPendingQuestion(feature.id, "Which font?");
   store.setAddNoteMessageId(feature.id, "created-msg");
   store.setReviewMessageId(feature.id, "review-msg");
   const loaded = store.getFeatureById(feature.id);
   assert.equal(loaded?.plannerAgentId, "planner-1");
+  assert.equal(loaded?.plannerBackend, "cursor");
   assert.equal(loaded?.implementerAgentId, "impl-1");
   assert.equal(loaded?.pendingQuestion, "Which font?");
   assert.equal(loaded?.addNoteMessageId, "created-msg");
@@ -134,12 +152,22 @@ test("stopPipelineWork during planning returns to collecting and releases the lo
   const feature = store.createFeature("dash", "channel-1");
   store.startPlanning(feature.id);
   store.setPlannerAgentId(feature.id, "planner-1");
+  store.setPlannerBackend(feature.id, "claude");
   store.setPendingQuestion(feature.id, "Which font?");
+  store.setQuestionBatch(feature.id, {
+    questions: [{ question: "Which font?", choices: ["A", "B"], default: "A" }],
+    answers: [],
+    index: 0,
+  });
   const result = store.stopPipelineWork();
   assert.equal(result.feature.state, "collecting");
   assert.equal(result.releasedLock, true);
   assert.equal(result.feature.plannerAgentId, null);
+  assert.equal(result.feature.plannerBackend, null);
   assert.equal(result.feature.pendingQuestion, null);
+  assert.equal(result.feature.pendingQuestionBatch, null);
+  assert.equal(result.feature.plannerAskRounds, 0);
+  assert.equal(result.feature.plannerAskQuestions, 0);
   assert.equal(store.getPipelineLock(), undefined);
   store.close();
 });

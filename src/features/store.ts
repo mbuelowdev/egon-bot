@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { parseGameDecisionTopic, type GameDecisionTopic } from "./gameDecisions.js";
 import {
   assertTransition,
   isFeatureState,
@@ -15,6 +16,21 @@ export class UserFacingError extends Error {
   }
 }
 
+export type PlannerBackend = "claude" | "cursor";
+
+export type PlannerQuestion = {
+  question: string;
+  choices: string[];
+  default: string;
+  topic?: GameDecisionTopic;
+};
+
+export type QuestionBatch = {
+  questions: PlannerQuestion[];
+  answers: string[];
+  index: number;
+};
+
 export type Feature = {
   id: number;
   name: string;
@@ -25,9 +41,13 @@ export type Feature = {
   reviewMessageId: string | null;
   answerMessageId: string | null;
   plannerAgentId: string | null;
+  plannerBackend: PlannerBackend | null;
   implementerAgentId: string | null;
   pendingQuestion: string | null;
   pendingAnswer: string | null;
+  pendingQuestionBatch: QuestionBatch | null;
+  plannerAskRounds: number;
+  plannerAskQuestions: number;
   githubBranch: string | null;
   githubPrNumber: number | null;
   githubPrUrl: string | null;
@@ -62,9 +82,13 @@ type FeatureRow = {
   review_message_id: string | null;
   answer_message_id: string | null;
   planner_agent_id: string | null;
+  planner_backend: string | null;
   implementer_agent_id: string | null;
   pending_question: string | null;
   pending_answer: string | null;
+  pending_question_batch: string | null;
+  planner_ask_rounds: number | bigint | null;
+  planner_ask_questions: number | bigint | null;
   github_branch: string | null;
   github_pr_number: number | bigint | null;
   github_pr_url: string | null;
@@ -75,6 +99,62 @@ type FeatureRow = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function parsePlannerBackend(value: string | null): PlannerBackend | null {
+  if (value === "claude" || value === "cursor") {
+    return value;
+  }
+  return null;
+}
+
+function parseQuestionBatch(raw: string | null): QuestionBatch | null {
+  if (raw === null || raw.trim() === "") {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const rec = parsed as Record<string, unknown>;
+    if (!Array.isArray(rec.questions) || !Array.isArray(rec.answers) || typeof rec.index !== "number") {
+      return null;
+    }
+    const questions: PlannerQuestion[] = [];
+    for (const item of rec.questions) {
+      if (item === null || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+      const q = item as Record<string, unknown>;
+      if (typeof q.question !== "string") {
+        return null;
+      }
+      const choices: string[] = [];
+      if (Array.isArray(q.choices)) {
+        for (const choice of q.choices) {
+          if (typeof choice === "string" && choice.trim() !== "") {
+            choices.push(choice);
+          }
+        }
+      }
+      const topic = parseGameDecisionTopic(q.topic);
+      questions.push({
+        question: q.question,
+        choices,
+        default: typeof q.default === "string" ? q.default : "",
+        ...(topic ? { topic } : {}),
+      });
+    }
+    const answers = rec.answers.filter((item): item is string => typeof item === "string");
+    const index = Math.max(0, Math.floor(rec.index));
+    if (questions.length === 0) {
+      return null;
+    }
+    return { questions, answers, index };
+  } catch {
+    return null;
+  }
 }
 
 function mapFeature(row: FeatureRow): Feature {
@@ -91,9 +171,13 @@ function mapFeature(row: FeatureRow): Feature {
     reviewMessageId: row.review_message_id,
     answerMessageId: row.answer_message_id,
     plannerAgentId: row.planner_agent_id,
+    plannerBackend: parsePlannerBackend(row.planner_backend),
     implementerAgentId: row.implementer_agent_id,
     pendingQuestion: row.pending_question,
     pendingAnswer: row.pending_answer,
+    pendingQuestionBatch: parseQuestionBatch(row.pending_question_batch),
+    plannerAskRounds: Number(row.planner_ask_rounds ?? 0),
+    plannerAskQuestions: Number(row.planner_ask_questions ?? 0),
     githubBranch: row.github_branch,
     githubPrNumber:
       row.github_pr_number === null || row.github_pr_number === undefined
@@ -428,7 +512,11 @@ export class FeatureStore {
         .prepare("INSERT INTO pipeline_lock (id, feature_id, locked_at) VALUES (1, ?, ?)")
         .run(featureId, updatedAt);
       this.db
-        .prepare("UPDATE features SET state = 'planning', updated_at = ? WHERE id = ?")
+        .prepare(
+          `UPDATE features
+           SET state = 'planning', planner_ask_rounds = 0, planner_ask_questions = 0, updated_at = ?
+           WHERE id = ?`,
+        )
         .run(updatedAt, featureId);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -470,6 +558,7 @@ export class FeatureStore {
       );
     }
     this.clearPendingQuestion(lock.feature.id);
+    this.setQuestionBatch(lock.feature.id, null);
     const next: FeatureState = lock.feature.githubPrNumber === null ? "collecting" : "awaiting_review";
     assertTransition(lock.feature.state, next);
     const updatedAt = nowIso();
@@ -479,8 +568,9 @@ export class FeatureStore {
         this.db
           .prepare(
             `UPDATE features
-             SET state = ?, planner_agent_id = NULL, pending_question = NULL,
-                 pending_answer = NULL, updated_at = ?
+             SET state = ?, planner_agent_id = NULL, planner_backend = NULL, pending_question = NULL,
+                 pending_answer = NULL, pending_question_batch = NULL, planner_ask_rounds = 0,
+                 planner_ask_questions = 0, updated_at = ?
              WHERE id = ?`,
           )
           .run(next, updatedAt, lock.feature.id);
@@ -531,11 +621,39 @@ export class FeatureStore {
       .run(ids.messageId ?? null, ids.threadId ?? null, nowIso(), featureId);
   }
 
-  setPlannerAgentId(featureId: number, agentId: string): void {
+  setPlannerAgentId(featureId: number, agentId: string | null): void {
     this.requireFeature(featureId);
     this.db
       .prepare("UPDATE features SET planner_agent_id = ?, updated_at = ? WHERE id = ?")
       .run(agentId, nowIso(), featureId);
+  }
+
+  setPlannerBackend(featureId: number, backend: PlannerBackend | null): void {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET planner_backend = ?, updated_at = ? WHERE id = ?")
+      .run(backend, nowIso(), featureId);
+  }
+
+  setQuestionBatch(featureId: number, batch: QuestionBatch | null): void {
+    this.requireFeature(featureId);
+    this.db
+      .prepare("UPDATE features SET pending_question_batch = ?, updated_at = ? WHERE id = ?")
+      .run(batch === null ? null : JSON.stringify(batch), nowIso(), featureId);
+  }
+
+  addPlannerAskUsage(featureId: number, questionCount: number): void {
+    this.requireFeature(featureId);
+    const questions = Number.isFinite(questionCount) ? Math.max(0, Math.floor(questionCount)) : 0;
+    this.db
+      .prepare(
+        `UPDATE features
+         SET planner_ask_rounds = planner_ask_rounds + 1,
+             planner_ask_questions = planner_ask_questions + ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(questions, nowIso(), featureId);
   }
 
   setImplementerAgentId(featureId: number, agentId: string): void {
@@ -733,9 +851,13 @@ export class FeatureStore {
       );
     `);
     this.ensureColumn("features", "planner_agent_id", "TEXT");
+    this.ensureColumn("features", "planner_backend", "TEXT");
     this.ensureColumn("features", "implementer_agent_id", "TEXT");
     this.ensureColumn("features", "pending_question", "TEXT");
     this.ensureColumn("features", "pending_answer", "TEXT");
+    this.ensureColumn("features", "pending_question_batch", "TEXT");
+    this.ensureColumn("features", "planner_ask_rounds", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("features", "planner_ask_questions", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("features", "github_branch", "TEXT");
     this.ensureColumn("features", "github_pr_number", "INTEGER");
     this.ensureColumn("features", "github_pr_url", "TEXT");

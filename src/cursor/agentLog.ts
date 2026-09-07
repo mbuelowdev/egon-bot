@@ -376,7 +376,7 @@ async function hydrateAgent(
 
 async function hydrateFromSdk(config: Config, feature: Feature): Promise<AgentLogEntry[]> {
   const jobs: Array<Promise<AgentLogEntry[]>> = [];
-  if (feature.plannerAgentId) {
+  if (feature.plannerAgentId && feature.plannerBackend !== "claude") {
     jobs.push(hydrateAgent(config, feature.plannerAgentId, "planner"));
   }
   if (feature.implementerAgentId) {
@@ -411,7 +411,7 @@ type ConversationRun = {
 
 export async function persistRunLog(
   log: AgentLogContext,
-  agent: SDKAgent,
+  agent: { agentId: string },
   userMessage: string,
   run: ConversationRun | undefined,
   outcome: { status: string; result?: string; errorMessage?: string },
@@ -473,7 +473,7 @@ export type LiveRunLog = {
 /** Write the prompt immediately, then fold stream events so a catalog refresh sees in-flight output. */
 export function beginLiveRunLog(
   log: AgentLogContext,
-  agent: SDKAgent,
+  agent: { agentId: string },
   userMessage: string,
   runId: string,
 ): LiveRunLog {

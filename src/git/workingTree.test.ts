@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../config.js";
-import { checkoutDefaultBranch, commitAndPush, createFeatureBranch, discardUncommittedWork } from "./workingTree.js";
+import { checkoutDefaultBranch, commitAndPush, createFeatureBranch, discardUncommittedWork, featureBranchDiff, FEATURE_DIFF_MAX_CHARS, truncateForPrompt } from "./workingTree.js";
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -34,6 +34,7 @@ function testConfig(gameRepoDir: string) {
     DISCORD_CHANNEL_ID: "channel",
     DISCORD_GUILD_ID: "guild",
     CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
     GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
     GITHUB_TOKEN: "ghp_test",
     GITHUB_WEBHOOK_SECRET: "whsec",
@@ -92,4 +93,34 @@ test("discardUncommittedWork drops tracked and untracked edits", async () => {
   await discardUncommittedWork(config);
   assert.equal(git(work, ["status", "--porcelain"]), "");
   assert.equal(git(work, ["show", "HEAD:README.md"]), "game");
+});
+
+test("featureBranchDiff returns committed feature work vs origin/master", async () => {
+  const { work } = initBareAndClone();
+  const config = testConfig(work);
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
+  mkdirSync(join(work, "scripts"), { recursive: true });
+  writeFileSync(join(work, "scripts", "player.gd"), "extends Node\n");
+  assert.equal(await commitAndPush(config, "egon: implement dash"), true);
+  const diff = await featureBranchDiff(config);
+  assert.match(diff, /player\.gd/);
+  assert.match(diff, /extends Node/);
+  assert.doesNotMatch(diff, /Uncommitted/);
+});
+
+test("featureBranchDiff appends uncommitted edits and truncates", async () => {
+  const { work } = initBareAndClone();
+  const config = testConfig(work);
+  await createFeatureBranch(config, "egon/dash-20260906T173633Z");
+  writeFileSync(join(work, "README.md"), "uncommitted dash notes\n");
+  const diff = await featureBranchDiff(config);
+  assert.match(diff, /Uncommitted/);
+  assert.match(diff, /uncommitted dash notes/);
+  const truncated = await featureBranchDiff(config, 40);
+  assert.match(truncated, /truncated/);
+  assert.ok(truncated.length < 120);
+});
+
+test("truncateForPrompt is a no-op under the cap", () => {
+  assert.equal(truncateForPrompt("abc", FEATURE_DIFF_MAX_CHARS), "abc");
 });

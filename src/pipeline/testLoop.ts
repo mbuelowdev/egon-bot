@@ -1,20 +1,79 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "discord.js";
 import { featurePageUrl, type Config } from "../config.js";
 import { runImplementer } from "../cursor/implementer.js";
-import { featurePaths, listCriterionScreenshots, type TestReport } from "../cursor/testReport.js";
+import { criterionScreenshotAttachments } from "../cursor/images.js";
+import { loadImplementerSummary, persistImplementerSummary } from "../cursor/implementerSummary.js";
+import {
+  featurePaths,
+  listCriterionScreenshots,
+  unverifiedCount,
+  type TestReport,
+} from "../cursor/testReport.js";
 import { runTester } from "../cursor/tester.js";
 import { postFiles, postToChannel, removeMergeButton } from "../discord/channel.js";
 import { mergeButtonRow } from "../discord/mergeButton.js";
 import type { Feature, FeatureStore } from "../features/store.js";
-import { formatFeatureName, formatReviewReady, formatTestReport, formatTestingStart } from "../format.js";
+import {
+  formatFeatureName,
+  formatReviewReady,
+  formatTesterPassOutcome,
+  formatTestReport,
+  formatTestingStart,
+} from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
-import { exportDebugWeb } from "../godot/export.js";
+import { exportDebugWeb, GodotExportError } from "../godot/export.js";
 import { serveExportDir } from "../godot/serve.js";
-import { shouldHaltPipeline } from "./halt.js";
+import { isPipelineStopError, shouldHaltPipeline } from "./halt.js";
 
 export const MAX_TEST_CYCLES = 3;
+
+/** Resume the same implementer through this many test cycles; later fixes start a fresh agent. */
+export const FRESH_IMPLEMENTER_AFTER_CYCLE = 2;
+
+export const EXPORT_FAILURE_HEADING = "# Godot web export failed";
+
+export function formatExportFailureReport(detail: string): string {
+  const body = detail.trim() === "" ? "(no Godot output)" : detail.trim();
+  return `${EXPORT_FAILURE_HEADING}\n\n${body}\n`;
+}
+
+export function isExportFailureReport(text: string): boolean {
+  return text.startsWith(EXPORT_FAILURE_HEADING);
+}
+
+function exportFailureDetail(error: unknown): string {
+  if (error instanceof GodotExportError) {
+    return error.output;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function fixFollowUp(reportText: string, screenshotNames: string[] = []): string {
+  if (isExportFailureReport(reportText)) {
+    return [
+      "Godot web export failed. Fix the export error below so headless --export-debug Web succeeds. Do not commit or push.",
+      "Re-run the Godot CLI checks (import, parse-check, smoke-run, grep the log) after the fix.",
+      "",
+      reportText,
+    ].join("\n");
+  }
+  const shotLine =
+    screenshotNames.length > 0
+      ? `Criterion screenshots are attached as vision (${screenshotNames.join(", ")}). Use them as evidence of the failure.`
+      : undefined;
+  return [
+    "The tester found failures. Fix only [FAIL] items. Do not commit or push.",
+    "[COULD NOT VERIFY] means the tester could not complete the check, not that the game is wrong.",
+    shotLine,
+    "Re-run the Godot CLI checks (import, parse-check, smoke-run, grep the log) after the fix.",
+    "",
+    reportText,
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
+}
 
 async function notifyReadyForReview(
   ctx: {
@@ -55,7 +114,15 @@ export async function runExportTestLoop(ctx: {
   featureId: number;
   signal?: AbortSignal;
   onFixCommit?: (feature: Feature) => Promise<void>;
+  exportWeb?: (gameRepoDir: string, signal?: AbortSignal) => Promise<string>;
+  serve?: (dir: string, port: number) => Promise<void>;
+  implementer?: typeof runImplementer;
+  tester?: typeof runTester;
 }): Promise<void> {
+  const exportWeb = ctx.exportWeb ?? exportDebugWeb;
+  const serve = ctx.serve ?? serveExportDir;
+  const implementer = ctx.implementer ?? runImplementer;
+  const tester = ctx.tester ?? runTester;
   const haltIfNeeded = (feature: Feature): boolean =>
     Boolean(ctx.signal?.aborted) || shouldHaltPipeline(feature);
 
@@ -74,17 +141,19 @@ export async function runExportTestLoop(ctx: {
       const reportText = existsSync(paths.reportPath)
         ? readFileSync(paths.reportPath, "utf8")
         : "Tester reported FAIL with no TEST_REPORT.md";
-      const result = await runImplementer({
+      const followUpAttachments = isExportFailureReport(reportText)
+        ? []
+        : criterionScreenshotAttachments(ctx.config.dataDir, feature.id);
+      const result = await implementer({
         config: ctx.config,
         store: ctx.store,
         feature,
-        followUp: [
-          "The tester found failures. Fix only [FAIL] items. Do not commit or push.",
-          "[COULD NOT VERIFY] means the tester could not complete the check, not that the game is wrong.",
-          "Keep or bump the version field in deployment.json.",
-          "",
+        followUp: fixFollowUp(
           reportText,
-        ].join("\n"),
+          followUpAttachments.map((shot) => shot.storedName),
+        ),
+        followUpAttachments,
+        fresh: attempt > FRESH_IMPLEMENTER_AFTER_CYCLE,
       });
       feature = ctx.store.getFeatureById(feature.id) ?? feature;
       if (haltIfNeeded(feature)) {
@@ -93,6 +162,7 @@ export async function runExportTestLoop(ctx: {
       if (result.status !== "finished") {
         throw new Error(result.errorMessage ?? "Implementer failed during fix loop");
       }
+      persistImplementerSummary(ctx.config.dataDir, feature.id, result.result);
       if (ctx.onFixCommit) {
         await ctx.onFixCommit(feature);
       }
@@ -111,8 +181,30 @@ export async function runExportTestLoop(ctx: {
       throw new Error(`Cannot export/test from state ${feature.state}`);
     }
 
-    await exportDebugWeb(ctx.config.gameRepoDir, ctx.signal);
-    await serveExportDir(EXPORT_DIR, ctx.config.webServePort);
+    try {
+      await exportWeb(ctx.config.gameRepoDir, ctx.signal);
+    } catch (error) {
+      if (isPipelineStopError(error)) {
+        throw error;
+      }
+      const paths = featurePaths(ctx.config.dataDir, feature.id);
+      mkdirSync(paths.root, { recursive: true });
+      writeFileSync(paths.reportPath, formatExportFailureReport(exportFailureDetail(error)));
+      if (attempt === MAX_TEST_CYCLES) {
+        ctx.store.transition(feature.id, "awaiting_review");
+        await notifyReadyForReview(
+          ctx,
+          feature,
+          `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} web export still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
+          "Or /egon-pivot to continue.",
+        );
+        return;
+      }
+      ctx.store.transition(feature.id, "fixing");
+      continue;
+    }
+
+    await serve(EXPORT_DIR, ctx.config.webServePort);
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
     if (haltIfNeeded(feature)) {
       return;
@@ -132,7 +224,11 @@ export async function runExportTestLoop(ctx: {
       announcedTesting = true;
     }
     const latest = ctx.store.getFeatureById(feature.id) ?? feature;
-    const report = await runTester({ config: ctx.config, feature: latest });
+    const report = await tester({
+      config: ctx.config,
+      feature: latest,
+      implementerSummary: loadImplementerSummary(ctx.config.dataDir, latest.id),
+    });
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
     if (haltIfNeeded(feature)) {
       return;
@@ -149,7 +245,11 @@ export async function runExportTestLoop(ctx: {
       await notifyReadyForReview(
         ctx,
         feature,
-        `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} passed every acceptance criterion.`,
+        formatTesterPassOutcome(
+          feature.name,
+          unverifiedCount(report),
+          featurePageUrl(ctx.config, feature.name),
+        ),
       );
       return;
     }

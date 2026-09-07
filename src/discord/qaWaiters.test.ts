@@ -9,6 +9,11 @@ test("first waiter receives the delivered answer", async () => {
   assert.equal(deliverQuestionAnswer(1, "late"), false);
 });
 
+test("question wait times out with QuestionWaitTimeoutError", async () => {
+  const pending = waitForQuestionAnswer(3, 20);
+  await assert.rejects(pending, { name: "QuestionWaitTimeoutError" });
+});
+
 test("cancelAllQuestionWaiters rejects the pending waiter", async () => {
   const pending = waitForQuestionAnswer(2, 1000);
   cancelAllQuestionWaiters();

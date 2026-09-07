@@ -10,8 +10,10 @@ import {
   formatNoteAdded,
   formatPivoting,
   formatPlanStarted,
+  formatPlannerFallback,
   formatPlanningStart,
   formatReviewReady,
+  formatTesterPassOutcome,
   formatTestReport,
   formatTestingStart,
   formatTokenCount,
@@ -50,6 +52,13 @@ test("formatPlanStarted prefixes the planning emoji", () => {
   assert.equal(
     formatPlanStarted("Dash HUD", "https://egon.example/features/dash-hud"),
     `${PHASE_EMOJI.planning} Started planning [**Dash HUD**](<https://egon.example/features/dash-hud>). Progress will be posted in this channel.`,
+  );
+});
+
+test("formatPlannerFallback names the Cursor fallback", () => {
+  assert.equal(
+    formatPlannerFallback("Dash HUD"),
+    `${PHASE_EMOJI.planning} Claude usage limit while planning **Dash HUD**. Falling back to the Cursor planner.`,
   );
 });
 
@@ -110,7 +119,7 @@ test("formatTestingStart puts the catalog link on the feature name", () => {
   );
 });
 
-test("formatTestReport posts overall PASS without criteria", () => {
+test("formatTestReport prefixes the testing emoji and aligns a monospace table", () => {
   const text = formatTestReport({
     overallPass: true,
     hasFailure: false,
@@ -120,27 +129,78 @@ test("formatTestReport posts overall PASS without criteria", () => {
     ],
     raw: "",
   });
-  assert.equal(text, `${PHASE_EMOJI.testing} **PASS**`);
+  assert.equal(
+    text,
+    [
+      `${PHASE_EMOJI.testing} **PASS**`,
+      "```",
+      "#  Result  Criterion",
+      "1  PASS    canvas visible",
+      "2  PASS    player jumps",
+      "```",
+    ].join("\n"),
+  );
 });
 
-test("formatTestReport posts overall FAIL without criteria", () => {
+test("formatTestReport marks FAIL and flattens criterion text", () => {
   const text = formatTestReport({
     overallPass: false,
     hasFailure: true,
     criteria: [{ index: 1, status: "FAIL", text: "hud **broken**\nand wrapped" }],
     raw: "",
   });
-  assert.equal(text, `${PHASE_EMOJI.testing} **FAIL**`);
+  assert.equal(
+    text,
+    [
+      `${PHASE_EMOJI.testing} **FAIL**`,
+      "```",
+      "#  Result  Criterion",
+      "1  FAIL    hud **broken** and wrapped",
+      "```",
+    ].join("\n"),
+  );
 });
 
-test("formatTestReport posts overall PASS when a criterion could not be verified", () => {
+test("formatTestReport shows COULD NOT VERIFY in the per-criterion breakdown", () => {
   const text = formatTestReport({
     overallPass: true,
     hasFailure: false,
-    criteria: [{ index: 1, status: "COULD_NOT_VERIFY", text: "projectile too fast" }],
+    criteria: [
+      { index: 0, status: "PASS", text: "no SCRIPT ERROR in console" },
+      { index: 1, status: "COULD_NOT_VERIFY", text: "projectile too fast" },
+    ],
     raw: "",
   });
-  assert.equal(text, `${PHASE_EMOJI.testing} **PASS**`);
+  assert.equal(
+    text,
+    [
+      `${PHASE_EMOJI.testing} **PASS**`,
+      "```",
+      "#  Result            Criterion",
+      "0  PASS              no SCRIPT ERROR in console",
+      "1  COULD NOT VERIFY  projectile too fast",
+      "```",
+    ].join("\n"),
+  );
+});
+
+test("formatTesterPassOutcome names unverified criteria instead of a clean pass", () => {
+  assert.equal(
+    formatTesterPassOutcome("Dash HUD", 0),
+    "**Dash HUD** passed every acceptance criterion.",
+  );
+  assert.equal(
+    formatTesterPassOutcome("Dash HUD", 0, "https://egon.example/features/dash-hud"),
+    "[**Dash HUD**](<https://egon.example/features/dash-hud>) passed every acceptance criterion.",
+  );
+  assert.equal(
+    formatTesterPassOutcome("Dash HUD", 1),
+    "**Dash HUD** could not verify 1 acceptance criterion.",
+  );
+  assert.equal(
+    formatTesterPassOutcome("Dash HUD", 2),
+    "**Dash HUD** could not verify 2 acceptance criteria.",
+  );
 });
 
 test("formatReviewReady links PR to GitHub and the feature name to the catalog", () => {
@@ -208,23 +268,13 @@ test("formatPivoting escapes player text", () => {
   );
 });
 
-test("formatDeploySuccess matches the ssh-docker-deployment notice", () => {
+test("formatDeploySuccess is a one-liner with live play link", () => {
   assert.equal(
     formatDeploySuccess({
-      title: "Dash HUD",
-      repoUrl: "https://github.com/org/game",
+      title: "[**Dash HUD**](<https://egon.example/features/dash-hud>)",
       gameUrl: "https://game.example",
-      version: "0.0.3",
-      durationMinutes: 4,
-      commitMessage: "Bump deployment.json",
     }),
-    [
-      "**✅ Successfully deployed: Dash HUD**",
-      "- **Source code**: <https://github.com/org/game>",
-      "- **Deployed to**: <https://game.example>",
-      "- **Metadata**: Version 0.0.3, built in ~4min.",
-      "- **Commit**: Bump deployment.json",
-    ].join("\n"),
+    "✅ Successfully deployed feature [**Dash HUD**](<https://egon.example/features/dash-hud>). You can [test it live](<https://game.example>) now!",
   );
 });
 
