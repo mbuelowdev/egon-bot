@@ -8,7 +8,7 @@ export const AGENT_HEARTBEAT_MS = 60_000;
 export const AGENT_STUCK_TOOL_MS = 3 * 60_000;
 /** No stream events at all (including thinking). */
 export const AGENT_STUCK_SILENT_MS = 10 * 60_000;
-/** Fable xhigh thinking can stay quiet longer than implementer/tester runs. */
+/** Planner thinking can stay quiet longer than implementer/tester runs. */
 export const PLANNER_STUCK_SILENT_MS = 30 * 60_000;
 /** Cancel a silent run so the pipeline is not blocked forever. */
 export const AGENT_STUCK_CANCEL_MS = 60 * 60_000;

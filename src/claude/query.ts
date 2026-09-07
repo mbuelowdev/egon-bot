@@ -29,8 +29,8 @@ import {
 import { ClaudeUsageLimitError, looksLikeClaudeUsageLimit } from "./usageLimit.js";
 import type { AskUsersDeps } from "../cursor/askQuestions.js";
 
-export const CLAUDE_PLANNER_MODEL = "claude-fable-5-1";
-export const CLAUDE_PLANNER_EFFORT = "xhigh" as const;
+export const CLAUDE_PLANNER_MODEL = "claude-opus-5";
+export const CLAUDE_PLANNER_EFFORT = "high" as const;
 const API_TIMEOUT_MS = "600000";
 
 export type ClaudeQueryOutcome = {

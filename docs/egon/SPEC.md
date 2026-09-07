@@ -9,7 +9,7 @@ This repo is the orchestrator (Discord bot, Cursor SDK runners, Godot export/ser
 Humans talk in one Discord channel, then drive the pipeline with slash commands. Merge happens on GitHub or via the **Merge the feature** Discord button; there is no accept/reject slash command.
 
 1. Collect ideas (`/egon-new-feature`, `/egon-add`, `/egon-add-to-feature`).
-2. `/egon-plan` starts the **planner** (Claude Fable 5.1 via the Agent SDK; Cursor only if Claude cannot start because of Anthropic usage/spend/billing limits). Independent questions go to Discord as one `ask_discord_users` call (at most **2 rounds**, **5 questions total**; each item states a default). The channel still shows them one at a time with answer buttons. The first button or modal response is the answer for that item; unanswered items take the stated default. Global answers (art style, camera, control scheme, palette) accumulate in `docs/GAME_DECISIONS.md` so later features do not re-ask them.
+2. `/egon-plan` starts the **planner** (Claude Opus 5 via the Agent SDK; Cursor only if Claude cannot start because of Anthropic usage/spend/billing limits). Independent questions go to Discord as one `ask_discord_users` call (at most **2 rounds**, **5 questions total**; each item states a default). The channel still shows them one at a time with answer buttons. The first button or modal response is the answer for that item; unanswered items take the stated default. Global answers (art style, camera, control scheme, palette) accumulate in `docs/GAME_DECISIONS.md` so later features do not re-ask them.
 3. Before the planner runs, the bot checks out `origin/$GAME_REPO_BRANCH` and creates branch `egon/{slug}-{YYYYMMDDTHHMMSSZ}` (UTC, seconds; a new feature never reuses an older branch of the same slug). Discord images are copied into `assets/egon/{slug}/`. The planner writes `docs/features/{slug}/SPEC.md` in the game repo. After each answered Q&A round the bot updates `docs/GAME_DECISIONS.md` from global answers. On `PLAN_COMPLETE` the bot validates that spec (required headings, at most 3 numbered criteria, no leftover `{placeholder}`), sending one follow-up if it fails. When the spec passes, the bot commits it (assets, and `docs/GAME_DECISIONS.md` when it changed), pushes the branch, opens a **draft** pull request, copies the spec into `$DATA_DIR/features/{id}/SPEC.md`, and posts the PR URL in Discord.
 4. A local Cursor **implementer** edits the game repo on that branch. The agent does not commit or push. Its last message is a structured summary (files changed, criteria self-verified, deviations) that the bot hands to the tester. After a successful run the bot commits, pushes, and **un-drafts** the PR (spec-only commits stay draft).
 5. A debug **web** export is served locally. A **new** Cursor **tester** agent exercises the spec's acceptance criteria in Chromium and posts screenshots. Tester PASS/FAIL does not change draft status. `COULD NOT VERIFY` counts as overall PASS.
@@ -21,7 +21,7 @@ flowchart TD
   humans[Discord humans]
   bot[Egon bot TypeScript]
   store[SQLite feature store]
-  planner[Claude Fable planner]
+  planner[Claude Opus planner]
   impl[Cursor implementer agent]
   godot[Godot headless export]
   serve[COOP COEP static server]
@@ -78,7 +78,7 @@ Required:
 - `DISCORD_CHANNEL_ID` — the only channel the bot listens in; ignore slash commands and Q&A buttons elsewhere
 - `DISCORD_GUILD_ID` — register guild slash commands here (instant, not global)
 - `CURSOR_API_KEY` — Cursor SDK (implementer, tester, and Cursor planner fallback)
-- `CLAUDE_CODE_OAUTH_TOKEN` — Claude Agent SDK (Fable planner); long-lived token from `claude setup-token`
+- `CLAUDE_CODE_OAUTH_TOKEN` — Claude Agent SDK (Opus planner); long-lived token from `claude setup-token`
 - `GAME_REPO_HTTPS_URL` — git remote of the single game repo (e.g. `https://github.com/org/game.git`)
 - `GITHUB_TOKEN` — fine-grained PAT for `gh` and git HTTPS (clone, fetch, push, create draft PR, mark ready, view on boot catch-up, watch **Build and deploy**). Needs **Contents: Read and write**, **Pull requests: Read and write**, and **Actions: Read** on the game repo.
 - `GITHUB_WEBHOOK_SECRET` — HMAC secret for `POST /github/webhook`
@@ -91,7 +91,7 @@ Optional with defaults:
 - `CURSOR_MODEL_IMPLEMENTER` — default `grok-4.6` (implementer and Cursor planner fallback)
 - `CURSOR_MODEL_IMPLEMENTER_EFFORT` — default `high` (`none` / `low` / `medium` / `high` / `xhigh`)
 - `CURSOR_MODEL_TESTER` — default `composer-2.5` (highest call volume, lowest reasoning demand)
-- `CURSOR_MODEL_TESTER_EFFORT` — default `low` (checklist execution; same allowed values as implementer). Claude planner model and effort are not env: hardcoded `claude-fable-5-1` at `xhigh`.
+- `CURSOR_MODEL_TESTER_EFFORT` — default `low` (checklist execution; same allowed values as implementer). Claude planner model and effort are not env: hardcoded `claude-opus-5` at `high`.
 - `DATA_DIR` — default `/data` (SQLite, Cursor agent store, Claude sessions under `$DATA_DIR/claude`, screenshots, attachments, specs)
 - `WEB_SERVE_PORT` — local Godot export server (`127.0.0.1`)
 - `FEATURES_HTTP_PORT` — public catalog + webhook server, default `10001` (`0.0.0.0`)
@@ -135,13 +135,13 @@ Enable Guilds intent (slash commands, buttons, and modals).
 
 ## Cursor SDK
 
-Always pass `local: { cwd: GAME_REPO_DIR }` and `apiKey` explicitly. Implementer (and Cursor planner fallback) from `CURSOR_MODEL_IMPLEMENTER` (default `grok-4.6`) with `params: [{ id: "reasoning", value: CURSOR_MODEL_IMPLEMENTER_EFFORT }]` (default `high`). Tester from `CURSOR_MODEL_TESTER` (default `composer-2.5`) with independent `CURSOR_MODEL_TESTER_EFFORT` (default `low`). Use `Agent.create` + `send` + `wait`, not one-shot `prompt`. Log `agent.agentId` and `run.id` immediately after `send()`. Stream tool calls to docker logs. If stream events stop, docker heartbeats and `/egon-status` / the catalog show last activity; after **60 minutes** of silence cancel the run (no Discord warning). Planner silent threshold is **30 minutes** because Fable `xhigh` thinking can stay quiet. Waiting on `ask_discord_users` is idle, not stuck. `/egon-retry` cancels a stuck run and continues the pipeline from the current phase. Distinguish `CursorAgentError` (never started) from `result.status === "error"` (ran and failed). Dispose with `await using` / `close()`. Persist local Cursor agent state under `$DATA_DIR/cursor-agents`. Claude planner sessions persist under `$DATA_DIR/claude`.
+Always pass `local: { cwd: GAME_REPO_DIR }` and `apiKey` explicitly. Implementer (and Cursor planner fallback) from `CURSOR_MODEL_IMPLEMENTER` (default `grok-4.6`) with `params: [{ id: "reasoning", value: CURSOR_MODEL_IMPLEMENTER_EFFORT }]` (default `high`). Tester from `CURSOR_MODEL_TESTER` (default `composer-2.5`) with independent `CURSOR_MODEL_TESTER_EFFORT` (default `low`). Use `Agent.create` + `send` + `wait`, not one-shot `prompt`. Log `agent.agentId` and `run.id` immediately after `send()`. Stream tool calls to docker logs. If stream events stop, docker heartbeats and `/egon-status` / the catalog show last activity; after **60 minutes** of silence cancel the run (no Discord warning). Planner silent threshold is **30 minutes** because Opus `high` thinking can stay quiet. Waiting on `ask_discord_users` is idle, not stuck. `/egon-retry` cancels a stuck run and continues the pipeline from the current phase. Distinguish `CursorAgentError` (never started) from `result.status === "error"` (ran and failed). Dispose with `await using` / `close()`. Persist local Cursor agent state under `$DATA_DIR/cursor-agents`. Claude planner sessions persist under `$DATA_DIR/claude`.
 
 Do **not** install the Cursor IDE. The SDK local executor runs in-process.
 
 ### Planner
 
-Primary planner is `@anthropic-ai/claude-agent-sdk` with hardcoded `model: "claude-fable-5-1"` and `effort: "xhigh"` (native 1M context; no `PLANNER_MODEL` env). Thinking is `{ type: "adaptive", display: "summarized" }`. Tools: Read, Glob, Grep, Write, Edit, plus MCP `mcp__egon__ask_discord_users`. No Bash, Agent, or WebSearch. `canUseTool` allows Write/Edit only for `docs/features/{slug}/SPEC.md`. Persist `plannerBackend: "claude" | "cursor"` next to `plannerAgentId` so resume never feeds a Cursor id into `query({ resume })` or a Claude session id into `Agent.resume`.
+Primary planner is `@anthropic-ai/claude-agent-sdk` with hardcoded `model: "claude-opus-5"` and `effort: "high"` (native 1M context; no `PLANNER_MODEL` env). Thinking is `{ type: "adaptive", display: "summarized" }`. Tools: Read, Glob, Grep, Write, Edit, plus MCP `mcp__egon__ask_discord_users`. No Bash, Agent, or WebSearch. `canUseTool` allows Write/Edit only for `docs/features/{slug}/SPEC.md`. Persist `plannerBackend: "claude" | "cursor"` next to `plannerAgentId` so resume never feeds a Cursor id into `query({ resume })` or a Claude session id into `Agent.resume`.
 
 On a **new** plan, try Claude first. Persist `plannerBackend = "claude"` only after the Claude session actually starts. Fall back to the Cursor planner only when Claude **does not start this query** because of Anthropic usage/spend/billing limits (402 `billing_error`, spend-cap 429, specified usage-limit 400). Do **not** fall back on 401/auth, 529 overloaded, transient 429 with `retry-after`, network, `PLAN_BLOCKED`, cancel, or a Claude run that already produced work. If a later `/egon-retry` cannot start that Claude session because of usage limits, start a **fresh** Cursor planner with the full prompt plus any Discord answers already collected. On fallback, post in Discord that Claude hit a usage limit and Cursor is taking over.
 
