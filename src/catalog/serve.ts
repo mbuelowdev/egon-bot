@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, join, resolve } from "node:path";
@@ -11,7 +11,7 @@ import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
 import { loadFeatureAgentLog } from "../cursor/agentLog.js";
 import { groupEvents, readEvents } from "../events/log.js";
-import { eventsPage, renderEventFeatures } from "./events.js";
+import { eventsFragmentEtag, eventsPage, renderEventFeatures } from "./events.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubWebhookEvent, verifyGithubSignature, type GithubWebhookEvent } from "./webhook.js";
 import { handleAssetRequest } from "../assets/routes.js";
@@ -113,11 +113,6 @@ async function syncGithub(options: CatalogServerOptions): Promise<void> {
   } catch (error) {
     console.error("github catch-up before catalog failed", error);
   }
-}
-
-/** Weak-free content ETag so an unchanged poll costs a 304 and no body. */
-export function eventsFragmentEtag(html: string): string {
-  return `"${createHash("sha1").update(html).digest("hex")}"`;
 }
 
 function sendFile(res: ServerResponse, filePath: string): void {

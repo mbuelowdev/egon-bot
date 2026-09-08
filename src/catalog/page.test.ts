@@ -23,6 +23,9 @@ test("catalog pages use a Discord-like dark palette", () => {
   assert.match(html, /--panel: #2b2d31/);
   assert.match(html, /--accent: #5865f2/);
   assert.match(html, /--danger: #ed4245/);
+  assert.match(html, /<div class="kicker">Egon<\/div>/);
+  assert.match(html, /\.kicker \{[\s\S]*color: var\(--accent\);/);
+  assert.doesNotMatch(html, /class="back"/);
   assert.doesNotMatch(html, /--amber:/);
 });
 
@@ -114,9 +117,13 @@ test("collecting, planned, and implemented feature pages include a delete action
   store.close();
   assert.match(collectingHtml, /data-retry-slug="wall-run"/);
   assert.match(collectingHtml, /data-delete-slug="wall-run"/);
+  assert.match(collectingHtml, /<div class="kicker">Egon<\/div>/);
+  assert.match(collectingHtml, /<p class="lede">collecting<\/p>/);
   assert.match(collectingHtml, /class="back" href="\/"/);
   assert.match(collectingHtml, /aria-label="Back to feature log"/);
   assert.match(collectingHtml, /class="back"[^>]*>\s*<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(collectingHtml, /\.back \{\s*display: none;/);
+  assert.match(collectingHtml, /@media \(min-width: 768px\) \{[\s\S]*\.back \{[\s\S]*display: flex;/);
   assert.doesNotMatch(collectingHtml, />←</);
   assert.doesNotMatch(collectingHtml, /title-row/);
   assert.doesNotMatch(collectingHtml, />Feature log</);

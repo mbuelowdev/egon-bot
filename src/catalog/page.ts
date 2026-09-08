@@ -95,28 +95,8 @@ body {
 }
 header, main { max-width: 920px; margin: 0 auto; padding: 2rem 1.25rem; }
 header { padding-bottom: 0; }
-.feature header,
-.feature main {
-  display: grid;
-  grid-template-columns: 3rem minmax(0, 1080px);
-  column-gap: 0.85rem;
-  justify-content: center;
-  max-width: none;
-  width: 100%;
-  margin: 0;
-  padding: 2rem 1.25rem 0;
-}
-.feature header { padding-bottom: 0; }
-.feature header > :not(.back),
-.feature main > * {
-  grid-column: 2;
-}
 .back {
-  grid-column: 1;
-  grid-row: 2;
-  align-self: center;
-  justify-self: end;
-  display: flex;
+  display: none;
   color: var(--header);
   text-decoration: none;
 }
@@ -126,7 +106,38 @@ header { padding-bottom: 0; }
   display: block;
 }
 .back:hover { color: var(--accent-hover); }
-.feature h1 { grid-row: 2; }
+@media (min-width: 768px) {
+  .back {
+    display: flex;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
+    justify-self: end;
+  }
+  body:has(> header .back) > header,
+  body:has(> header .back) > main,
+  .feature header,
+  .feature main {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1080px);
+    column-gap: 0.85rem;
+    justify-content: center;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 2rem 1.25rem 0;
+  }
+  body:has(> header .back) > header,
+  .feature header { padding-bottom: 0; }
+  body:has(> header .back) > header > :not(.back),
+  body:has(> header .back) > main > *,
+  .feature header > :not(.back),
+  .feature main > * {
+    grid-column: 2;
+  }
+  body:has(> header .back) > header h1,
+  .feature h1 { grid-row: 2; }
+}
 .kicker {
   font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
   font-size: 0.75rem;
@@ -920,9 +931,10 @@ export function featurePage(
     feature.name,
     `<div class="feature">
     <header>
-      <div class="kicker">${escapeHtml(feature.state)}</div>
+      <div class="kicker">Egon</div>
       <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>${escapeHtml(feature.name)}</h1>
+      <p class="lede">${escapeHtml(feature.state)}</p>
       <div class="feature-actions">${pr}<a class="log-jump" href="/events#feature-${encodeURIComponent(slug)}">Pipeline events</a>${retryButton(slug)}${deleteButton(slug)}</div>
     </header>
     <main>

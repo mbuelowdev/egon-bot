@@ -1,4 +1,5 @@
 import { escapeHtml } from "../catalog/markdown.js";
+import { BACK_ARROW } from "../catalog/page.js";
 import { ACCEPTED_EXTENSIONS, acceptedListText } from "./allowlist.js";
 import { measuredSummary } from "./manifest.js";
 import { promotedAssetPath, type AssetMeta } from "./store.js";
@@ -50,12 +51,62 @@ body {
 }
 header, main { max-width: 1080px; margin: 0 auto; padding: 2rem 1.25rem; }
 header { padding-bottom: 0; }
-.kicker { color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.75rem; }
-h1 { margin: 0.2rem 0 0.6rem; color: var(--header); font-size: 2rem; }
+.kicker {
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+h1 { font-size: 2.4rem; font-weight: 600; margin: 0.35rem 0 0.5rem; color: var(--header); }
 h2 { color: var(--header); font-size: 1.15rem; margin: 0; }
-.lede { color: var(--muted); margin: 0 0 0.75rem; max-width: 68ch; }
-.links a { color: var(--accent-hover); text-decoration: none; }
+.lede { color: var(--muted); margin: 0 0 0.85rem; max-width: 40rem; }
+.links {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.85rem;
+  margin: 0 0 1.25rem;
+}
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+.links a { text-decoration: none; }
 .links a:hover { text-decoration: underline; }
+.back {
+  display: none;
+  color: var(--header);
+  text-decoration: none;
+}
+.back svg {
+  width: 2.15rem;
+  height: 2.15rem;
+  display: block;
+}
+.back:hover { color: var(--accent-hover); }
+@media (min-width: 768px) {
+  .back {
+    display: flex;
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
+    justify-self: end;
+  }
+  body:has(> header .back) > header,
+  body:has(> header .back) > main {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1080px);
+    column-gap: 0.85rem;
+    justify-content: center;
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 2rem 1.25rem 0;
+  }
+  body:has(> header .back) > header { padding-bottom: 0; }
+  body:has(> header .back) > header > :not(.back),
+  body:has(> header .back) > main > * {
+    grid-column: 2;
+  }
+  body:has(> header .back) > header h1 { grid-row: 2; }
+}
 button {
   font: inherit; color: var(--header); background: var(--elevated);
   border: 1px solid var(--line); border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer;
@@ -749,11 +800,16 @@ export function assetPortalPage(assets: AssetMeta[]): string {
 <body>
 <header>
   <div class="kicker">Egon</div>
+  <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
   <h1>Asset library</h1>
   <p class="lede">Upload the sprites, models, audio, and fonts the game should use, and say what each one is
   for. The bot measures the format and the proportions itself; the description is the part only you can write,
   and an asset without one is invisible to the planner and the implementer.</p>
-  <p class="links"><a href="/">Feature log</a> · <a href="/events">Pipeline events</a></p>
+  <p class="links">
+    <a href="/">Feature log</a>
+    ·
+    <a href="/events">Pipeline events</a>
+  </p>
 </header>
 <main>
   <div id="drop" class="dropzone" role="button" tabindex="0">

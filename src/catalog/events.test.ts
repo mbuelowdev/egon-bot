@@ -4,6 +4,7 @@ import { groupEvents, type EventEntry } from "../events/log.js";
 import {
   EVENTS_POLL_BACKOFF_MS,
   EVENTS_POLL_MS,
+  eventsFragmentEtag,
   eventsPage,
   formatEventClock,
   formatEventDuration,
@@ -34,7 +35,15 @@ test("clock and duration formatting stay compact", () => {
 test("an empty log renders a page that says so instead of a blank list", () => {
   const html = eventsPage([]);
   assert.match(html, /No pipeline events yet/);
+  assert.match(html, /<div class="kicker">Egon<\/div>/);
   assert.match(html, /<h1>Pipeline events<\/h1>/);
+  assert.match(html, /<p class="lede">What the pipeline did, newest feature first\.<\/p>/);
+  assert.match(html, /href="\/"/);
+  assert.match(html, /href="\/assets"/);
+  assert.match(html, /class="back" href="\/"/);
+  assert.match(html, /aria-label="Back to feature log"/);
+  assert.match(html, /\.back \{\s*display: none;/);
+  assert.match(html, /@media \(min-width: 768px\) \{[\s\S]*\.back \{[\s\S]*display: flex;/);
 });
 
 test("each phase becomes a collapsible group with a status dot and step count", () => {
@@ -57,7 +66,10 @@ test("each phase becomes a collapsible group with a status dot and step count", 
   assert.match(html, /1 step/);
   assert.match(html, /FAIL victory screen/);
   // Detail is behind its own disclosure so a stderr dump does not flood the page.
-  assert.match(html, /<details class="event-detail"><summary>details<\/summary><pre>expected 4200, actual 0<\/pre>/);
+  assert.match(
+    html,
+    /<details class="event-detail" data-detail-key="[^"]+"><summary>details<\/summary><pre>expected 4200, actual 0<\/pre>/,
+  );
 });
 
 test("the newest group opens so the interesting part is visible without clicking", () => {
@@ -109,20 +121,26 @@ test("a regression failure names the feature that owns the broken check", () => 
   assert.match(html, /regression from endgame-screen/);
 });
 
-test("groups carry a stable key so a poll can restore what the reader had open", () => {
+test("groups and step disclosures carry stable keys so a poll can restore what the reader had open", () => {
   const entries = [
     event({ phase: "export", at: "2026-09-08T10:00:00.000Z" }),
-    event({ phase: "suite", at: "2026-09-08T10:00:04.000Z" }),
+    event({
+      phase: "suite",
+      at: "2026-09-08T10:00:04.000Z",
+      detail: "expected 4200, actual 0",
+    }),
   ];
   const first = renderEventFeatures(groupEvents(entries));
   const keys = [...first.matchAll(/data-group-key="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(keys, ["1:export:2026-09-08T10:00:00.000Z", "1:suite:2026-09-08T10:00:04.000Z"]);
-  // A later event in the same phase must not change that phase's key, or the reader's
+  assert.match(first, /data-detail-key="1:2026-09-08T10:00:04.000Z:suite:PASS dash moves right"/);
+  // A later event in the same phase must not change those keys, or the reader's
   // open/closed choice would be lost on every poll.
   const later = renderEventFeatures(
     groupEvents([...entries, event({ phase: "suite", step: "another", at: "2026-09-08T10:00:09.000Z" })]),
   );
   assert.ok(later.includes('data-group-key="1:suite:2026-09-08T10:00:04.000Z"'));
+  assert.ok(later.includes('data-detail-key="1:2026-09-08T10:00:04.000Z:suite:PASS dash moves right"'));
 });
 
 test("the fragment is sections only, with none of the page shell", () => {
@@ -134,11 +152,16 @@ test("the fragment is sections only, with none of the page shell", () => {
 });
 
 test("the page ships the poll loop and a live indicator", () => {
-  const html = eventsPage(groupEvents([event()]));
-  assert.match(html, /<div id="event-list">/);
+  const features = groupEvents([event()]);
+  const html = eventsPage(features);
+  const etag = eventsFragmentEtag(renderEventFeatures(features));
+  assert.match(html, /<div id="event-list" data-etag="/);
+  assert.ok(html.includes(`data-etag="${etag.replaceAll('"', "&quot;")}"`));
   assert.match(html, /data-live-status/);
   assert.match(html, /\/events\/fragment/);
   assert.match(html, /If-None-Match/);
+  assert.match(html, /list\.getAttribute\("data-etag"\)/);
+  assert.match(html, /data-detail-key/);
   assert.match(html, new RegExp(`schedule\\(${String(EVENTS_POLL_MS)}\\)`));
   assert.match(html, new RegExp(`schedule\\(${String(EVENTS_POLL_BACKOFF_MS)}\\)`));
   // Placeholders must have been interpolated, not shipped as literal source text.

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { EventEntry, EventGroup, EventLevel, FeatureEvents } from "../events/log.js";
 import { escapeHtml } from "./markdown.js";
 import { BACK_ARROW, layout } from "./page.js";
@@ -41,7 +42,7 @@ const EVENTS_SCRIPT = `<script>
   var status = document.querySelector("[data-live-status]");
   if (!list || !window.fetch) { return; }
 
-  var etag = null;
+  var etag = list.getAttribute("data-etag");
   var timer = null;
   var stopped = false;
 
@@ -50,23 +51,32 @@ const EVENTS_SCRIPT = `<script>
     status.innerHTML = '<span class="dot ' + level + '"></span>' + text;
   };
 
-  // The reader's open/closed choices outrank the server's defaults, so carry them across
-  // a swap. Groups that did not exist before keep whatever the server sent.
+  // Phase groups and per-step evidence disclosures both survive a swap. Anything the
+  // reader had not seen yet keeps whatever the server sent.
+  var disclosureKey = function (el) {
+    var group = el.getAttribute("data-group-key");
+    if (group) { return "g:" + group; }
+    var detail = el.getAttribute("data-detail-key");
+    if (detail) { return "d:" + detail; }
+    return null;
+  };
+  var disclosures = function () {
+    return document.querySelectorAll("details[data-group-key], details[data-detail-key]");
+  };
   var snapshot = function () {
     var open = {};
     var seen = {};
-    groups().forEach(function (el) {
-      var key = el.getAttribute("data-group-key");
+    disclosures().forEach(function (el) {
+      var key = disclosureKey(el);
       if (!key) { return; }
       seen[key] = true;
       if (el.open) { open[key] = true; }
     });
     return { open: open, seen: seen };
   };
-
   var restore = function (state) {
-    groups().forEach(function (el) {
-      var key = el.getAttribute("data-group-key");
+    disclosures().forEach(function (el) {
+      var key = disclosureKey(el);
       if (!key || !state.seen[key]) { return; }
       el.open = Boolean(state.open[key]);
     });
@@ -146,11 +156,20 @@ function dot(level: EventLevel): string {
   return `<span class="dot ${escapeHtml(level)}" aria-hidden="true"></span>`;
 }
 
+/** Weak-free content ETag so an unchanged poll costs a 304 and no body. */
+export function eventsFragmentEtag(html: string): string {
+  return `"${createHash("sha1").update(html).digest("hex")}"`;
+}
+
+function detailKey(event: EventEntry): string {
+  return `${String(event.featureId)}:${event.at}:${event.phase}:${event.step}`;
+}
+
 function renderStep(event: EventEntry): string {
   const detail =
     event.detail === undefined || event.detail === ""
       ? ""
-      : `<details class="event-detail"><summary>details</summary><pre>${escapeHtml(event.detail)}</pre></details>`;
+      : `<details class="event-detail" data-detail-key="${escapeHtml(detailKey(event))}"><summary>details</summary><pre>${escapeHtml(event.detail)}</pre></details>`;
   const duration =
     event.durationMs === undefined
       ? ""
@@ -214,12 +233,19 @@ export function renderEventFeatures(features: FeatureEvents[]): string {
 
 export function eventsPage(features: FeatureEvents[]): string {
   const body = renderEventFeatures(features);
+  const etag = eventsFragmentEtag(body);
   return layout(
     "Egon pipeline events",
     `<header>
+      <div class="kicker">Egon</div>
       <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>Pipeline events</h1>
-      <div class="meta">What the pipeline did, newest feature first.</div>
+      <p class="lede">What the pipeline did, newest feature first.</p>
+      <p class="links">
+        <a href="/">Feature log</a>
+        ·
+        <a href="/assets">Upload assets</a>
+      </p>
     </header>
     <main>
       <div class="events-actions">
@@ -227,7 +253,7 @@ export function eventsPage(features: FeatureEvents[]): string {
         <button type="button" class="log-jump" data-events-collapse>Collapse all</button>
         <span class="live" data-live-status aria-live="polite"><span class="dot info"></span>Live</span>
       </div>
-      <div id="event-list">${body}</div>
+      <div id="event-list" data-etag="${escapeHtml(etag)}">${body}</div>
     </main>
     ${EVENTS_SCRIPT}`,
   );

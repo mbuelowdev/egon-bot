@@ -65,6 +65,13 @@ test("a description that closes a script tag cannot break out of the JSON island
 test("the page carries the drop zone, the undescribed badge, the view toggle, and the dialog", () => {
   const html = assetPortalPage([]);
   assert.match(html, /<title>Egon asset library<\/title>/);
+  assert.match(html, /<div class="kicker">Egon<\/div>/);
+  assert.match(html, /\.kicker \{[\s\S]*color: var\(--accent\);/);
+  assert.match(html, /<h1>Asset library<\/h1>/);
+  assert.match(html, /class="back" href="\/"/);
+  assert.match(html, /aria-label="Back to feature log"/);
+  assert.match(html, /\.back \{\s*display: none;/);
+  assert.match(html, /@media \(min-width: 768px\) \{[\s\S]*\.back \{[\s\S]*display: flex;/);
   assert.match(html, /id="drop" class="dropzone"/);
   assert.match(html, /id="undescribed" class="badge warn" hidden/);
   assert.match(html, /data-view="grid"/);
