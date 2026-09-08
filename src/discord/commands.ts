@@ -9,7 +9,6 @@ import {
 } from "discord.js";
 import { catalogUrl, featurePageUrl, type Config } from "../config.js";
 import { formatStatusActivity, getActiveAgentActivity } from "../cursor/agentWatch.js";
-import { plannedAssetPath } from "../features/artifacts.js";
 import { assertImageContentType, saveFeatureImage } from "../features/saveImage.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { formatFeatureName, formatNoteAdded, formatPlanStarted } from "../format.js";
@@ -70,11 +69,10 @@ export async function addNoteAndReply(
   text: string,
   attachment?: { name: string; url: string; contentType: string | null } | null,
 ): Promise<void> {
-  let assetPath: string | undefined;
   if (attachment) {
     assertImageContentType(attachment.contentType);
     await interaction.deferReply();
-    const saved = await saveFeatureImage({
+    await saveFeatureImage({
       dataDir: config.dataDir,
       store,
       featureId: feature.id,
@@ -84,12 +82,11 @@ export async function addNoteAndReply(
         contentType: attachment.contentType,
       },
     });
-    assetPath = plannedAssetPath(feature.name, store.listAttachments(feature.id), saved.id);
   }
   store.addNote(feature.id, text);
   await replyCommand(
     interaction,
-    formatNoteAdded(feature.name, text, assetPath, featurePageUrl(config, feature.name)),
+    formatNoteAdded(feature.name, text, featurePageUrl(config, feature.name)),
   );
 }
 

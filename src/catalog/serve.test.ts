@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadConfig } from "../config.js";
-import { FeatureStore } from "../features/store.js";
+import { recordEvent } from "../events/log.js";
+import { FeatureStore, UserFacingError } from "../features/store.js";
 import { serveCatalog, stopCatalogServer, CATALOG_DELETE_PASSWORD } from "./serve.js";
 import type { GithubWebhookEvent } from "./webhook.js";
 
@@ -113,7 +114,14 @@ test("catalog lists collecting, planned, and implemented features with spec and 
     assert.match(indexHtml, /Game repo/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game"/);
     assert.match(indexHtml, />Upload assets</);
-    assert.match(indexHtml, /href="https:\/\/discord\.mbuelow\.dev"/);
+    assert.match(indexHtml, /href="\/assets"/);
+    assert.doesNotMatch(indexHtml, /sharing service/);
+
+    const portal = await fetch(`http://127.0.0.1:${String(port)}/assets`);
+    assert.equal(portal.status, 200);
+    const portalHtml = await portal.text();
+    assert.match(portalHtml, /<title>Egon asset library<\/title>/);
+    assert.match(portalHtml, /Drop files here/);
     assert.match(indexHtml, /PR #7/);
     assert.match(indexHtml, /href="https:\/\/github\.com\/org\/game\/pull\/7"/);
     assert.match(indexHtml, /data-delete-slug="wall-run"/);
@@ -417,6 +425,269 @@ test("catalog syncs a merged PR into Implemented before rendering", async () => 
     assert.equal(detail.status, 200);
     assert.equal(synced, 2);
     assert.match(await detail.text(), />accepted</);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("catalog retry uses the shared password and only retries the locked feature", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-retry-"));
+  const store = new FeatureStore(":memory:");
+  const other = store.createFeature("Jump", "channel-1");
+  store.transition(other.id, "planning");
+  store.transition(other.id, "implementing");
+  store.transition(other.id, "accepted");
+  const active = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(active.id);
+  const retried: string[] = [];
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+    retry: async () => {
+      retried.push("ok");
+      return "Retrying Dash HUD from planning.";
+    },
+  });
+  try {
+    const detail = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`);
+    assert.equal(detail.status, 200);
+    const html = await detail.text();
+    assert.match(html, /data-retry-slug="dash-hud"/);
+    assert.match(
+      html,
+      /class="feature-actions">[\s\S]*data-retry-slug="dash-hud"[\s\S]*data-delete-slug="dash-hud"/,
+    );
+
+    const wrong = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "nope" }),
+    });
+    assert.equal(wrong.status, 403);
+    assert.deepEqual(retried, []);
+
+    const notLocked = await fetch(`http://127.0.0.1:${String(port)}/features/jump/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(notLocked.status, 409);
+    assert.match(await notLocked.text(), /not the active pipeline feature/);
+    assert.deepEqual(retried, []);
+
+    const ok = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(await ok.text(), "Retrying Dash HUD from planning.");
+    assert.deepEqual(retried, ["ok"]);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("catalog retry surfaces pipeline UserFacingError", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-retry-err-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+    retry: async () => {
+      throw new UserFacingError("Cannot retry from collecting.");
+    },
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud/retry`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(response.status, 409);
+    assert.equal(await response.text(), "Cannot retry from collecting.");
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("the /events route renders the pipeline log grouped by feature and phase", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-events-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  recordEvent(dataDir, {
+    at: "2026-09-08T10:00:00.000Z",
+    featureId: feature.id,
+    feature: feature.name,
+    slug: "dash-hud",
+    phase: "export",
+    step: "Export succeeded",
+    level: "success",
+  });
+  recordEvent(dataDir, {
+    at: "2026-09-08T10:00:12.000Z",
+    featureId: feature.id,
+    feature: feature.name,
+    slug: "dash-hud",
+    phase: "suite",
+    step: "FAIL victory screen",
+    level: "failure",
+    detail: "expected 4200, actual 0",
+  });
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({
+    store,
+    config,
+    onGithubEvent: async () => {},
+  });
+  try {
+    const res = await fetch(`http://127.0.0.1:${String(port)}/events`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /<h1>Pipeline events<\/h1>/);
+    assert.match(html, /<section class="event-feature" id="feature-dash-hud">/);
+    assert.match(html, /<span class="event-phase">export<\/span>/);
+    assert.match(html, /<span class="event-phase">suite<\/span>/);
+    assert.match(html, /expected 4200, actual 0/);
+    // The trailing-slash form is the same page, not a 404.
+    const slash = await fetch(`http://127.0.0.1:${String(port)}/events/`);
+    assert.equal(slash.status, 200);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("the index and feature pages both link to the pipeline events", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-eventlink-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({ store, config, onGithubEvent: async () => {} });
+  try {
+    const index = await (await fetch(`http://127.0.0.1:${String(port)}/`)).text();
+    assert.match(index, /<a href="\/events">Pipeline events<\/a>/);
+    const detail = await (await fetch(`http://127.0.0.1:${String(port)}/features/dash-hud`)).text();
+    assert.match(detail, /href="\/events#feature-dash-hud"/);
+    // The agent log section stays where it was.
+    assert.match(detail, /id="agent-log"/);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("the /events/fragment route answers 304 for an unchanged log and 200 once it moves", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-fragment-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  const base = {
+    featureId: feature.id,
+    feature: feature.name,
+    slug: "dash-hud",
+    phase: "suite" as const,
+    level: "success" as const,
+  };
+  recordEvent(dataDir, { ...base, at: "2026-09-08T10:00:00.000Z", step: "PASS first check" });
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({ store, config, onGithubEvent: async () => {} });
+  try {
+    const url = `http://127.0.0.1:${String(port)}/events/fragment`;
+    const first = await fetch(url);
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag && etag.length > 2, "fragment must carry an ETag");
+    const html = await first.text();
+    assert.match(html, /PASS first check/);
+    // The fragment is sections only: the poll swaps it into the existing shell.
+    assert.doesNotMatch(html, /<!doctype html>/i);
+
+    const unchanged = await fetch(url, { headers: { "If-None-Match": etag } });
+    assert.equal(unchanged.status, 304);
+    assert.equal(await unchanged.text(), "");
+
+    recordEvent(dataDir, { ...base, at: "2026-09-08T10:00:20.000Z", step: "PASS second check" });
+    const moved = await fetch(url, { headers: { "If-None-Match": etag } });
+    assert.equal(moved.status, 200);
+    assert.notEqual(moved.headers.get("etag"), etag);
+    assert.match(await moved.text(), /PASS second check/);
   } finally {
     await stopCatalogServer();
     store.close();

@@ -1,19 +1,15 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { test } from "node:test";
 import {
   PLAYWRIGHT_CHROMIUM_LAUNCH_ARGS,
+  WEBGL_RENDERER_SOURCE,
   assertHardwareGpuRenderer,
   assertPlaywrightChromiumLaunches,
   ensurePlaywrightChromium,
   playwrightChromiumExecutable,
-  playwrightMcpCli,
-  playwrightMcpConfigFile,
-  playwrightMcpServer,
   type ChromiumHandle,
-} from "./playwrightMcp.js";
-import { TESTER_VIEWPORT_SIZE } from "./testerCapabilities.js";
+} from "./chromium.js";
 
 const RADV_RENDERER =
   "ANGLE (AMD, Vulkan 1.4.318 (AMD Radeon RX 550 / 550 Series (RADV POLARIS12)...), radv)";
@@ -26,29 +22,6 @@ function fakeBrowser(overrides?: Partial<ChromiumHandle>): ChromiumHandle {
   };
 }
 
-test("playwright MCP uses the local CLI, not npx from the game cwd", () => {
-  const screenshotsDir = "/data/features/1/screenshots";
-  const executablePath = "/opt/ms-playwright/chromium-1243/chrome-linux/chrome";
-  const server = playwrightMcpServer({ screenshotsDir, executablePath });
-  assert.equal(server.command, process.execPath);
-  assert.ok("args" in server && server.args);
-  assert.equal(server.args[0], playwrightMcpCli());
-  assert.equal(join(process.cwd(), "node_modules", "@playwright", "mcp", "cli.js"), server.args[0]);
-  assert.ok(!server.args.includes("npx"));
-  assert.ok(!server.args.includes("@playwright/mcp"));
-  assert.ok(server.args.includes("--browser=chromium"));
-  assert.ok(server.args.includes("--headless"));
-  assert.ok(server.args.includes("--no-sandbox"));
-  assert.ok(server.args.includes("--caps=vision"));
-  assert.ok(server.args.includes("--snapshot-mode=none"));
-  assert.ok(server.args.includes(`--viewport-size=${TESTER_VIEWPORT_SIZE}`));
-  assert.equal(TESTER_VIEWPORT_SIZE, "960x540");
-  assert.equal(server.args[server.args.indexOf("--output-dir") + 1], screenshotsDir);
-  assert.equal(server.args[server.args.indexOf("--config") + 1], playwrightMcpConfigFile());
-  assert.equal(server.args[server.args.indexOf("--executable-path") + 1], executablePath);
-  assert.ok("cwd" in server);
-  assert.equal(server.cwd, process.cwd());
-});
 
 test("ensurePlaywrightChromium skips install when the binary is already present", async () => {
   let installs = 0;
@@ -107,11 +80,15 @@ test("chromium launches with ANGLE Vulkan, not SwiftShader", () => {
   ]);
 });
 
-test("playwright MCP config uses the same Chromium launch args", () => {
-  const config = JSON.parse(readFileSync(playwrightMcpConfigFile(), "utf8")) as {
-    browser: { launchOptions: { args: string[] } };
+
+test("WEBGL_RENDERER_SOURCE runs when Playwright evaluates it as an expression", () => {
+  const document = {
+    createElement: () => ({ getContext: () => null }),
   };
-  assert.deepEqual(config.browser.launchOptions.args, [...PLAYWRIGHT_CHROMIUM_LAUNCH_ARGS]);
+  const result = new Function("document", `"use strict"; return ${WEBGL_RENDERER_SOURCE};`)(
+    document,
+  );
+  assert.equal(result, "no-webgl");
 });
 
 test("assertHardwareGpuRenderer accepts RADV ANGLE", () => {

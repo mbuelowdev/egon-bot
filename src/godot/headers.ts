@@ -17,6 +17,7 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".wasm": "application/wasm",
   ".pck": "application/octet-stream",
+  ".webm": "video/webm",
   ".css": "text/css; charset=utf-8",
   ".ico": "image/x-icon",
   ".gz": "application/gzip",

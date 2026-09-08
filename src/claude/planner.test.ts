@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Feature } from "../features/store.js";
 import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "../cursor/plannerPrompt.js";
 import { SPEC_SHEET_TEMPLATE } from "../cursor/specTemplate.js";
-import { TESTER_CAPABILITIES_PROMPT } from "../cursor/testerCapabilities.js";
+import { RUNNER_CAPABILITIES_PROMPT } from "../suite/capabilities.js";
 import { claudePlannerSystemPrompt, claudePlannerUserPrompt } from "./planner.js";
 
 test("claude planner system prompt is identical and omits the spec path", () => {
@@ -11,6 +11,10 @@ test("claude planner system prompt is identical and omits the spec path", () => 
   assert.ok(prompt.startsWith(PLANNER_INSTRUCTIONS));
   assert.doesNotMatch(prompt, /docs\/features\//);
   assert.match(prompt, /Write ONLY the spec file path given in the user message/);
+  assert.match(
+    prompt,
+    /Do not use Bash, subagents, or the web\. A later, separate implementer has shell access/,
+  );
   assert.match(prompt, /ask_discord_users ONCE/);
   assert.match(prompt, /array of every independent question/);
   assert.match(prompt, /Never one question per tool call/);
@@ -23,11 +27,12 @@ test("claude planner system prompt is identical and omits the spec path", () => 
   assert.match(prompt, /GAME_DECISIONS/);
   assert.match(prompt, /treat filled headings/);
   assert.doesNotMatch(prompt, /about 64000 tokens/);
-  assert.ok(prompt.includes(TESTER_CAPABILITIES_PROMPT));
+  assert.ok(prompt.includes(RUNNER_CAPABILITIES_PROMPT));
   assert.ok(prompt.includes(SPEC_SHEET_TEMPLATE));
-  assert.match(prompt, /Section 6 \(Verification hooks\)/);
+  assert.match(prompt, /The Verification hooks section/);
   assert.match(prompt, /window\.__egon\.state\(\)/);
-  assert.match(prompt, /not a pixel guess/);
+  assert.match(prompt, /The Test scenarios section/);
+  assert.match(prompt, /There is no agent in the loop/);
   assert.doesNotMatch(prompt, /decidable from a still screenshot of durable on-screen state/);
   assert.doesNotMatch(prompt, /Feature name:/);
 });

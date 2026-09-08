@@ -1,29 +1,32 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import type { Client } from "discord.js";
 import { featurePageUrl, type Config } from "../config.js";
-import { runImplementer } from "../cursor/implementer.js";
 import { criterionScreenshotAttachments } from "../cursor/images.js";
-import { loadImplementerSummary, persistImplementerSummary } from "../cursor/implementerSummary.js";
+import { runImplementer } from "../cursor/implementer.js";
+import { persistImplementerSummary } from "../cursor/implementerSummary.js";
 import {
   featurePaths,
-  listCriterionScreenshots,
-  unverifiedCount,
+  listDiscordProofPaths,
+  parseTestReport,
   type TestReport,
 } from "../cursor/testReport.js";
-import { runTester } from "../cursor/tester.js";
+import { runScenarioSuite } from "../suite/runner.js";
+import { regressionFailures, renderSuiteReport, type SuiteResult } from "../suite/report.js";
 import { postFiles, postToChannel, removeMergeButton } from "../discord/channel.js";
 import { mergeButtonRow } from "../discord/mergeButton.js";
+import { recordFeatureEvent } from "../events/feature.js";
+import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureStore } from "../features/store.js";
 import {
   formatFeatureName,
   formatReviewReady,
-  formatTesterPassOutcome,
+  formatSuitePassOutcome,
   formatTestReport,
   formatTestingStart,
 } from "../format.js";
 import { EXPORT_DIR } from "../godot/headers.js";
 import { exportDebugWeb, GodotExportError } from "../godot/export.js";
+import { refreshGameMap } from "../godot/gameMap.js";
 import { serveExportDir } from "../godot/serve.js";
 import { isPipelineStopError, shouldHaltPipeline } from "./halt.js";
 
@@ -61,18 +64,35 @@ function fixFollowUp(reportText: string, screenshotNames: string[] = []): string
   }
   const shotLine =
     screenshotNames.length > 0
-      ? `Criterion screenshots are attached as vision (${screenshotNames.join(", ")}). Use them as evidence of the failure.`
+      ? `Check screenshots are attached as vision (${screenshotNames.join(", ")}). Use them as evidence of the failure.`
       : undefined;
   return [
-    "The tester found failures. Fix only [FAIL] items. Do not commit or push.",
-    "[COULD NOT VERIFY] means the tester could not complete the check, not that the game is wrong.",
+    "The scenario suite found failures. Fix only [FAIL] checks. Do not commit or push.",
+    "Each failure names the scenario, the failing step, and expected vs. actual. A check marked `inherited from {slug}` belongs to an already-merged feature: your change broke it, so repair the game or that scenario rather than the check.",
     shotLine,
-    "Re-run the Godot CLI checks (import, parse-check, smoke-run, grep the log) after the fix.",
+    "Re-run the Godot CLI checks (import, parse-check, smoke-run, run affected scenarios, grep the log) after the fix.",
     "",
     reportText,
   ]
     .filter((line) => line !== undefined)
     .join("\n");
+}
+
+/** Persist the suite's report in the shape the fix loop, Discord, and the catalog parse. */
+function recordSuiteResult(config: Config, feature: Feature, result: SuiteResult): TestReport {
+  const paths = featurePaths(config.dataDir, feature.id);
+  mkdirSync(paths.root, { recursive: true });
+  const raw = renderSuiteReport(result);
+  writeFileSync(paths.reportPath, raw, "utf8");
+  const broken = regressionFailures(result);
+  if (broken.length > 0) {
+    console.log(
+      `feature ${String(feature.id)} broke ${String(broken.length)} inherited check(s): ${broken
+        .map((entry) => `${entry.owner}/${entry.name}`)
+        .join(", ")}`,
+    );
+  }
+  return parseTestReport(raw);
 }
 
 async function notifyReadyForReview(
@@ -106,6 +126,14 @@ async function notifyReadyForReview(
   }
 }
 
+type EventArgs = {
+  phase: Parameters<typeof recordFeatureEvent>[0]["phase"];
+  step: string;
+  level?: Parameters<typeof recordFeatureEvent>[0]["level"];
+  detail?: string;
+  durationMs?: number;
+};
+
 export async function runExportTestLoop(ctx: {
   client: Client;
   store: FeatureStore;
@@ -117,14 +145,17 @@ export async function runExportTestLoop(ctx: {
   exportWeb?: (gameRepoDir: string, signal?: AbortSignal) => Promise<string>;
   serve?: (dir: string, port: number) => Promise<void>;
   implementer?: typeof runImplementer;
-  tester?: typeof runTester;
+  suite?: typeof runScenarioSuite;
 }): Promise<void> {
   const exportWeb = ctx.exportWeb ?? exportDebugWeb;
   const serve = ctx.serve ?? serveExportDir;
   const implementer = ctx.implementer ?? runImplementer;
-  const tester = ctx.tester ?? runTester;
+  const suite = ctx.suite ?? runScenarioSuite;
   const haltIfNeeded = (feature: Feature): boolean =>
     Boolean(ctx.signal?.aborted) || shouldHaltPipeline(feature);
+  const event = (feature: Feature, args: EventArgs): void => {
+    recordFeatureEvent({ dataDir: ctx.config.dataDir, feature, ...args });
+  };
 
   let announcedTesting = false;
   for (let attempt = 1; attempt <= MAX_TEST_CYCLES; attempt += 1) {
@@ -144,6 +175,13 @@ export async function runExportTestLoop(ctx: {
       const followUpAttachments = isExportFailureReport(reportText)
         ? []
         : criterionScreenshotAttachments(ctx.config.dataDir, feature.id);
+      const fresh = attempt > FRESH_IMPLEMENTER_AFTER_CYCLE;
+      event(feature, {
+        phase: "fix",
+        step: `Fix round ${String(attempt - 1)} — ${fresh ? "fresh implementer" : "same implementer"}`,
+        detail: reportText,
+      });
+      const fixStartedAt = Date.now();
       const result = await implementer({
         config: ctx.config,
         store: ctx.store,
@@ -153,16 +191,30 @@ export async function runExportTestLoop(ctx: {
           followUpAttachments.map((shot) => shot.storedName),
         ),
         followUpAttachments,
-        fresh: attempt > FRESH_IMPLEMENTER_AFTER_CYCLE,
+        fresh,
       });
       feature = ctx.store.getFeatureById(feature.id) ?? feature;
       if (haltIfNeeded(feature)) {
         return;
       }
       if (result.status !== "finished") {
+        event(feature, {
+          phase: "fix",
+          step: `Implementer ${result.status}`,
+          level: "failure",
+          detail: result.errorMessage,
+          durationMs: Date.now() - fixStartedAt,
+        });
         throw new Error(result.errorMessage ?? "Implementer failed during fix loop");
       }
+      event(feature, {
+        phase: "fix",
+        step: "Implementer finished",
+        level: "success",
+        durationMs: Date.now() - fixStartedAt,
+      });
       persistImplementerSummary(ctx.config.dataDir, feature.id, result.result);
+      refreshGameMap(ctx.config);
       if (ctx.onFixCommit) {
         await ctx.onFixCommit(feature);
       }
@@ -181,16 +233,37 @@ export async function runExportTestLoop(ctx: {
       throw new Error(`Cannot export/test from state ${feature.state}`);
     }
 
+    const exportStartedAt = Date.now();
+    event(feature, { phase: "export", step: `Debug web export (cycle ${String(attempt)})` });
     try {
       await exportWeb(ctx.config.gameRepoDir, ctx.signal);
+      event(feature, {
+        phase: "export",
+        step: "Export succeeded",
+        level: "success",
+        durationMs: Date.now() - exportStartedAt,
+      });
     } catch (error) {
       if (isPipelineStopError(error)) {
         throw error;
       }
       const paths = featurePaths(ctx.config.dataDir, feature.id);
       mkdirSync(paths.root, { recursive: true });
-      writeFileSync(paths.reportPath, formatExportFailureReport(exportFailureDetail(error)));
+      const detail = exportFailureDetail(error);
+      writeFileSync(paths.reportPath, formatExportFailureReport(detail));
+      event(feature, {
+        phase: "export",
+        step: "Export failed",
+        level: "failure",
+        detail,
+        durationMs: Date.now() - exportStartedAt,
+      });
       if (attempt === MAX_TEST_CYCLES) {
+        event(feature, {
+          phase: "review",
+          step: `Web export still failing after ${String(MAX_TEST_CYCLES)} cycles — handing to humans`,
+          level: "warning",
+        });
         ctx.store.transition(feature.id, "awaiting_review");
         await notifyReadyForReview(
           ctx,
@@ -224,16 +297,52 @@ export async function runExportTestLoop(ctx: {
       announcedTesting = true;
     }
     const latest = ctx.store.getFeatureById(feature.id) ?? feature;
-    const report = await tester({
-      config: ctx.config,
-      feature: latest,
-      implementerSummary: loadImplementerSummary(ctx.config.dataDir, latest.id),
+    const suiteStartedAt = Date.now();
+    event(latest, { phase: "suite", step: `Scenario suite (cycle ${String(attempt)})` });
+    const suiteResult = await suite({
+      gameRepoDir: ctx.config.gameRepoDir,
+      port: ctx.config.webServePort,
+      slug: featureSlug(latest.name),
+      screenshotsDir: featurePaths(ctx.config.dataDir, latest.id).screenshotsDir,
+    });
+    for (const entry of suiteResult.results) {
+      const scope = entry.inherited ? ` — regression from ${entry.owner}` : "";
+      const step = entry.failedStep === undefined ? "" : ` (step ${String(entry.failedStep)})`;
+      event(latest, {
+        phase: "suite",
+        step: `${entry.ok ? "PASS" : "FAIL"} ${entry.name} [${entry.scenario}]${scope}${step}`,
+        level: entry.ok ? "success" : "failure",
+        ...(entry.failure !== undefined ? { detail: entry.failure } : {}),
+      });
+    }
+    if (suiteResult.scriptErrors.length > 0) {
+      event(latest, {
+        phase: "suite",
+        step: "SCRIPT ERROR in the browser console",
+        level: "failure",
+        detail: suiteResult.scriptErrors.join("\n"),
+      });
+    }
+    if (suiteResult.fatal !== undefined) {
+      event(latest, {
+        phase: "suite",
+        step: "Suite could not run",
+        level: "failure",
+        detail: suiteResult.fatal,
+      });
+    }
+    const report = recordSuiteResult(ctx.config, latest, suiteResult);
+    event(latest, {
+      phase: "suite",
+      step: `Suite ${report.overallPass ? "PASS" : "FAIL"} — ${String(suiteResult.results.length)} checks`,
+      level: report.overallPass ? "success" : "failure",
+      durationMs: Date.now() - suiteStartedAt,
     });
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
     if (haltIfNeeded(feature)) {
       return;
     }
-    await postTesterArtifacts(ctx, latest.id, report);
+    await postSuiteArtifacts(ctx, latest.id, report);
 
     feature = ctx.store.getFeatureById(feature.id) ?? feature;
     if (haltIfNeeded(feature)) {
@@ -241,13 +350,14 @@ export async function runExportTestLoop(ctx: {
     }
 
     if (report.overallPass) {
+      event(feature, { phase: "review", step: "Ready for review", level: "success" });
       ctx.store.transition(feature.id, "awaiting_review");
       await notifyReadyForReview(
         ctx,
         feature,
-        formatTesterPassOutcome(
+        formatSuitePassOutcome(
           feature.name,
-          unverifiedCount(report),
+          suiteResult.results.length,
           featurePageUrl(ctx.config, feature.name),
         ),
       );
@@ -255,11 +365,16 @@ export async function runExportTestLoop(ctx: {
     }
 
     if (attempt === MAX_TEST_CYCLES) {
+      event(feature, {
+        phase: "review",
+        step: `Still failing after ${String(MAX_TEST_CYCLES)} suite cycles — handing to humans`,
+        level: "warning",
+      });
       ctx.store.transition(feature.id, "awaiting_review");
       await notifyReadyForReview(
         ctx,
         feature,
-        `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} still failing after ${String(MAX_TEST_CYCLES)} test cycles.`,
+        `${formatFeatureName(feature.name, featurePageUrl(ctx.config, feature.name))} still failing after ${String(MAX_TEST_CYCLES)} suite cycles.`,
         "Or /egon-pivot to continue.",
       );
       return;
@@ -269,20 +384,18 @@ export async function runExportTestLoop(ctx: {
   }
 }
 
-async function postTesterArtifacts(
+async function postSuiteArtifacts(
   ctx: { client: Client; config: Config; notify: (content: string) => Promise<void> },
   featureId: number,
   report: TestReport,
 ): Promise<void> {
   const paths = featurePaths(ctx.config.dataDir, featureId);
-  const files = existsSync(paths.screenshotsDir)
-    ? listCriterionScreenshots(paths.screenshotsDir).map((name) => join(paths.screenshotsDir, name))
-    : [];
+  const files = listDiscordProofPaths(paths.screenshotsDir);
   const summary = formatTestReport(report);
   try {
     await postFiles(ctx.client, ctx.config.discordChannelId, files, summary);
   } catch (error) {
-    console.error("failed to post tester artifacts", error);
+    console.error("failed to post suite artifacts", error);
     await ctx.notify(summary);
   }
 }

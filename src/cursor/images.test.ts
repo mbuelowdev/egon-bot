@@ -57,6 +57,7 @@ test("loadCursorImages encodes tester screenshots from the screenshots dir", () 
   const dir = featurePaths(dataDir, feature.id).screenshotsDir;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "criterion-1.png"), "shot-bytes");
+  writeFileSync(join(dir, "criterion-1.webm"), "clip-bytes");
   writeFileSync(join(dir, "page-viewport.png"), "dump");
   const shots = criterionScreenshotAttachments(dataDir, feature.id);
   assert.deepEqual(shots, [{ storedName: "criterion-1.png", mimeType: "image/png" }]);
@@ -91,7 +92,8 @@ test("first planner send includes images; follow-ups stay text-only", () => {
   assert.match(first.text, /need a HUD/);
   assert.match(first.text, /1 Discord image is attached/);
   assert.ok(first.text.includes(dir));
-  assert.match(first.text, /assets\/egon\/dash/);
+  assert.match(first.text, /reference material only/);
+  assert.doesNotMatch(first.text, /assets\/egon/);
   assert.equal(first.images?.length, 1);
   assert.equal(first.images?.[0]?.mimeType, "image/png");
   const followUp = buildPlannerSendMessage({
@@ -127,8 +129,9 @@ test("first implementer send includes images; follow-ups stay text-only", () => 
   if (typeof first === "string") {
     throw new Error("expected images");
   }
-  assert.match(first.text, /already in the working tree at/);
-  assert.match(first.text, /assets\/egon\/dash/);
+  assert.match(first.text, /reference material only/);
+  assert.match(first.text, /must not be imported, copied, or referenced by any `res:\/\/` path/);
+  assert.doesNotMatch(first.text, /assets\/egon/);
   assert.equal(first.images?.length, 1);
   const followUp = buildImplementerSendMessage({
     feature,
@@ -137,7 +140,10 @@ test("first implementer send includes images; follow-ups stay text-only", () => 
     dataDir,
     followUp: "Fix the FAIL report.",
   });
-  assert.equal(followUp, "Fix the FAIL report.");
+  // Follow-ups stay a plain string (no images re-sent), but carry the summary reminder.
+  assert.equal(typeof followUp, "string");
+  assert.match(String(followUp), /^Fix the FAIL report\./);
+  assert.match(String(followUp), /Files changed \/ Criteria self-verified \/ Deviations/);
   store.close();
 });
 

@@ -6,7 +6,8 @@
 export const GODOT_WEB_GOTCHAS_PROMPT = [
   "Godot 4 web gotchas. Each is a repeat failure class. Do not reintroduce them.",
   "- thread_support=true means SharedArrayBuffer and COOP/COEP. The orchestrator already serves those headers. Do not disable threads to paper over a blank canvas.",
-  "- Guard every JavaScriptBridge call with `OS.has_feature(\"web\")`. Headless CLI is not web; unguarded calls crash `--quit-after`.",
+  "- Expose Verification hooks state with `EgonBridge.register_field(name, callable)`. The autoload already guards `OS.has_feature(\"web\")`, so registering is safe under headless `--quit-after`, and `EgonBridge.snapshot()` reads the same values without a browser. Hand-rolled JavaScriptBridge calls are not guarded and crash the headless smoke run.",
+  "- Do not edit, move, or delete `egon/egon_bridge.gd` or its `[autoload]` entry. `ensureEgonBridge` owns both and overwrites them every run.",
   "- Never hand-edit `.uid` files. Let `--import` assign them.",
   "- `class_name` must be globally unique. Reusing a name fails parse or export.",
   "- No addons. Do not add, enable, or depend on `addons/`.",

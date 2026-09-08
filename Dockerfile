@@ -102,7 +102,6 @@ RUN npm ci --omit=dev \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/dist ./dist
-COPY playwright-mcp.json ./
 RUN mkdir -p /data /game
 VOLUME ["/data", "/game"]
 CMD ["node", "dist/index.js"]

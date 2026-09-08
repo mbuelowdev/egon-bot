@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { Client } from "discord.js";
 import { featurePageUrl, githubRepoSlug, githubRepoWebUrl, type Config } from "../config.js";
 import { cancelActiveAgentRun, clearAgentCancel } from "../cursor/activeRun.js";
@@ -8,17 +9,17 @@ import { postToChannel, removeAddNoteButton, removeMergeButton } from "../discor
 import { discordLink } from "../discord/preview.js";
 import { cancelAllQuestionWaiters } from "../discord/qaWaiters.js";
 import {
-  copyFeatureAssets,
   copyFeatureSpec,
   featureBranchName,
+  gameSpecPath,
   newFeatureBranchName,
-  plannedAssetPath,
 } from "../features/artifacts.js";
 import { saveFeatureImage, type IncomingImage } from "../features/saveImage.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
 import { formatDeployFailure, formatDeploySuccess, formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
+import { recordFeatureEvent } from "../events/feature.js";
 import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
 import {
   createDraftPr,
@@ -36,6 +37,11 @@ import {
   createFeatureBranch,
   discardUncommittedWork,
 } from "../git/workingTree.js";
+import { ensureEgonBridge } from "../godot/egonBridge.js";
+import { refreshGameMap } from "../godot/gameMap.js";
+import { refreshAssetManifest } from "../assets/manifest.js";
+import { promoteAssets } from "../assets/promote.js";
+import { declaredAssetIds } from "../features/specSections.js";
 import { stopWebServer } from "../godot/serve.js";
 import type { GithubWebhookEvent } from "../catalog/webhook.js";
 import { isPipelineStopError, shouldHaltPipeline } from "./halt.js";
@@ -102,6 +108,28 @@ export function createPipeline(ctx: {
     return latest;
   };
 
+  /**
+   * Copy the assets this SPEC names into the working tree before the implementer edits.
+   * Nothing else in the library reaches the repo, and the copy is idempotent by sha256,
+   * so a fix round re-running this does not churn the diff. Never fatal: a missing id is
+   * the spec gate's problem, and it already refused a SPEC that named one.
+   */
+  const promoteDeclaredAssets = (config: Config, feature: Feature): void => {
+    try {
+      const spec = readFileSync(gameSpecPath(config, feature), "utf8");
+      const result = promoteAssets({
+        dataDir: config.dataDir,
+        gameRepoDir: config.gameRepoDir,
+        ids: declaredAssetIds(spec),
+      });
+      if (result.missing.length > 0) {
+        console.error(`asset promotion could not find: ${result.missing.join(", ")}`);
+      }
+    } catch (error) {
+      console.error("asset promotion failed", error);
+    }
+  };
+
   const runJob = async (
     featureId: number,
     options: {
@@ -113,6 +141,7 @@ export function createPipeline(ctx: {
     const abort = new AbortController();
     jobAbort = abort;
     clearAgentCancel();
+    refreshAssetManifest(ctx.config.dataDir);
     const haltIfNeeded = (): boolean => {
       if (abort.signal.aborted) {
         return true;
@@ -136,7 +165,7 @@ export function createPipeline(ctx: {
           await createFeatureBranch(ctx.config, branch);
           feature = ctx.store.setGithubBranch(feature.id, branch);
         }
-        copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
+        ensureEgonBridge(ctx.config.gameRepoDir);
         if (haltIfNeeded()) {
           return;
         }
@@ -215,7 +244,14 @@ export function createPipeline(ctx: {
       }
 
       if (feature.state === "implementing") {
-        copyFeatureAssets(ctx.config, feature, ctx.store.listAttachments(feature.id));
+        promoteDeclaredAssets(ctx.config, feature);
+        const implStartedAt = Date.now();
+        recordFeatureEvent({
+          dataDir: ctx.config.dataDir,
+          feature,
+          phase: "implement",
+          step: options.resume && feature.implementerAgentId ? "Implementer resumed" : "Implementer started",
+        });
         await notify(formatImplementationStart(feature.name, featureCatalogUrl(feature)));
         if (haltIfNeeded()) {
           return;
@@ -237,12 +273,31 @@ export function createPipeline(ctx: {
           return;
         }
         if (result.status !== "finished") {
+          recordFeatureEvent({
+            dataDir: ctx.config.dataDir,
+            feature,
+            phase: "implement",
+            step: `Implementer ${result.status}`,
+            level: "failure",
+            ...(result.errorMessage !== undefined ? { detail: result.errorMessage } : {}),
+            durationMs: Date.now() - implStartedAt,
+          });
           await notify(
             `${PHASE_EMOJI.implementing} Implementer failed for ${formatFeatureName(feature.name, featureCatalogUrl(feature))}: ${result.errorMessage ?? result.status}`,
           );
           return;
         }
+        recordFeatureEvent({
+          dataDir: ctx.config.dataDir,
+          feature,
+          phase: "implement",
+          step: "Implementer finished",
+          level: "success",
+          ...(result.result !== undefined ? { detail: result.result } : {}),
+          durationMs: Date.now() - implStartedAt,
+        });
         persistImplementerSummary(ctx.config.dataDir, feature.id, result.result);
+        refreshGameMap(ctx.config);
         await pushImplementerWork(feature, `egon: implement ${feature.name}`);
         feature = ctx.store.getFeatureById(featureId) ?? feature;
         if (haltIfNeeded()) {
@@ -300,6 +355,13 @@ export function createPipeline(ctx: {
       return;
     }
     if (event.kind === "merged") {
+      recordFeatureEvent({
+        dataDir: ctx.config.dataDir,
+        feature,
+        phase: "merge",
+        step: `PR #${String(event.number)} merged`,
+        level: "success",
+      });
       await clearMergeButton(feature);
       if (feature.state !== "accepted") {
         await checkoutDefaultBranch(ctx.config);
@@ -315,6 +377,13 @@ export function createPipeline(ctx: {
     if (feature.state === "accepted" || feature.state === "rejected") {
       return;
     }
+    recordFeatureEvent({
+      dataDir: ctx.config.dataDir,
+      feature,
+      phase: "merge",
+      step: `PR #${String(event.number)} closed without merging`,
+      level: "warning",
+    });
     ctx.store.transition(feature.id, "rejected");
     await notify(
       `PR for ${formatFeatureName(feature.name, featureCatalogUrl(feature))} was closed without merging. Use /egon-retry or /egon-pivot to continue.`,
@@ -342,6 +411,16 @@ export function createPipeline(ctx: {
     }
     const pending = ctx.store.listPendingDeployFeatures();
     const title = deployTitle(pending);
+    for (const item of pending) {
+      recordFeatureEvent({
+        dataDir: ctx.config.dataDir,
+        feature: item,
+        phase: "deploy",
+        step: event.kind === "deployed" ? "Deployed" : "Deploy failed",
+        level: event.kind === "deployed" ? "success" : "failure",
+        ...(event.kind === "deploy_failed" ? { detail: event.htmlUrl } : {}),
+      });
+    }
     const content =
       event.kind === "deployed"
         ? formatDeploySuccess({
@@ -438,7 +517,6 @@ export function createPipeline(ctx: {
       ) {
         throw new UserFacingError("Pivot is only valid when awaiting_review or after the PR was closed.");
       }
-      let assetPath: string | undefined;
       let newAttachment: FeatureAttachment | undefined;
       if (image) {
         newAttachment = await saveFeatureImage({
@@ -447,11 +525,6 @@ export function createPipeline(ctx: {
           featureId: lock.feature.id,
           image,
         });
-        assetPath = plannedAssetPath(
-          lock.feature.name,
-          ctx.store.listAttachments(lock.feature.id),
-          newAttachment.id,
-        );
       }
       ctx.store.addNote(lock.feature.id, text);
       await clearMergeButton(lock.feature);
@@ -462,8 +535,8 @@ export function createPipeline(ctx: {
         "The humans requested a pivot.",
         "Re-implement the SPEC with this change. Do not commit or push.",
         text,
-        assetPath
-          ? `New reference image is already in the working tree at ${assetPath}. Import it from there (do not re-download).`
+        newAttachment
+          ? "The new image is attached as vision input. It is reference material only — it is not in the working tree and must not be imported or referenced by any `res://` path."
           : "",
       ]
         .filter((line) => line !== "")
@@ -476,7 +549,7 @@ export function createPipeline(ctx: {
       ).catch((error: unknown) => {
         console.error("pivot pipeline failed", error);
       });
-      return formatPivoting(name, text, assetPath, featurePageUrl(ctx.config, name));
+      return formatPivoting(name, text, featurePageUrl(ctx.config, name));
     },
     retry: async () => {
       const lock = ctx.store.getPipelineLock();

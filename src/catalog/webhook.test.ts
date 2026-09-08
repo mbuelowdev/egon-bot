@@ -4,18 +4,102 @@ import { test } from "node:test";
 import { decorateHexColors, renderMarkdown } from "./markdown.js";
 import { parseGithubPullRequestEvent, parseGithubWebhookEvent, verifyGithubSignature } from "./webhook.js";
 
-test("renderMarkdown turns headings, lists, and bold into HTML", () => {
+test("renderMarkdown renders plain-language acceptance criteria as an ordered list", () => {
+  const html = renderMarkdown(
+    [
+      "## 8. Acceptance criteria",
+      "",
+      "Definition of done.",
+      "",
+      "1. The player dashes 80 pixels right when Space is tapped.",
+      "2. The HUD shows the remaining dash charges.",
+    ].join("\n"),
+  );
+  assert.match(html, /<ol>/);
+  assert.match(html, /<li>The player dashes 80 pixels right when Space is tapped\.<\/li>/);
+  assert.match(html, /<li>The HUD shows the remaining dash charges\.<\/li>/);
+  assert.match(html, /<p>Definition of done\.<\/p>/);
+  // The executable steps moved to the checks file, so no criterion table remains.
+  assert.doesNotMatch(html, /<table class="criteria">/);
+});
+
+test("renderMarkdown still uses a numbered list for prose criteria", () => {
   const html = renderMarkdown("# Title\n\n**Acceptance criteria**\n\n1. Click play\n2. See HUD\n");
-  assert.match(html, /<h1>Title<\/h1>/);
-  assert.match(html, /<strong>Acceptance criteria<\/strong>/);
   assert.match(html, /<li>Click play<\/li>/);
   assert.match(html, /<li>See HUD<\/li>/);
+  assert.doesNotMatch(html, /<table class="criteria">/);
 });
 
 test("renderMarkdown escapes HTML", () => {
   const html = renderMarkdown("<script>alert(1)</script>");
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test("renderMarkdown turns fenced code into a pre/code block", () => {
+  const html = renderMarkdown("See:\n\n```gdscript\nfunc _ready():\n\tprint(\"hi\")\n```\n\nDone.");
+  assert.match(html, /<p>See:<\/p>/);
+  assert.match(html, /<pre><code class="language-gdscript">func _ready\(\):\n\tprint\(&quot;hi&quot;\)<\/code><\/pre>/);
+  assert.match(html, /<p>Done\.<\/p>/);
+  assert.doesNotMatch(html, /```/);
+});
+
+test("renderMarkdown does not apply inline markdown inside fenced code", () => {
+  const html = renderMarkdown("```\n**bold** and `tick`\n```");
+  assert.match(html, /<pre><code>\*\*bold\*\* and `tick`<\/code><\/pre>/);
+  assert.doesNotMatch(html, /<strong>/);
+});
+
+test("renderMarkdown keeps an unclosed fence as a code block", () => {
+  const html = renderMarkdown("```js\nconst x = 1;");
+  assert.match(html, /<pre><code class="language-js">const x = 1;<\/code><\/pre>/);
+});
+
+test("renderMarkdown wraps major spec headings as collapsed details", () => {
+  const html = renderMarkdown(
+    [
+      "# Dash",
+      "",
+      "## 1. Context & Goal",
+      "",
+      "Dash across gaps.",
+      "",
+      "## 2. Scope",
+      "",
+      "### In scope",
+      "",
+      "- Dash action",
+      "",
+      "## 3. Relevant files / existing code",
+      "",
+      "player.gd",
+      "",
+      "## 4. Interface / Contract",
+      "",
+      "API shape",
+      "",
+      "## 5. Implementation notes / constraints",
+      "",
+      "Stay on web export.",
+    ].join("\n"),
+    { collapsibleSections: true },
+  );
+  assert.match(html, /<h1>Dash<\/h1>/);
+  assert.match(html, /<details class="spec-section" open>\n<summary><h2>1\. Context &amp; Goal<\/h2><\/summary>/);
+  assert.match(html, /<p>Dash across gaps\.<\/p>/);
+  assert.match(html, /<details class="spec-section">\n<summary><h2>2\. Scope<\/h2><\/summary>/);
+  assert.match(html, /<h3>In scope<\/h3>/);
+  assert.match(html, /<summary><h2>3\. Relevant files \/ existing code<\/h2><\/summary>/);
+  assert.match(html, /<summary><h2>4\. Interface \/ Contract<\/h2><\/summary>/);
+  assert.match(html, /<summary><h2>5\. Implementation notes \/ constraints<\/h2><\/summary>/);
+  assert.equal([...html.matchAll(/<details class="spec-section" open>/g)].length, 1);
+  assert.equal([...html.matchAll(/<details class="spec-section">/g)].length, 4);
+});
+
+test("renderMarkdown leaves h2 headings in place without collapsibleSections", () => {
+  const html = renderMarkdown("## 2. Scope\n\nHello");
+  assert.match(html, /<h2>2\. Scope<\/h2>/);
+  assert.doesNotMatch(html, /<details/);
 });
 
 test("renderMarkdown shows a color dot next to hex colors", () => {

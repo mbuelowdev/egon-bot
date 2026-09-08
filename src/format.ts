@@ -83,10 +83,10 @@ function formatMonospaceTable(rows: string[][]): string {
     .join("\n");
 }
 
-/** Tester summary with per-criterion PASS / FAIL / COULD NOT VERIFY. */
+/** Suite summary with per-check PASS / FAIL. */
 export function formatTestReport(report: TestReport): string {
   const table = formatMonospaceTable([
-    ["#", "Result", "Criterion"],
+    ["#", "Result", "Check"],
     ...report.criteria.map((item) => [
       String(item.index),
       criterionStatusLabel(item.status),
@@ -96,14 +96,13 @@ export function formatTestReport(report: TestReport): string {
   return clipDiscordMessage(`${PHASE_EMOJI.testing} **${overallTestLabel(report)}**\n\`\`\`\n${table}\n\`\`\``);
 }
 
-/** Review-ready line after overall tester PASS. */
-export function formatTesterPassOutcome(name: string, unverified: number, pageUrl?: string): string {
+/** Review-ready line after an overall suite PASS. */
+export function formatSuitePassOutcome(name: string, checks: number, pageUrl?: string): string {
   const feature = formatFeatureName(name, pageUrl);
-  if (unverified > 0) {
-    const noun = unverified === 1 ? "acceptance criterion" : "acceptance criteria";
-    return `${feature} could not verify ${String(unverified)} ${noun}.`;
+  if (checks === 1) {
+    return `${feature} passed its check.`;
   }
-  return `${feature} passed every acceptance criterion.`;
+  return `${feature} passed all ${String(checks)} checks.`;
 }
 
 /** Channel line when a PR is ready for review. */
@@ -162,25 +161,24 @@ function italicDiscord(text: string): string {
     .join("\n");
 }
 
-function formatQuotedUserText(title: string, text: string, assetPath?: string): string {
-  const lines = [title, italicDiscord(escapeDiscordMarkdown(text.trim()))];
-  if (assetPath !== undefined && assetPath !== "") {
-    lines.push(escapeDiscordMarkdown(assetPath));
-  }
-  return clipDiscordMessage(lines.join("\n"));
+/**
+ * An attached image is reference material, not a file the game ships, so the reply
+ * confirms the note and promises no repo path. Assets come from the portal.
+ */
+function formatQuotedUserText(title: string, text: string): string {
+  return clipDiscordMessage([title, italicDiscord(escapeDiscordMarkdown(text.trim()))].join("\n"));
 }
 
 /** Confirmation after /egon-add or /egon-add-to-feature. */
-export function formatNoteAdded(name: string, text: string, assetPath?: string, pageUrl?: string): string {
-  return formatQuotedUserText(`Added a note to ${formatFeatureName(name, pageUrl)}.`, text, assetPath);
+export function formatNoteAdded(name: string, text: string, pageUrl?: string): string {
+  return formatQuotedUserText(`Added a note to ${formatFeatureName(name, pageUrl)}.`, text);
 }
 
 /** Confirmation after /egon-pivot. */
-export function formatPivoting(name: string, text: string, assetPath?: string, pageUrl?: string): string {
+export function formatPivoting(name: string, text: string, pageUrl?: string): string {
   return formatQuotedUserText(
     `Pivoting ${formatFeatureName(name, pageUrl)}. Re-entering implement and test.`,
     text,
-    assetPath,
   );
 }
 

@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
+  DISCORD_PROOF_MAX_BYTES,
   ensureImplicitConsoleCriterion,
+  listCriterionProofs,
   listCriterionScreenshots,
+  listDiscordProofPaths,
   MAX_ACCEPTANCE_CRITERIA,
   MISSING_CONSOLE_CRITERION_LINE,
   parseAcceptanceCriteria,
@@ -170,6 +173,29 @@ test("listCriterionScreenshots keeps only criterion-1..N in order", () => {
   writeFileSync(join(dir, "criterion-2.png"), "two");
   writeFileSync(join(dir, "criterion-1.png"), "one");
   writeFileSync(join(dir, "criterion-9.png"), "extra");
+  writeFileSync(join(dir, "criterion-1.webm"), "clip");
   assert.deepEqual(listCriterionScreenshots(dir), ["criterion-1.png", "criterion-2.png"]);
   assert.equal(MAX_ACCEPTANCE_CRITERIA, 3);
+});
+
+test("listCriterionProofs prefers video over the still for the same criterion", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-criterion-proofs-"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "criterion-1.png"), "one");
+  writeFileSync(join(dir, "criterion-1.webm"), "clip");
+  writeFileSync(join(dir, "criterion-2.png"), "two");
+  writeFileSync(join(dir, "page-viewport.png"), "dump");
+  assert.deepEqual(listCriterionProofs(dir), ["criterion-1.webm", "criterion-2.png"]);
+});
+
+test("listDiscordProofPaths skips an oversized video and falls back to the still", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-discord-proofs-"));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "criterion-1.webm"), Buffer.alloc(DISCORD_PROOF_MAX_BYTES + 1));
+  writeFileSync(join(dir, "criterion-1.png"), "poster");
+  writeFileSync(join(dir, "criterion-2.webm"), "small-clip");
+  assert.deepEqual(listDiscordProofPaths(dir), [
+    join(dir, "criterion-1.png"),
+    join(dir, "criterion-2.webm"),
+  ]);
 });

@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { numberedCriteria } from "../features/specSections.js";
 
 export const MAX_ACCEPTANCE_CRITERIA = 3;
 
-/** Implicit tester check: no Godot SCRIPT ERROR in the browser console. Not a SPEC §7 item. */
+/** Implicit tester check: no Godot SCRIPT ERROR in the browser console. Not a SPEC §9 item. */
 export const IMPLICIT_CONSOLE_CRITERION_INDEX = 0;
 export const MISSING_CONSOLE_CRITERION_LINE =
   "0. [FAIL] missing implicit console check (no SCRIPT ERROR in console)";
@@ -24,27 +25,7 @@ export type TestReport = {
 };
 
 export function parseAcceptanceCriteria(markdown: string): string[] {
-  const headingRe = /^#{1,3}\s*(?:\d+\.\s*)?acceptance criteria\s*$/im;
-  const headingMatch = headingRe.exec(markdown);
-  let section: string;
-  if (headingMatch?.index === undefined) {
-    section = markdown;
-  } else {
-    const hashes = headingMatch[0].match(/^#+/)?.[0] ?? "##";
-    const rest = markdown.slice(headingMatch.index + headingMatch[0].length);
-    const nextHeading = new RegExp(`^#{1,${String(hashes.length)}}\\s+`, "m");
-    const next = nextHeading.exec(rest);
-    section = next?.index === undefined ? rest : rest.slice(0, next.index);
-  }
-  const items: string[] = [];
-  for (const match of section.matchAll(/^\s*(?:\d+[\.\)]\s+|[-*]\s+\d+[\.\)]\s+|[-*]\s+)(.+?)\s*$/gm)) {
-    const line = match[1]?.trim() ?? "";
-    if (line === "" || /^(?:\d+\.\s*)?acceptance criteria$/i.test(line)) {
-      continue;
-    }
-    items.push(line);
-  }
-  return items.slice(0, MAX_ACCEPTANCE_CRITERIA);
+  return numberedCriteria(markdown).slice(0, MAX_ACCEPTANCE_CRITERIA);
 }
 
 function parseCriterionStatus(raw: string): CriterionStatus | undefined {
@@ -111,15 +92,21 @@ export function unverifiedCount(report: TestReport): number {
 }
 
 const CRITERION_SCREENSHOT = /^criterion-(\d+)\.(png|jpe?g|webp)$/i;
+const CRITERION_VIDEO = /^criterion-(\d+)\.webm$/i;
 
-/** Proof shots only: criterion-1.png … criterion-N.png in order. Ignores Playwright dumps. */
-export function listCriterionScreenshots(screenshotsDir: string): string[] {
-  if (!existsSync(screenshotsDir)) {
-    return [];
-  }
+/** Discord's default bot upload cap is 10 MB; stay under it so a fat encode does not drop the report. */
+export const DISCORD_PROOF_MAX_BYTES = 8 * 1024 * 1024;
+
+function criterionFilesByIndex(
+  screenshotsDir: string,
+  pattern: RegExp,
+): Map<number, string> {
   const found = new Map<number, string>();
+  if (!existsSync(screenshotsDir)) {
+    return found;
+  }
   for (const name of readdirSync(screenshotsDir)) {
-    const match = name.match(CRITERION_SCREENSHOT);
+    const match = name.match(pattern);
     if (!match || match[1] === undefined) {
       continue;
     }
@@ -129,6 +116,10 @@ export function listCriterionScreenshots(screenshotsDir: string): string[] {
     }
     found.set(index, name);
   }
+  return found;
+}
+
+function orderedCriterionNames(found: Map<number, string>): string[] {
   const names: string[] = [];
   for (let index = 1; index <= MAX_ACCEPTANCE_CRITERIA; index += 1) {
     const name = found.get(index);
@@ -137,6 +128,66 @@ export function listCriterionScreenshots(screenshotsDir: string): string[] {
     }
   }
   return names;
+}
+
+/** Proof stills only: criterion-1.png … criterion-N.png in order. Used as vision on fix rounds. */
+export function listCriterionScreenshots(screenshotsDir: string): string[] {
+  return orderedCriterionNames(criterionFilesByIndex(screenshotsDir, CRITERION_SCREENSHOT));
+}
+
+/**
+ * One human-facing proof file per criterion. Prefers the video when both exist.
+ * Ignores Playwright dumps and extra check-N-* shots.
+ */
+export function listCriterionProofs(screenshotsDir: string): string[] {
+  const videos = criterionFilesByIndex(screenshotsDir, CRITERION_VIDEO);
+  const stills = criterionFilesByIndex(screenshotsDir, CRITERION_SCREENSHOT);
+  const found = new Map<number, string>();
+  for (let index = 1; index <= MAX_ACCEPTANCE_CRITERIA; index += 1) {
+    const video = videos.get(index);
+    const still = stills.get(index);
+    if (video !== undefined) {
+      found.set(index, video);
+    } else if (still !== undefined) {
+      found.set(index, still);
+    }
+  }
+  return orderedCriterionNames(found);
+}
+
+export function isProofVideoName(name: string): boolean {
+  return CRITERION_VIDEO.test(name);
+}
+
+/** Paths to attach to Discord: video if it fits, otherwise the still. Oversized files are skipped. */
+export function listDiscordProofPaths(screenshotsDir: string): string[] {
+  if (!existsSync(screenshotsDir)) {
+    return [];
+  }
+  const videos = criterionFilesByIndex(screenshotsDir, CRITERION_VIDEO);
+  const stills = criterionFilesByIndex(screenshotsDir, CRITERION_SCREENSHOT);
+  const paths: string[] = [];
+  for (let index = 1; index <= MAX_ACCEPTANCE_CRITERIA; index += 1) {
+    const candidates = [videos.get(index), stills.get(index)].filter(
+      (name): name is string => name !== undefined,
+    );
+    for (const name of candidates) {
+      const filePath = join(screenshotsDir, name);
+      let size = 0;
+      try {
+        size = statSync(filePath).size;
+      } catch {
+        continue;
+      }
+      if (size > DISCORD_PROOF_MAX_BYTES) {
+        console.error(`skipping oversized proof ${filePath} (${String(size)} bytes)`);
+        continue;
+      }
+      paths.push(filePath);
+      break;
+    }
+  }
+  return paths;
 }
 
 export function featurePaths(dataDir: string, featureId: number): {

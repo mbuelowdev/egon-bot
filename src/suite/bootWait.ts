@@ -147,11 +147,3 @@ export function godotBootWaitEvaluateSource(
 }
 
 export const GODOT_BOOT_WAIT_EVALUATE = godotBootWaitEvaluateSource();
-
-export function godotBootWaitPromptLines(): string[] {
-  return [
-    `Then call browser_evaluate with this exact function once. It polls the Godot HTML shell (#status, #status-progress, #status-indeterminate, #status-notice) and samples canvas pixels until the engine has started. Do not screenshot-loop or guess that the canvas looks ready. This wait is not a criterion attempt.`,
-    GODOT_BOOT_WAIT_EVALUATE,
-    `If ready is true, continue. If failed is true, the shell showed #status-notice: mark each listed criterion [FAIL] game did not boot (quote notice), still record criterion 0 from the console, OVERALL: FAIL. If timedOut is true, call the same function once more (maximum ${String(GODOT_BOOT_WAIT_MAX_EVALUATE_CALLS)} calls). If still not ready, treat as boot failure the same way. Do not spend listed-criterion attempts waiting for boot.`,
-  ];
-}

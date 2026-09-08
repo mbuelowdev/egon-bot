@@ -21,11 +21,14 @@ export const GODOT_CLI_GUIDE = [
   "godot --headless --path . --script res://path/to/script.gd --check-only",
   "godot --headless --path . --quit-after 60 --log-file /tmp/godot-run.log",
   "godot --headless --path . --scene res://path/to/scene.tscn --quit-after 60 --log-file /tmp/godot-scene.log",
+  "godot --headless --path . --quit-after 60 --log-file /tmp/godot-scenario.log -- --egon-scenario=NAME",
   'rg -n --max-count 20 "SCRIPT ERROR|ERROR:|WARNING:|Parse Error|Compile Error" /tmp/godot-run.log',
+  'rg -n --max-count 5 "EGON_SCENARIO_ACTIVE|EGON_SCENARIO_UNKNOWN" /tmp/godot-scenario.log',
   "```",
   "",
   "Always `rg -n --max-count 20`. Never `cat` a Godot log.",
-  "Loop: import → parse-check changed `.gd` only → smoke-run → grep log. Do not Web-export.",
+  "Loop: import → parse-check changed `.gd` only → smoke-run → run every affected scenario → grep log. Do not Web-export.",
+  "A scenario run must print EGON_SCENARIO_ACTIVE with the name you asked for. EGON_SCENARIO_UNKNOWN means it is not registered — that is a failure to fix before finishing.",
   "Full commands and expect-conditions: `docs/godot-cli.md`.",
 ].join("\n");
 

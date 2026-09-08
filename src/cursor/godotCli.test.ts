@@ -12,7 +12,9 @@ import {
 
 test("injected Godot CLI guide is a short subset of the on-disk reference", () => {
   const lines = GODOT_CLI_GUIDE.split("\n");
-  assert.ok(lines.length >= 12 && lines.length <= 16, `got ${String(lines.length)} lines`);
+  assert.ok(lines.length >= 12 && lines.length <= 20, `got ${String(lines.length)} lines`);
+  assert.match(GODOT_CLI_GUIDE, /-- --egon-scenario=NAME/);
+  assert.match(GODOT_CLI_GUIDE, /EGON_SCENARIO_ACTIVE/);
   assert.match(GODOT_CLI_GUIDE, /godot --headless --path \. --import/);
   assert.match(GODOT_CLI_GUIDE, /--check-only/);
   assert.match(GODOT_CLI_GUIDE, /--quit-after 60/);

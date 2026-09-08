@@ -8,11 +8,12 @@ import {
   gameMapPath,
   gameMapPromptSection,
   loadGameMapMarkdown,
+  parseBridgeFields,
   parseGdSummary,
   parseTscnTree,
   specSection1Summary,
   writeGameMap,
-} from "./gameMap.js";
+  parseScenarioSummary,} from "./gameMap.js";
 
 const PROJECT = `; Engine configuration file.
 config_version=5
@@ -121,6 +122,23 @@ function writeGameRepo(): string {
   return root;
 }
 
+test("generateGameMap reports an explicit stretch mode so click coordinates can be converted", () => {
+  const root = mkdtempSync(join(tmpdir(), "egon-gamemap-stretch-"));
+  writeFileSync(
+    join(root, "project.godot"),
+    `[display]
+
+window/size/viewport_width=640
+window/size/viewport_height=360
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+`,
+  );
+  const map = generateGameMap(root);
+  assert.match(map, /Viewport: 640x360/);
+  assert.match(map, /Stretch: canvas_items \(aspect expand\)/);
+});
+
 test("generateGameMap indexes project settings, scenes, scripts, and merged specs", () => {
   const root = writeGameRepo();
   const map = generateGameMap(root);
@@ -128,6 +146,8 @@ test("generateGameMap indexes project settings, scenes, scripts, and merged spec
   assert.match(map, /Renderer: forward_plus/);
   assert.match(map, /Main scene: res:\/\/main\.tscn/);
   assert.match(map, /Viewport: 1280x720/);
+  // Absent from project.godot means Godot defaults, and those mean no scaling at all.
+  assert.match(map, /Stretch: disabled \(aspect keep\)/);
   assert.match(map, /GameState → res:\/\/game_state\.gd \(singleton\)/);
   assert.match(map, /Hud → res:\/\/hud\.tscn/);
   assert.match(map, /Physics layers \(2D\): 1=player, 2=enemy/);
@@ -206,4 +226,107 @@ test("specSection1Summary collapses the first paragraph", () => {
 test("gameMapPromptSection is omitted when empty", () => {
   assert.deepEqual(gameMapPromptSection("  \n"), []);
   assert.match(gameMapPromptSection("# Game map\n").join("\n"), /Prefer this over Glob\/Grep\/Read/);
+});
+
+test("parseBridgeFields captures registered field names and their providers", () => {
+  const fields = parseBridgeFields(
+    [
+      "extends CharacterBody2D",
+      "",
+      "func _ready() -> void:",
+      '\tEgonBridge.register_field("playerX", func(): return global_position.x)',
+      '\tEgonBridge.register_field("score", func(): return _score)',
+      '\t# EgonBridge.register_field("commented", func(): return 1)',
+      "",
+    ].join("\n"),
+  );
+  assert.deepEqual(fields, [
+    { name: "playerX", provider: "func(): return global_position.x" },
+    { name: "score", provider: "func(): return _score" },
+  ]);
+});
+
+test("generateGameMap compiles the bridge fields already exposed to the tester", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-map-bridge-"));
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  writeFileSync(join(dir, "project.godot"), 'config_version=5\n', "utf8");
+  writeFileSync(
+    join(dir, "scripts", "player.gd"),
+    'extends Node\nfunc _ready():\n\tEgonBridge.register_field("playerX", func(): return global_position.x)\n',
+    "utf8",
+  );
+  writeFileSync(
+    join(dir, "scripts", "hud.gd"),
+    'extends Control\nfunc _ready():\n\tEgonBridge.register_field("score", func(): return _score)\n',
+    "utf8",
+  );
+  const map = generateGameMap(dir);
+  assert.match(map, /## Debug bridge/);
+  assert.match(map, /\| playerX \| `scripts\/player\.gd` \| `func\(\): return global_position\.x` \|/);
+  assert.match(map, /\| score \| `scripts\/hud\.gd` \|/);
+  assert.match(map, /Reuse a field that already answers your check/);
+});
+
+test("generateGameMap says so when nothing is registered yet", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-map-nobridge-"));
+  writeFileSync(join(dir, "project.godot"), "config_version=5\n", "utf8");
+  const map = generateGameMap(dir);
+  assert.match(map, /## Debug bridge\n\n[\s\S]*\(none registered yet\)/);
+});
+
+test("generateGameMap ignores register_field inside the autoload that defines it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-map-selfbridge-"));
+  mkdirSync(join(dir, "egon"), { recursive: true });
+  writeFileSync(join(dir, "project.godot"), "config_version=5\n", "utf8");
+  writeFileSync(
+    join(dir, "egon", "egon_bridge.gd"),
+    'extends Node\nfunc register_field(name: String, provider: Callable) -> void:\n\t_providers[name] = provider\n',
+    "utf8",
+  );
+  const map = generateGameMap(dir);
+  assert.match(map, /\(none registered yet\)/);
+});
+
+test("parseBridgeFields keeps a provider that itself ends in a call", () => {
+  assert.deepEqual(
+    parseBridgeFields('\tEgonBridge.register_field("score", func(): return get_score())\n'),
+    [{ name: "score", provider: "func(): return get_score()" }],
+  );
+  assert.deepEqual(
+    parseBridgeFields('\tEgonBridge.register_field("alive", _is_alive)\n'),
+    [{ name: "alive", provider: "_is_alive" }],
+  );
+});
+
+test("the game map lists scenarios with their file and doc line", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-map-scenarios-"));
+  mkdirSync(join(dir, "egon", "scenarios"), { recursive: true });
+  writeFileSync(join(dir, "project.godot"), 'config_version=5\n');
+  writeFileSync(
+    join(dir, "egon", "scenarios", "endgame_victory.gd"),
+    "## The victory screen after a full run.\nextends RefCounted\n\nfunc apply() -> void:\n\tpass\n",
+  );
+  writeFileSync(join(dir, "egon", "scenarios", "boss_room.gd"), "extends RefCounted\n");
+  const map = generateGameMap(dir);
+  assert.match(map, /## Scenarios/);
+  assert.match(map, /\| boss_room \| `egon\/scenarios\/boss_room\.gd` \| \(undocumented\) \|/);
+  assert.match(
+    map,
+    /\| endgame_victory \| `egon\/scenarios\/endgame_victory\.gd` \| The victory screen after a full run\. \|/,
+  );
+  assert.match(map, /`default` is always available/);
+});
+
+test("a game with no scenarios says so instead of showing an empty table", () => {
+  const dir = mkdtempSync(join(tmpdir(), "egon-map-no-scenarios-"));
+  writeFileSync(join(dir, "project.godot"), 'config_version=5\n');
+  const map = generateGameMap(dir);
+  assert.match(map, /## Scenarios/);
+  assert.match(map, /\(none yet — every check runs against `default`\)/);
+});
+
+test("parseScenarioSummary reads the leading doc comment only", () => {
+  assert.equal(parseScenarioSummary("## Victory screen.\nextends RefCounted\n"), "Victory screen.");
+  assert.equal(parseScenarioSummary("extends RefCounted\n## Not a header.\n"), "(undocumented)");
+  assert.equal(parseScenarioSummary(""), "(undocumented)");
 });

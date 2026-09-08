@@ -1,3 +1,4 @@
+import { recordFeatureEvent } from "../events/feature.js";
 import { formatPlannerFallback } from "../format.js";
 import type { Config } from "../config.js";
 import { inspectFeatureSpec } from "../features/artifacts.js";
@@ -114,36 +115,71 @@ export async function runFeaturePlanner(options: {
   inspectSpec?: (config: Config, feature: Feature) => SpecValidation;
 }): Promise<PlannerRunResult> {
   const inspect = options.inspectSpec ?? inspectFeatureSpec;
+  const event = (step: string, level?: "info" | "success" | "failure" | "warning", detail?: string): void => {
+    recordFeatureEvent({
+      dataDir: options.config.dataDir,
+      feature: options.feature,
+      phase: "plan",
+      step,
+      ...(level !== undefined ? { level } : {}),
+      ...(detail !== undefined ? { detail } : {}),
+    });
+  };
+  const startedAt = Date.now();
+  event(options.resume ? "Planner resumed" : "Planner started");
   const followUp = await resolveFollowUp(options.deps, options.resume, options.feature);
   const result = await invokePlanner({ ...options, followUp });
   if (result.marker !== "PLAN_COMPLETE") {
+    recordFeatureEvent({
+      dataDir: options.config.dataDir,
+      feature: options.feature,
+      phase: "plan",
+      step: `Planner ended with ${result.marker ?? "no marker"}`,
+      level: result.marker === "PLAN_BLOCKED" ? "failure" : "info",
+      ...(result.text !== undefined ? { detail: result.text } : {}),
+      durationMs: Date.now() - startedAt,
+    });
     return result;
   }
   const latest = options.store.getFeatureById(options.feature.id) ?? options.feature;
   const firstCheck = inspect(options.config, latest);
   if (firstCheck.ok) {
+    recordFeatureEvent({
+      dataDir: options.config.dataDir,
+      feature: options.feature,
+      phase: "plan",
+      step: "Spec and checks passed the schema gate",
+      level: "success",
+      durationMs: Date.now() - startedAt,
+    });
     return result;
   }
+  event("Schema gate rejected the planner output", "warning", firstCheck.problems.join("\n"));
   if (!latest.plannerAgentId) {
+    event("Blocked — no planner session to repair it", "failure");
     return {
       marker: "PLAN_BLOCKED",
       text: specGateFailureMessage(firstCheck.problems),
       agentId: result.agentId,
     };
   }
+  event("Sent one repair round to the planner");
   const repaired = await invokePlanner({
     ...options,
     feature: latest,
     followUp: specFixFollowUp(firstCheck.problems),
   });
   if (repaired.marker !== "PLAN_COMPLETE") {
+    event(`Repair round ended with ${repaired.marker ?? "no marker"}`, "failure");
     return repaired;
   }
   const after = options.store.getFeatureById(options.feature.id) ?? latest;
   const secondCheck = inspect(options.config, after);
   if (secondCheck.ok) {
+    event("Repaired output passed the schema gate", "success");
     return repaired;
   }
+  event("Still invalid after the repair round", "failure", secondCheck.problems.join("\n"));
   return {
     marker: "PLAN_BLOCKED",
     text: specGateFailureMessage(secondCheck.problems),

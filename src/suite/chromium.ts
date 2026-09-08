@@ -2,19 +2,11 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { McpServerConfig } from "@cursor/sdk";
 import { chromium, type Browser } from "playwright-core";
-import { TESTER_VIEWPORT_SIZE } from "./testerCapabilities.js";
 
 const execFileAsync = promisify(execFile);
 
-export function playwrightMcpCli(): string {
-  return join(process.cwd(), "node_modules", "@playwright", "mcp", "cli.js");
-}
 
-export function playwrightMcpConfigFile(): string {
-  return join(process.cwd(), "playwright-mcp.json");
-}
 
 export function playwrightCoreCli(): string {
   return join(process.cwd(), "node_modules", "playwright-core", "cli.js");
@@ -58,14 +50,16 @@ export type LaunchChromium = (options: {
   args: readonly string[];
 }) => Promise<ChromiumHandle>;
 
-const WEBGL_RENDERER_SOURCE = `() => {
+/** IIFE, not a bare `() =>`. `page.evaluate(string)` is an expression (`isFunction: false`);
+ * a function value cannot be serialized and becomes `undefined`. */
+export const WEBGL_RENDERER_SOURCE = `(() => {
   const gl = document.createElement("canvas").getContext("webgl");
   if (!gl) return "no-webgl";
   const debug = gl.getExtension("WEBGL_debug_renderer_info");
   return debug
     ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))
     : String(gl.getParameter(gl.RENDERER));
-}`;
+})()`;
 
 async function readWebglRenderer(browser: Browser): Promise<string> {
   const page = await browser.newPage();
@@ -162,30 +156,4 @@ export async function ensurePlaywrightChromium(options?: {
     );
   }
   return exe;
-}
-
-export function playwrightMcpServer(options: {
-  screenshotsDir: string;
-  executablePath: string;
-}): McpServerConfig {
-  return {
-    command: process.execPath,
-    args: [
-      playwrightMcpCli(),
-      "--headless",
-      "--browser=chromium",
-      "--isolated",
-      "--no-sandbox",
-      "--caps=vision",
-      "--snapshot-mode=none",
-      `--viewport-size=${TESTER_VIEWPORT_SIZE}`,
-      "--output-dir",
-      options.screenshotsDir,
-      "--config",
-      playwrightMcpConfigFile(),
-      "--executable-path",
-      options.executablePath,
-    ],
-    cwd: process.cwd(),
-  };
 }

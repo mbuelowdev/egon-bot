@@ -7,8 +7,10 @@ import type { Client } from "discord.js";
 import type { Config } from "../config.js";
 import type { CursorImageFile } from "../cursor/images.js";
 import { featurePaths } from "../cursor/testReport.js";
+import { readEvents } from "../events/log.js";
 import { FeatureStore } from "../features/store.js";
 import { GodotExportError } from "../godot/export.js";
+import type { SuiteCheckResult, SuiteResult } from "../suite/report.js";
 import {
   formatExportFailureReport,
   isExportFailureReport,
@@ -38,6 +40,24 @@ function featureExporting(store: FeatureStore) {
   store.transition(feature.id, "exporting");
   return store.getFeatureById(feature.id) ?? feature;
 }
+
+function check(overrides: Partial<SuiteCheckResult> = {}): SuiteCheckResult {
+  return {
+    name: "dash moves the player right",
+    scenario: "default",
+    owner: "dash",
+    inherited: false,
+    ok: true,
+    screenshots: [],
+    ...overrides,
+  };
+}
+
+function suiteResult(results: SuiteCheckResult[], scriptErrors: string[] = []): SuiteResult {
+  return { results, scriptErrors, consoleErrors: scriptErrors };
+}
+
+const suitePasses = async () => suiteResult([check()]);
 
 test("formatExportFailureReport is detectable as an export failure", () => {
   const text = formatExportFailureReport("SCRIPT ERROR: bad scene");
@@ -74,12 +94,7 @@ test("export failure routes Godot stderr into a fix round instead of aborting", 
       followUps.push(options.followUp ?? "");
       return { status: "finished", agentId: "impl-1" };
     },
-    tester: async () => ({
-      overallPass: true,
-      hasFailure: false,
-      criteria: [{ index: 1, status: "PASS", text: "ok" }],
-      raw: "1. [PASS] ok",
-    }),
+    suite: suitePasses,
   });
 
   assert.equal(exports, 2);
@@ -121,8 +136,8 @@ test("repeated export failures exhaust the retry cap without throwing", async ()
       freshFlags.push(options.fresh);
       return { status: "finished", agentId: "impl-1" };
     },
-    tester: async () => {
-      throw new Error("should not test after export failure");
+    suite: async () => {
+      throw new Error("should not run the suite after export failure");
     },
   });
 
@@ -163,8 +178,8 @@ test("export abort still propagates", async () => {
         implementer: async () => {
           throw new Error("should not implement");
         },
-        tester: async () => {
-          throw new Error("should not test");
+        suite: async () => {
+          throw new Error("should not run the suite");
         },
       }),
     (error: unknown) => error instanceof Error && error.name === "AbortError",
@@ -173,12 +188,12 @@ test("export abort still propagates", async () => {
   store.close();
 });
 
-test("fix rounds attach tester screenshots as follow-up vision", async () => {
+test("fix rounds attach check screenshots as follow-up vision", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-fix-shots-"));
   const store = new FeatureStore(":memory:");
   const feature = featureExporting(store);
   const followUps: Array<{ text: string; attachments: CursorImageFile[] | undefined }> = [];
-  let tests = 0;
+  let runs = 0;
 
   await runExportTestLoop({
     client: {} as Client,
@@ -196,33 +211,28 @@ test("fix rounds attach tester screenshots as follow-up vision", async () => {
       });
       return { status: "finished", agentId: "impl-1" };
     },
-    tester: async () => {
-      tests += 1;
+    suite: async () => {
+      runs += 1;
       const paths = featurePaths(dataDir, feature.id);
       mkdirSync(paths.screenshotsDir, { recursive: true });
       writeFileSync(join(paths.screenshotsDir, "criterion-1.png"), "shot");
       writeFileSync(join(paths.screenshotsDir, "page-viewport.png"), "dump");
-      if (tests === 1) {
-        writeFileSync(paths.reportPath, "1. [FAIL] sprite at the wrong anchor");
-        return {
-          overallPass: false,
-          hasFailure: true,
-          criteria: [{ index: 1, status: "FAIL", text: "sprite at the wrong anchor" }],
-          raw: "1. [FAIL] sprite at the wrong anchor",
-        };
+      if (runs === 1) {
+        return suiteResult([
+          check({
+            ok: false,
+            failedStep: 2,
+            failure: "expect window.__egon.state().anchor equals \"left\" — expected \"left\", actual \"right\"",
+            screenshots: ["criterion-1.png"],
+          }),
+        ]);
       }
-      writeFileSync(paths.reportPath, "1. [PASS] ok");
-      return {
-        overallPass: true,
-        hasFailure: false,
-        criteria: [{ index: 1, status: "PASS", text: "ok" }],
-        raw: "1. [PASS] ok",
-      };
+      return suiteResult([check()]);
     },
   });
 
   assert.equal(followUps.length, 1);
-  assert.match(followUps[0]?.text ?? "", /wrong anchor/);
+  assert.match(followUps[0]?.text ?? "", /anchor/);
   assert.match(followUps[0]?.text ?? "", /criterion-1\.png/);
   assert.deepEqual(followUps[0]?.attachments, [
     { storedName: "criterion-1.png", mimeType: "image/png" },
@@ -231,7 +241,7 @@ test("fix rounds attach tester screenshots as follow-up vision", async () => {
   store.close();
 });
 
-test("export-failure fix rounds do not attach leftover tester screenshots", async () => {
+test("export-failure fix rounds do not attach leftover screenshots", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-export-stale-shots-"));
   const store = new FeatureStore(":memory:");
   const feature = featureExporting(store);
@@ -259,8 +269,8 @@ test("export-failure fix rounds do not attach leftover tester screenshots", asyn
       attachments.push(options.followUpAttachments);
       return { status: "finished", agentId: "impl-1" };
     },
-    tester: async () => {
-      throw new Error("should not test after export failure");
+    suite: async () => {
+      throw new Error("should not run the suite after export failure");
     },
   });
 
@@ -272,7 +282,7 @@ test("export-failure fix rounds do not attach leftover tester screenshots", asyn
   store.close();
 });
 
-test("fix rounds persist the implementer summary and hand it to the tester", async () => {
+test("fix rounds persist the implementer summary", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-impl-summary-"));
   const store = new FeatureStore(":memory:");
   const feature = featureExporting(store);
@@ -281,12 +291,11 @@ test("fix rounds persist the implementer summary and hand it to the tester", asy
   const summary = [
     "Files changed:",
     "- player.gd",
-    "Criteria self-verified:",
-    "1. [PASS] dash distance",
+    "Scenarios verified:",
+    "- default",
     "Deviations:",
     "- none",
   ].join("\n");
-  let handed: string | undefined;
 
   await runExportTestLoop({
     client: {} as Client,
@@ -302,18 +311,9 @@ test("fix rounds persist the implementer summary and hand it to the tester", asy
       result: summary,
       agentId: "impl-1",
     }),
-    tester: async (options) => {
-      handed = options.implementerSummary;
-      return {
-        overallPass: true,
-        hasFailure: false,
-        criteria: [{ index: 1, status: "PASS", text: "ok" }],
-        raw: "1. [PASS] ok",
-      };
-    },
+    suite: suitePasses,
   });
 
-  assert.equal(handed, summary);
   assert.equal(readFileSync(featurePaths(dataDir, feature.id).implementerSummaryPath, "utf8"), summary);
   assert.equal(store.getFeatureById(feature.id)?.state, "awaiting_review");
   store.close();
@@ -324,7 +324,7 @@ test("the last fix round starts a fresh implementer instead of resuming", async 
   const store = new FeatureStore(":memory:");
   const feature = featureExporting(store);
   const freshFlags: Array<boolean | undefined> = [];
-  let tests = 0;
+  let runs = 0;
 
   await runExportTestLoop({
     client: {} as Client,
@@ -339,24 +339,11 @@ test("the last fix round starts a fresh implementer instead of resuming", async 
       freshFlags.push(options.fresh);
       return { status: "finished", agentId: `impl-${String(freshFlags.length)}` };
     },
-    tester: async () => {
-      tests += 1;
-      const paths = featurePaths(dataDir, feature.id);
-      mkdirSync(paths.root, { recursive: true });
-      writeFileSync(paths.reportPath, `1. [FAIL] still broken ${String(tests)}`);
-      return {
-        overallPass: tests >= MAX_TEST_CYCLES,
-        hasFailure: tests < MAX_TEST_CYCLES,
-        criteria: [
-          {
-            index: 1,
-            status: tests >= MAX_TEST_CYCLES ? "PASS" : "FAIL",
-            text: "still broken",
-          },
-        ],
-        raw:
-          tests >= MAX_TEST_CYCLES ? "1. [PASS] still broken" : `1. [FAIL] still broken ${String(tests)}`,
-      };
+    suite: async () => {
+      runs += 1;
+      return runs >= MAX_TEST_CYCLES
+        ? suiteResult([check()])
+        : suiteResult([check({ ok: false, failedStep: 1, failure: "still broken" })]);
     },
   });
 
@@ -366,8 +353,8 @@ test("the last fix round starts a fresh implementer instead of resuming", async 
   store.close();
 });
 
-test("overall PASS with unverified criteria does not claim every criterion passed", async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "egon-unverified-review-"));
+test("a passing suite names the check count in the review-ready message", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-pass-review-"));
   const store = new FeatureStore(":memory:");
   const feature = featureExporting(store);
   const notices: string[] = [];
@@ -385,21 +372,223 @@ test("overall PASS with unverified criteria does not claim every criterion passe
     implementer: async () => {
       throw new Error("should not implement");
     },
-    tester: async () => ({
-      overallPass: true,
-      hasFailure: false,
-      criteria: [
-        { index: 0, status: "PASS", text: "no SCRIPT ERROR in console" },
-        { index: 1, status: "COULD_NOT_VERIFY", text: "projectile too fast" },
-      ],
-      raw: "0. [PASS] no SCRIPT ERROR in console\n1. [COULD NOT VERIFY] projectile too fast",
-    }),
+    suite: async () =>
+      suiteResult([check({ name: "one" }), check({ name: "two" }), check({ name: "three" })]),
   });
 
   const posted = notices.join("\n");
-  assert.match(posted, /could not verify 1 acceptance criterion/);
-  assert.doesNotMatch(posted, /passed every acceptance criterion/);
-  assert.match(posted, /COULD NOT VERIFY/);
+  assert.match(posted, /passed all 3 checks/);
+  // COULD NOT VERIFY is gone: a deterministic step either asserts or fails.
+  assert.doesNotMatch(posted, /COULD NOT VERIFY/);
   assert.equal(store.getFeatureById(feature.id)?.state, "awaiting_review");
+  store.close();
+});
+
+test("a build that never boots fails its checks and goes back to the implementer", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-suite-boot-"));
+  const store = new FeatureStore(":memory:");
+  const feature = featureExporting(store);
+  const followUps: string[] = [];
+  let runs = 0;
+
+  await runExportTestLoop({
+    client: {} as Client,
+    store,
+    config: testConfig(dataDir),
+    notify: async () => {},
+    featureId: feature.id,
+    onFixCommit: async () => {},
+    exportWeb: async () => "/tmp/egon-web/index.html",
+    serve: async () => {},
+    implementer: async (options) => {
+      followUps.push(options.followUp ?? "");
+      return { status: "finished", agentId: "impl-1" };
+    },
+    suite: async () => {
+      runs += 1;
+      return suiteResult([
+        check({
+          ok: false,
+          failure: "game did not boot (status-notice: Missing features: SharedArrayBuffer)",
+        }),
+      ]);
+    },
+  });
+
+  assert.equal(runs, MAX_TEST_CYCLES);
+  assert.equal(followUps.length, MAX_TEST_CYCLES - 1);
+  assert.match(followUps[0] ?? "", /game did not boot/);
+  assert.match(followUps[0] ?? "", /Missing features: SharedArrayBuffer/);
+  const report = readFileSync(featurePaths(dataDir, feature.id).reportPath, "utf8");
+  assert.match(report, /OVERALL: FAIL/);
+  assert.equal(store.getFeatureById(feature.id)?.state, "awaiting_review");
+  store.close();
+});
+
+test("a missing bridge fails the check and names the missing hook", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-suite-bridge-"));
+  const store = new FeatureStore(":memory:");
+  const feature = featureExporting(store);
+  const followUps: string[] = [];
+  let runs = 0;
+
+  await runExportTestLoop({
+    client: {} as Client,
+    store,
+    config: testConfig(dataDir),
+    notify: async () => {},
+    featureId: feature.id,
+    onFixCommit: async () => {},
+    exportWeb: async () => "/tmp/egon-web/index.html",
+    serve: async () => {},
+    implementer: async (options) => {
+      followUps.push(options.followUp ?? "");
+      return { status: "finished", agentId: "impl-1" };
+    },
+    suite: async () => {
+      runs += 1;
+      // The implementer wires the bridge up on the first fix round.
+      return runs === 1
+        ? suiteResult([
+            check({
+              ok: false,
+              failure: "window.__egon.state is missing — the debug bridge was never registered",
+            }),
+          ])
+        : suiteResult([check()]);
+    },
+  });
+
+  assert.equal(runs, 2);
+  assert.equal(followUps.length, 1);
+  assert.match(followUps[0] ?? "", /window\.__egon\.state is missing/);
+  assert.equal(store.getFeatureById(feature.id)?.state, "awaiting_review");
+  store.close();
+});
+
+test("a broken inherited check is reported as a regression the implementer must repair", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-suite-regression-"));
+  const store = new FeatureStore(":memory:");
+  const feature = featureExporting(store);
+  const followUps: string[] = [];
+  let runs = 0;
+
+  await runExportTestLoop({
+    client: {} as Client,
+    store,
+    config: testConfig(dataDir),
+    notify: async () => {},
+    featureId: feature.id,
+    onFixCommit: async () => {},
+    exportWeb: async () => "/tmp/egon-web/index.html",
+    serve: async () => {},
+    implementer: async (options) => {
+      followUps.push(options.followUp ?? "");
+      return { status: "finished", agentId: "impl-1" };
+    },
+    suite: async () => {
+      runs += 1;
+      return runs === 1
+        ? suiteResult([
+            check(),
+            check({
+              name: "victory screen shows the score",
+              scenario: "endgame_victory",
+              owner: "endgame-screen",
+              inherited: true,
+              ok: false,
+              failedStep: 3,
+              failure: "expect window.__egon.state().score equals 4200 — expected 4200, actual 0",
+            }),
+          ])
+        : suiteResult([check()]);
+    },
+  });
+
+  assert.equal(runs, 2);
+  assert.equal(followUps.length, 1);
+  const followUp = followUps[0] ?? "";
+  assert.match(followUp, /inherited from endgame-screen/);
+  assert.match(followUp, /expected 4200, actual 0/);
+  assert.match(followUp, /belongs to an already-merged feature/);
+  store.close();
+});
+
+test("the loop records pipeline events for export, suite checks, fixes, and review", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-loop-events-"));
+  const store = new FeatureStore(":memory:");
+  const feature = featureExporting(store);
+  let runs = 0;
+
+  await runExportTestLoop({
+    client: {} as Client,
+    store,
+    config: testConfig(dataDir),
+    notify: async () => {},
+    featureId: feature.id,
+    onFixCommit: async () => {},
+    exportWeb: async () => "/tmp/egon-web/index.html",
+    serve: async () => {},
+    implementer: async () => ({ status: "finished", agentId: "impl-1" }),
+    suite: async () => {
+      runs += 1;
+      return runs === 1
+        ? suiteResult([
+            check({
+              ok: false,
+              failedStep: 2,
+              failure: "expect window.__egon.state().score equals 4200 — expected 4200, actual 0",
+            }),
+          ])
+        : suiteResult([check()]);
+    },
+  });
+
+  const events = readEvents(dataDir);
+  const steps = events.map((entry) => entry.step);
+  assert.ok(events.length > 0, "the loop recorded no events");
+  assert.ok(steps.some((step) => /Debug web export \(cycle 1\)/.test(step)));
+  assert.ok(steps.some((step) => step === "Export succeeded"));
+  assert.ok(steps.some((step) => /^FAIL dash moves the player right/.test(step)));
+  assert.ok(steps.some((step) => /^Fix round 1/.test(step)));
+  assert.ok(steps.some((step) => step === "Ready for review"));
+  // Every event carries the identity the /events page groups on.
+  for (const entry of events) {
+    assert.equal(entry.featureId, feature.id);
+    assert.equal(entry.slug, "dash");
+  }
+  const failing = events.find((entry) => entry.step.startsWith("FAIL "));
+  assert.match(failing?.detail ?? "", /expected 4200, actual 0/);
+  assert.equal(failing?.level, "failure");
+  store.close();
+});
+
+test("an export failure is recorded with Godot's stderr as the detail", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-loop-export-events-"));
+  const store = new FeatureStore(":memory:");
+  const feature = featureExporting(store);
+
+  await runExportTestLoop({
+    client: {} as Client,
+    store,
+    config: testConfig(dataDir),
+    notify: async () => {},
+    featureId: feature.id,
+    onFixCommit: async () => {},
+    exportWeb: async () => {
+      throw new GodotExportError("ERROR: Failed to export project");
+    },
+    serve: async () => {},
+    implementer: async () => ({ status: "finished", agentId: "impl-1" }),
+    suite: async () => {
+      throw new Error("should not run the suite after export failure");
+    },
+  });
+
+  const events = readEvents(dataDir);
+  const failure = events.find((entry) => entry.step === "Export failed");
+  assert.equal(failure?.level, "failure");
+  assert.match(failure?.detail ?? "", /Failed to export project/);
+  assert.ok(events.some((entry) => /handing to humans/.test(entry.step)));
   store.close();
 });

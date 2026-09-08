@@ -253,7 +253,7 @@ test("default inspect reads the game-repo SPEC and follow-up rewrites it", async
   store.setPlannerAgentId(feature.id, "cursor-agent");
   const followUps: Array<string | undefined> = [];
   const result = await runFeaturePlanner({
-    config: { gameRepoDir } as Config,
+    config: { gameRepoDir, dataDir: join(root, "data") } as Config,
     store,
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
@@ -271,9 +271,14 @@ test("default inspect reads the game-repo SPEC and follow-up rewrites it", async
           const chunks = ["# Dash", ""];
           for (const heading of requiredSpecHeadings()) {
             chunks.push(heading, "");
-            if (heading === "## 7. Acceptance criteria") {
+            if (heading.endsWith("Acceptance criteria")) {
+              chunks.push("1. The game reports ready once the scene has loaded.", "");
+            } else if (heading.endsWith("Test scenarios")) {
+              chunks.push("- `default` (existing) — the game as it normally boots.", "");
+            } else if (heading.endsWith("Verification hooks")) {
               chunks.push(
-                "1. Keys: none. JS: `() => window.__egon.state()`. Then: ready is true.",
+                '- Mechanism: `EgonBridge.register_field("ready", func(): return _ready)`.',
+                "- Call: `window.__egon.state()` returns JSON.",
                 "",
               );
             } else {
@@ -281,6 +286,17 @@ test("default inspect reads the game-repo SPEC and follow-up rewrites it", async
             }
           }
           writeFileSync(join(specDir, "SPEC.md"), chunks.join("\n"));
+          mkdirSync(join(gameRepoDir, "egon", "checks"), { recursive: true });
+          writeFileSync(
+            join(gameRepoDir, "egon", "checks", "dash.json"),
+            JSON.stringify([
+              {
+                name: "the game reports ready",
+                scenario: "default",
+                steps: [{ await: "window.__egon.state().ready", equals: true }],
+              },
+            ]),
+          );
         }
         return { marker: "PLAN_COMPLETE", agentId: "cursor-agent" };
       },

@@ -276,7 +276,7 @@ test("egon-add with an image downloads it for Cursor", async () => {
   assert.equal(interaction.deferred, true);
   assert.equal(
     contentOf(interaction.followUps[0]),
-    "Added a note to **Jump**.\n*jump has to be higher*\nassets/egon/jump/hud.png",
+    "Added a note to **Jump**.\n*jump has to be higher*",
   );
   assert.equal(store.listNotes(feature.id)[0], "jump has to be higher");
   const attachments = store.listAttachments(feature.id);
@@ -451,7 +451,7 @@ test("egon-pivot with an image defers and passes it to the pipeline", async () =
   const pipeline = {
     pivot: async (text: string, image?: unknown) => {
       received = { text, image };
-      return "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*\nassets/egon/jump/hud.png";
+      return "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*";
     },
   };
   await handleInteraction(interaction as unknown as Interaction, {
@@ -465,7 +465,7 @@ test("egon-pivot with an image defers and passes it to the pipeline", async () =
   });
   assert.equal(
     contentOf(interaction.followUps[0]),
-    "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*\nassets/egon/jump/hud.png",
+    "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*",
   );
 });
 

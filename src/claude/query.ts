@@ -103,7 +103,8 @@ export function buildClaudeUserPrompt(
 export async function queryPlanner(options: {
   config: Config;
   deps: AskUsersDeps;
-  specPath: string;
+  /** Every path the planner may write: the spec and its checks file. */
+  specPath: string | string[];
   systemPrompt: string;
   prompt: string | AsyncIterable<SDKUserMessage>;
   resume?: string;

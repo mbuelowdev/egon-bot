@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { Config } from "../config.js";
 import type { AgentLogEntry, AgentLogStep, AgentRole } from "../cursor/agentLog.js";
 import { hangingToolName, logEntryStuckKind } from "../cursor/agentWatch.js";
-import { featurePaths, listCriterionScreenshots } from "../cursor/testReport.js";
+import { featurePaths, isProofVideoName, listCriterionProofs } from "../cursor/testReport.js";
 import { formatDuration, formatTokenCount } from "../format.js";
 import { featureSlug } from "../features/slug.js";
 import type { Feature, FeatureAttachment } from "../features/store.js";
@@ -14,6 +14,58 @@ export type CatalogLifetimeStats = {
   implemented: number;
   durationMs: number;
 };
+
+const EVENT_STYLES = `
+.events-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0 0 1rem; }
+.event-feature { margin: 0 0 1.5rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.event-feature > header {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  margin: 0; padding: 0.75rem 1rem; max-width: none;
+  background: var(--elevated); border-bottom: 1px solid var(--line);
+}
+.event-feature > header h3 { margin: 0; font-size: 1.05rem; color: var(--header); }
+.event-feature > header h3 a { color: inherit; text-decoration: none; }
+.event-feature > header h3 a:hover { color: var(--accent-hover); }
+.event-groups { padding: 0.4rem 0.5rem 0.6rem; }
+.event-group { border-bottom: 1px solid var(--line); }
+.event-group:last-child { border-bottom: 0; }
+.event-group > summary {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.5rem 0.6rem; cursor: pointer; list-style: none;
+  font-variant-numeric: tabular-nums;
+}
+.event-group > summary::-webkit-details-marker { display: none; }
+.event-group > summary:hover { background: #35373c; border-radius: 6px; }
+.event-group > summary .caret { color: var(--muted); transition: transform 0.12s ease; flex: none; }
+.event-group[open] > summary .caret { transform: rotate(90deg); }
+.event-phase { color: var(--header); font-weight: 600; text-transform: capitalize; }
+.event-count { color: var(--muted); font-size: 0.85rem; }
+.event-dur { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+.event-steps { margin: 0; padding: 0.15rem 0 0.5rem 2.1rem; list-style: none; }
+.event-step { padding: 0.15rem 0; display: flex; gap: 0.6rem; align-items: baseline; }
+.event-time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: none; }
+.event-text { min-width: 0; word-break: break-word; }
+.event-detail { margin: 0.2rem 0 0.35rem; }
+.event-detail > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+.event-detail pre {
+  margin: 0.3rem 0 0; padding: 0.6rem 0.75rem; background: var(--elevated);
+  border: 1px solid var(--line); border-radius: 6px; overflow-x: auto;
+  font-size: 0.85rem; white-space: pre-wrap; word-break: break-word;
+}
+.dot { flex: none; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--muted); }
+.dot.success { background: var(--pass); }
+.dot.failure { background: var(--danger); }
+.dot.warning { background: #f0b232; }
+.dot.info { background: var(--accent); }
+.event-empty { color: var(--muted); }
+.live {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  margin-left: auto; color: var(--muted); font-size: 0.85rem;
+}
+.live .dot { animation: live-pulse 2s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .live .dot { animation: none; } }
+`;
 
 const STYLES = `
 :root {
@@ -46,7 +98,7 @@ header { padding-bottom: 0; }
 .feature header,
 .feature main {
   display: grid;
-  grid-template-columns: 3rem minmax(0, 920px);
+  grid-template-columns: 3rem minmax(0, 1080px);
   column-gap: 0.85rem;
   justify-content: center;
   max-width: none;
@@ -150,13 +202,132 @@ a:hover { color: var(--accent-hover); }
 .empty { color: var(--muted); font-style: italic; }
 .spec h1, .spec h2, .spec h3 { color: var(--header); border: 0; letter-spacing: 0; text-transform: none; font-family: inherit; }
 .spec h2 { font-size: 1.2rem; margin-top: 1.6rem; }
+.spec-section {
+  margin: 0.85rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.spec-section > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 1rem;
+  user-select: none;
+}
+.spec-section > summary::-webkit-details-marker { display: none; }
+.spec-section > summary::before {
+  content: "";
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.12s ease;
+  flex-shrink: 0;
+  margin-top: -0.12rem;
+}
+.spec-section[open] > summary::before {
+  transform: rotate(45deg);
+  margin-top: -0.02rem;
+}
+.spec-section > summary:hover { background: #35373c; }
+.spec-section > summary h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+.spec-section[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.spec-section-body {
+  padding: 0.75rem 1rem 0.9rem;
+}
+.spec-section-body > :first-child { margin-top: 0; }
+.spec-section-body > :last-child { margin-bottom: 0; }
 .spec ol, .notes { padding-left: 1.25rem; }
+.criteria-wrap {
+  overflow-x: auto;
+  margin: 0.35rem 0 0.15rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+}
+.spec table.criteria {
+  width: 100%;
+  min-width: 36rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.spec table.criteria th,
+.spec table.criteria td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+.spec table.criteria thead th {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel);
+  white-space: nowrap;
+  font-weight: 600;
+}
+.spec table.criteria tbody th {
+  color: var(--header);
+  font-variant-numeric: tabular-nums;
+  width: 1.75rem;
+}
+.spec table.criteria td {
+  word-break: break-word;
+}
+.spec table.criteria td:nth-child(2),
+.spec table.criteria td:nth-child(3) {
+  white-space: nowrap;
+}
+.spec table.criteria .criteria-none,
+.spec table.criteria .criteria-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+.spec table.criteria tbody tr:last-child th,
+.spec table.criteria tbody tr:last-child td {
+  border-bottom: 0;
+}
 .spec code {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 0.9em;
   background: var(--elevated);
   padding: 0.1em 0.35em;
   border-radius: 4px;
+}
+.spec pre {
+  background: var(--elevated);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.spec pre code {
+  display: block;
+  background: none;
+  padding: 0;
+  font-size: 0.85rem;
+  border-radius: 0;
+  color: var(--header);
+}
+.log-msg.thinking .thinking-body pre {
+  font-style: normal;
+  color: var(--ink);
 }
 .color-dot {
   display: inline-block;
@@ -175,6 +346,7 @@ a:hover { color: var(--accent-hover); }
 }
 .shots figure { margin: 0; background: var(--elevated); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .shots img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.shots video { display: block; width: 100%; height: auto; background: #000; }
 .shots figcaption { padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--muted); }
 .lightbox {
   position: fixed;
@@ -313,34 +485,38 @@ a:hover { color: var(--accent-hover); }
 .log-status-stuck { color: var(--danger); }
 `;
 
-const DELETE_SCRIPT = `<script>
+const CATALOG_ACTIONS_SCRIPT = `<script>
 (() => {
-  for (const button of document.querySelectorAll("[data-delete-slug]")) {
-    button.addEventListener("click", async () => {
-      const slug = button.getAttribute("data-delete-slug");
-      if (!slug) {
-        return;
-      }
-      const password = window.prompt("Password");
-      if (password === null) {
-        return;
-      }
-      try {
-        const response = await fetch("/features/" + encodeURIComponent(slug) + "/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password }),
-        });
-        if (response.ok) {
-          window.location.assign("/");
+  const bind = (attr, path, onOk, fail) => {
+    for (const button of document.querySelectorAll("[" + attr + "]")) {
+      button.addEventListener("click", async () => {
+        const slug = button.getAttribute(attr);
+        if (!slug) {
           return;
         }
-        window.alert((await response.text()) || "Could not delete this feature.");
-      } catch {
-        window.alert("Could not delete this feature.");
-      }
-    });
-  }
+        const password = window.prompt("Password");
+        if (password === null) {
+          return;
+        }
+        try {
+          const response = await fetch("/features/" + encodeURIComponent(slug) + path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password }),
+          });
+          if (response.ok) {
+            onOk();
+            return;
+          }
+          window.alert((await response.text()) || fail);
+        } catch {
+          window.alert(fail);
+        }
+      });
+    }
+  };
+  bind("data-retry-slug", "/retry", () => window.location.reload(), "Could not retry this feature.");
+  bind("data-delete-slug", "/delete", () => window.location.assign("/"), "Could not delete this feature.");
 })();
 </script>`;
 
@@ -422,7 +598,7 @@ const AGENT_LOG_SCRIPT = `<script>
 })();
 </script>`;
 
-function layout(title: string, body: string): string {
+export function layout(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -432,22 +608,26 @@ function layout(title: string, body: string): string {
   <link rel="icon" type="image/png" href="/favicon.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <title>${escapeHtml(title)}</title>
-  <style>${STYLES}</style>
+  <style>${STYLES}${EVENT_STYLES}</style>
 </head>
 <body>
 ${body}
-${DELETE_SCRIPT}
+${CATALOG_ACTIONS_SCRIPT}
 ${LIGHTBOX_SCRIPT}
 ${AGENT_LOG_SCRIPT}
 </body>
 </html>`;
 }
 
+function retryButton(slug: string): string {
+  return `<button type="button" class="log-jump" data-retry-slug="${escapeHtml(slug)}">Retry</button>`;
+}
+
 function deleteButton(slug: string): string {
   return `<button type="button" class="log-jump" data-delete-slug="${escapeHtml(slug)}">Delete</button>`;
 }
 
-const BACK_ARROW = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
+export const BACK_ARROW = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
 const GITHUB_MARK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>`;
 
 function githubPrCaption(feature: Feature, untitled: string): string {
@@ -663,13 +843,15 @@ export function indexPage(
     `<header>
       <div class="kicker">Egon</div>
       <h1>Feature log</h1>
-      <p class="lede">Ideas still being collected, specs the planner wrote, and proof screenshots the tester took. Implementation lands through GitHub pull requests. Host sprites, audio, and other files on the sharing service, then paste the URL in a Discord note so the implementer can pull them in.</p>
+      <p class="lede">Ideas still being collected, specs the planner wrote, and proof the tester captured. Implementation lands through GitHub pull requests. Sprites, models, audio, and fonts live in the <a href="/assets">asset library</a> — upload and describe them there and the planner can name them in a spec.</p>
       <p class="links">
         <a href="${escapeHtml(links.gamePublicUrl)}" target="_blank" rel="noopener noreferrer">Play the game</a>
         ·
         <a href="${escapeHtml(links.gameRepoUrl)}" target="_blank" rel="noopener noreferrer">Game repo</a>
         ·
-        <a href="https://discord.mbuelow.dev" target="_blank" rel="noopener noreferrer">Upload assets</a>
+        <a href="/assets">Upload assets</a>
+        ·
+        <a href="/events">Pipeline events</a>
       </p>
       <ul class="stats">
         <li><strong>${escapeHtml(formatTokenCount(stats.tokens))}</strong><span>lifetime tokens used</span></li>
@@ -695,17 +877,21 @@ export function featurePage(
   const slug = featureSlug(feature.name);
   const paths = featurePaths(config.dataDir, feature.id);
   const spec = existsSync(paths.specPath) ? readFileSync(paths.specPath, "utf8") : "_No spec on file yet._";
-  const shots = existsSync(paths.screenshotsDir) ? listCriterionScreenshots(paths.screenshotsDir) : [];
+  const shots = existsSync(paths.screenshotsDir) ? listCriterionProofs(paths.screenshotsDir) : [];
   const gallery =
     shots.length === 0
-      ? `<p class="empty">No proof screenshots yet.</p>`
+      ? `<p class="empty">No proof yet.</p>`
       : `<div class="shots">${shots
-          .map(
-            (name) => `<figure>
-              <img src="/features/${encodeURIComponent(slug)}/screenshots/${encodeURIComponent(name)}" alt="${escapeHtml(name)}">
+          .map((name) => {
+            const src = `/features/${encodeURIComponent(slug)}/screenshots/${encodeURIComponent(name)}`;
+            const media = isProofVideoName(name)
+              ? `<video src="${src}" controls playsinline preload="metadata"></video>`
+              : `<img src="${src}" alt="${escapeHtml(name)}">`;
+            return `<figure>
+              ${media}
               <figcaption>${escapeHtml(name)}</figcaption>
-            </figure>`,
-          )
+            </figure>`;
+          })
           .join("")}</div>`;
   const refs = attachments.filter((item) => existsSync(join(paths.attachmentsDir, item.storedName)));
   const refsGallery =
@@ -737,14 +923,14 @@ export function featurePage(
       <div class="kicker">${escapeHtml(feature.state)}</div>
       <a class="back" href="/" aria-label="Back to feature log">${BACK_ARROW}</a>
       <h1>${escapeHtml(feature.name)}</h1>
-      <div class="feature-actions">${pr}${deleteButton(slug)}</div>
+      <div class="feature-actions">${pr}<a class="log-jump" href="/events#feature-${encodeURIComponent(slug)}">Pipeline events</a>${retryButton(slug)}${deleteButton(slug)}</div>
     </header>
     <main>
       ${notesSection}
       ${refsGallery}
       <section>
         <h2>Spec</h2>
-        <div class="spec">${renderMarkdown(spec)}</div>
+        <div class="spec">${renderMarkdown(spec, { collapsibleSections: true })}</div>
       </section>
       <section>
         <h2>Proof</h2>

@@ -1,9 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, type Dirent } from "node:fs";
 import { join, relative } from "node:path";
+import { EGON_BRIDGE_REPO_PATH, EGON_SCENARIOS_REPO_DIR } from "./egonBridge.js";
 
 export const GAME_MAP_FILENAME = "GAME_MAP.md";
 
 const SKIP_DIRS = new Set([".git", ".godot", "addons", "build", "node_modules"]);
+
+/** Bridge fields listed in the map. A game that outgrows this has bigger problems. */
+export const MAX_BRIDGE_FIELDS = 40;
+/** Compact index only. The checks themselves never enter a prompt. */
+export const MAX_SCENARIOS = 40;
 
 const GODOT_KEYS: Record<number, string> = {
   8: "Backspace",
@@ -94,6 +100,20 @@ export function writeGameMap(config: { gameRepoDir: string; dataDir: string }): 
   return markdown;
 }
 
+/**
+ * Re-index the working tree after an agent changed it. The cached map is what the
+ * fix-loop implementer and the tester read, so without this they orient on the last
+ * merged tree and never see nodes, scripts, or input actions this feature just added.
+ * Never throws: a stale map is worse than none, but neither is worth failing a run.
+ */
+export function refreshGameMap(config: { gameRepoDir: string; dataDir: string }): void {
+  try {
+    writeGameMap(config);
+  } catch (error) {
+    console.error("failed to refresh GAME_MAP.md", error);
+  }
+}
+
 export function generateGameMap(repoDir: string): string {
   const projectPath = join(repoDir, "project.godot");
   const project = existsSync(projectPath) ? parseProjectGodot(readFileSync(projectPath, "utf8")) : null;
@@ -115,6 +135,7 @@ export function generateGameMap(repoDir: string): string {
     lines.push(`- Renderer: ${project.renderer}`);
     lines.push(`- Main scene: ${project.mainScene}`);
     lines.push(`- Viewport: ${project.viewport}`);
+    lines.push(`- Stretch: ${project.stretchMode} (aspect ${project.stretchAspect})`);
     lines.push(`- Autoload: ${formatAutoloads(project.autoloads)}`);
     lines.push(`- Physics layers (2D): ${formatLayerNames(project.physics2d)}`);
     lines.push(`- Physics layers (3D): ${formatLayerNames(project.physics3d)}`);
@@ -132,6 +153,52 @@ export function generateGameMap(repoDir: string): string {
     }
     lines.push("");
   }
+  lines.push("## Debug bridge");
+  lines.push("");
+  lines.push(
+    "Fields already exposed through `window.__egon.state()` via `EgonBridge.register_field`.",
+  );
+  lines.push(
+    "Reuse a field that already answers your check instead of registering a near-duplicate under a new name.",
+  );
+  lines.push("");
+  const bridge = listBridgeFields(repoDir);
+  if (bridge.length === 0) {
+    lines.push("(none registered yet)");
+  } else {
+    lines.push("| Field | Registered in | Provider |");
+    lines.push("| --- | --- | --- |");
+    for (const field of bridge.slice(0, MAX_BRIDGE_FIELDS)) {
+      lines.push(`| ${field.name} | \`${field.file}\` | \`${field.provider}\` |`);
+    }
+    if (bridge.length > MAX_BRIDGE_FIELDS) {
+      lines.push(`| … | ${String(bridge.length - MAX_BRIDGE_FIELDS)} more | |`);
+    }
+  }
+  lines.push("");
+  lines.push("## Scenarios");
+  lines.push("");
+  lines.push(
+    "Named states a check can load with `?egon_scenario={name}`. `default` is always available and means the game as it normally boots.",
+  );
+  lines.push(
+    "Reuse a scenario that already establishes the state you need instead of declaring a near-duplicate under a new name.",
+  );
+  lines.push("");
+  const scenarios = listGameScenarios(repoDir);
+  if (scenarios.length === 0) {
+    lines.push("(none yet — every check runs against `default`)");
+  } else {
+    lines.push("| Scenario | File | Establishes |");
+    lines.push("| --- | --- | --- |");
+    for (const scenario of scenarios.slice(0, MAX_SCENARIOS)) {
+      lines.push(`| ${scenario.name} | \`${scenario.file}\` | ${scenario.summary} |`);
+    }
+    if (scenarios.length > MAX_SCENARIOS) {
+      lines.push(`| … | ${String(scenarios.length - MAX_SCENARIOS)} more | |`);
+    }
+  }
+  lines.push("");
   lines.push("## Features");
   lines.push("");
   if (features.length === 0) {
@@ -181,6 +248,8 @@ type ProjectMap = {
   renderer: string;
   mainScene: string;
   viewport: string;
+  stretchMode: string;
+  stretchAspect: string;
   autoloads: Autoload[];
   physics2d: NamedLayer[];
   physics3d: NamedLayer[];
@@ -201,6 +270,8 @@ function parseProjectGodot(raw: string): ProjectMap {
     unquote(rendering.get("renderer/rendering_method") ?? "") || rendererFromFeatures(features) || "unknown";
   const width = unquote(display.get("window/size/viewport_width") ?? "") || "1152";
   const height = unquote(display.get("window/size/viewport_height") ?? "") || "648";
+  const stretchMode = unquote(display.get("window/stretch/mode") ?? "") || "disabled";
+  const stretchAspect = unquote(display.get("window/stretch/aspect") ?? "") || "keep";
   const autoloads: Autoload[] = [];
   for (const [name, value] of [...autoload.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const rawPath = unquote(value);
@@ -216,6 +287,8 @@ function parseProjectGodot(raw: string): ProjectMap {
     renderer,
     mainScene: unquote(application.get("run/main_scene") ?? "") || "(unset)",
     viewport: `${width}x${height}`,
+    stretchMode,
+    stretchAspect,
     autoloads,
     physics2d: parseLayerNames(layers, "2d_physics"),
     physics3d: parseLayerNames(layers, "3d_physics"),
@@ -404,6 +477,84 @@ function nodeScript(body: string, resources: Map<string, string>): string {
     return "(built-in)";
   }
   return "";
+}
+
+export type BridgeField = { name: string; file: string; provider: string };
+
+const REGISTER_FIELD_RE = /register_field\s*\(\s*"([^"\n]+)"\s*,\s*(.+?)\s*\)?\s*$/;
+
+/** Registered fields in one script, in source order. */
+export function parseBridgeFields(raw: string): Array<{ name: string; provider: string }> {
+  const out: Array<{ name: string; provider: string }> = [];
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const line = stripGdComment(rawLine);
+    const match = REGISTER_FIELD_RE.exec(line);
+    if (!match || match[1] === undefined) {
+      continue;
+    }
+    const provider = (match[2] ?? "").replace(/\s+/g, " ").trim();
+    out.push({ name: match[1], provider: provider === "" ? "(unknown)" : provider });
+  }
+  return out;
+}
+
+export type GameScenario = { name: string; file: string; summary: string };
+
+/**
+ * One line per scenario, from the file name and its leading `##` doc comment.
+ * The file name is the scenario name, so nothing depends on registration order.
+ */
+export function parseScenarioSummary(raw: string): string {
+  for (const line of raw.split(/\r?\n/)) {
+    const doc = /^\s*##\s*(\S.*)$/.exec(line);
+    if (doc && doc[1] !== undefined) {
+      return doc[1].trim().replace(/\|/g, "\\|");
+    }
+    if (line.trim() !== "" && !line.trim().startsWith("#")) {
+      break;
+    }
+  }
+  return "(undocumented)";
+}
+
+export function listGameScenarios(repoDir: string): GameScenario[] {
+  const dir = join(repoDir, EGON_SCENARIOS_REPO_DIR);
+  if (!existsSync(dir)) {
+    return [];
+  }
+  const scenarios: GameScenario[] = [];
+  for (const entry of readdirSync(dir).sort()) {
+    if (!entry.endsWith(".gd")) {
+      continue;
+    }
+    const file = `${EGON_SCENARIOS_REPO_DIR}/${entry}`;
+    scenarios.push({
+      name: entry.slice(0, -3),
+      file,
+      summary: parseScenarioSummary(readFileSafe(join(repoDir, file))),
+    });
+  }
+  return scenarios;
+}
+
+function listBridgeFields(repoDir: string): BridgeField[] {
+  const fields: BridgeField[] = [];
+  const seen = new Set<string>();
+  for (const file of listRepoFiles(repoDir, ".gd")) {
+    // The autoload defines register_field; it does not call it.
+    if (file === EGON_BRIDGE_REPO_PATH) {
+      continue;
+    }
+    for (const field of parseBridgeFields(readFileSafe(join(repoDir, file)))) {
+      if (seen.has(field.name)) {
+        continue;
+      }
+      seen.add(field.name);
+      fields.push({ name: field.name, file, provider: field.provider });
+    }
+  }
+  fields.sort((a, b) => a.name.localeCompare(b.name));
+  return fields;
 }
 
 export function parseGdSummary(raw: string): string[] {

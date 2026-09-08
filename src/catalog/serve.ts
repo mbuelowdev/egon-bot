@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { basename, dirname, join, resolve } from "node:path";
@@ -10,8 +10,11 @@ import { UserFacingError, type Feature, type FeatureStore } from "../features/st
 import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
 import { loadFeatureAgentLog } from "../cursor/agentLog.js";
+import { groupEvents, readEvents } from "../events/log.js";
+import { eventsPage, renderEventFeatures } from "./events.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubWebhookEvent, verifyGithubSignature, type GithubWebhookEvent } from "./webhook.js";
+import { handleAssetRequest } from "../assets/routes.js";
 
 /** Shared catalog password for deleting features from the catalog. */
 export const CATALOG_DELETE_PASSWORD = "ente123";
@@ -31,6 +34,7 @@ export type CatalogServerOptions = {
   syncGithub?: () => Promise<void>;
   beforeDelete?: (feature: Feature) => Promise<void>;
   closePullRequest?: (prNumber: number) => Promise<void>;
+  retry?: () => Promise<string>;
 };
 
 let server: Server | undefined;
@@ -78,7 +82,7 @@ function send(res: ServerResponse, status: number, body: string, contentType: st
   res.end(body);
 }
 
-function catalogPasswordOk(password: string): boolean {
+export function catalogPasswordOk(password: string): boolean {
   const expected = Buffer.from(CATALOG_DELETE_PASSWORD);
   const given = Buffer.from(password);
   if (given.length !== expected.length) {
@@ -87,7 +91,7 @@ function catalogPasswordOk(password: string): boolean {
   return timingSafeEqual(given, expected);
 }
 
-function parsePassword(raw: Buffer): string | undefined {
+export function parsePassword(raw: Buffer): string | undefined {
   try {
     const parsed = JSON.parse(raw.toString("utf8")) as unknown;
     if (parsed !== null && typeof parsed === "object" && "password" in parsed) {
@@ -109,6 +113,11 @@ async function syncGithub(options: CatalogServerOptions): Promise<void> {
   } catch (error) {
     console.error("github catch-up before catalog failed", error);
   }
+}
+
+/** Weak-free content ETag so an unchanged poll costs a 304 and no body. */
+export function eventsFragmentEtag(html: string): string {
+  return `"${createHash("sha1").update(html).digest("hex")}"`;
 }
 
 function sendFile(res: ServerResponse, filePath: string): void {
@@ -156,6 +165,15 @@ async function handleRequest(
   options: CatalogServerOptions,
 ): Promise<void> {
   const urlPath = decodeURIComponent((req.url ?? "/").split("?")[0] ?? "/");
+  if (
+    await handleAssetRequest(req, res, urlPath, {
+      dataDir: options.config.dataDir,
+      passwordOk: catalogPasswordOk,
+      parseJsonPassword: parsePassword,
+    })
+  ) {
+    return;
+  }
   if (req.method === "POST" && urlPath === "/github/webhook") {
     const raw = await readBody(req);
     const signature = req.headers["x-hub-signature-256"];
@@ -219,6 +237,40 @@ async function handleRequest(
     return;
   }
 
+  const retryMatch = urlPath.match(/^\/features\/([^/]+)\/retry\/?$/);
+  if (req.method === "POST" && retryMatch && retryMatch[1]) {
+    const feature = findFeatureBySlug(options.store, retryMatch[1]);
+    if (!feature) {
+      send(res, 404, "Not found", "text/plain; charset=utf-8");
+      return;
+    }
+    const password = parsePassword(await readBody(req));
+    if (password === undefined || !catalogPasswordOk(password)) {
+      send(res, 403, "Wrong password", "text/plain; charset=utf-8");
+      return;
+    }
+    if (!options.retry) {
+      send(res, 500, "Retry is not configured", "text/plain; charset=utf-8");
+      return;
+    }
+    const lock = options.store.getPipelineLock();
+    if (!lock || lock.feature.id !== feature.id) {
+      send(res, 409, "This is not the active pipeline feature.", "text/plain; charset=utf-8");
+      return;
+    }
+    try {
+      const message = await options.retry();
+      send(res, 200, message, "text/plain; charset=utf-8");
+    } catch (error) {
+      if (error instanceof UserFacingError) {
+        send(res, 409, error.message, "text/plain; charset=utf-8");
+        return;
+      }
+      throw error;
+    }
+    return;
+  }
+
   if (req.method !== "GET") {
     send(res, 405, "Method not allowed", "text/plain; charset=utf-8");
     return;
@@ -250,6 +302,35 @@ async function handleRequest(
         },
         collecting,
       ),
+      "text/html; charset=utf-8",
+    );
+    return;
+  }
+
+  if (urlPath === "/events/fragment") {
+    const html = renderEventFeatures(groupEvents(readEvents(options.config.dataDir)));
+    const etag = eventsFragmentEtag(html);
+    const requested = req.headers["if-none-match"];
+    const given = Array.isArray(requested) ? requested[0] : requested;
+    if (given === etag) {
+      res.writeHead(304, { ETag: etag, "Cache-Control": "no-store" });
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      ETag: etag,
+    });
+    res.end(html);
+    return;
+  }
+
+  if (urlPath === "/events" || urlPath === "/events/") {
+    send(
+      res,
+      200,
+      eventsPage(groupEvents(readEvents(options.config.dataDir))),
       "text/html; charset=utf-8",
     );
     return;

@@ -13,7 +13,7 @@ import {
   formatPlannerFallback,
   formatPlanningStart,
   formatReviewReady,
-  formatTesterPassOutcome,
+  formatSuitePassOutcome,
   formatTestReport,
   formatTestingStart,
   formatTokenCount,
@@ -134,7 +134,7 @@ test("formatTestReport prefixes the testing emoji and aligns a monospace table",
     [
       `${PHASE_EMOJI.testing} **PASS**`,
       "```",
-      "#  Result  Criterion",
+      "#  Result  Check",
       "1  PASS    canvas visible",
       "2  PASS    player jumps",
       "```",
@@ -154,20 +154,20 @@ test("formatTestReport marks FAIL and flattens criterion text", () => {
     [
       `${PHASE_EMOJI.testing} **FAIL**`,
       "```",
-      "#  Result  Criterion",
+      "#  Result  Check",
       "1  FAIL    hud **broken** and wrapped",
       "```",
     ].join("\n"),
   );
 });
 
-test("formatTestReport shows COULD NOT VERIFY in the per-criterion breakdown", () => {
+test("formatTestReport shows the implicit console check alongside named checks", () => {
   const text = formatTestReport({
     overallPass: true,
     hasFailure: false,
     criteria: [
       { index: 0, status: "PASS", text: "no SCRIPT ERROR in console" },
-      { index: 1, status: "COULD_NOT_VERIFY", text: "projectile too fast" },
+      { index: 1, status: "PASS", text: "victory screen shows the score" },
     ],
     raw: "",
   });
@@ -176,30 +176,20 @@ test("formatTestReport shows COULD NOT VERIFY in the per-criterion breakdown", (
     [
       `${PHASE_EMOJI.testing} **PASS**`,
       "```",
-      "#  Result            Criterion",
-      "0  PASS              no SCRIPT ERROR in console",
-      "1  COULD NOT VERIFY  projectile too fast",
+      "#  Result  Check",
+      "0  PASS    no SCRIPT ERROR in console",
+      "1  PASS    victory screen shows the score",
       "```",
     ].join("\n"),
   );
 });
 
-test("formatTesterPassOutcome names unverified criteria instead of a clean pass", () => {
+test("formatSuitePassOutcome counts checks", () => {
+  assert.equal(formatSuitePassOutcome("Dash HUD", 1), "**Dash HUD** passed its check.");
+  assert.equal(formatSuitePassOutcome("Dash HUD", 3), "**Dash HUD** passed all 3 checks.");
   assert.equal(
-    formatTesterPassOutcome("Dash HUD", 0),
-    "**Dash HUD** passed every acceptance criterion.",
-  );
-  assert.equal(
-    formatTesterPassOutcome("Dash HUD", 0, "https://egon.example/features/dash-hud"),
-    "[**Dash HUD**](<https://egon.example/features/dash-hud>) passed every acceptance criterion.",
-  );
-  assert.equal(
-    formatTesterPassOutcome("Dash HUD", 1),
-    "**Dash HUD** could not verify 1 acceptance criterion.",
-  );
-  assert.equal(
-    formatTesterPassOutcome("Dash HUD", 2),
-    "**Dash HUD** could not verify 2 acceptance criteria.",
+    formatSuitePassOutcome("Dash HUD", 2, "https://egon.example/features/dash-hud"),
+    "[**Dash HUD**](<https://egon.example/features/dash-hud>) passed all 2 checks.",
   );
 });
 
@@ -224,15 +214,15 @@ test("formatNoteAdded includes the note text", () => {
     "Added a note to **Jump**.\n*jump has to be higher*",
   );
   assert.equal(
-    formatNoteAdded("Jump", "jump has to be higher", undefined, "https://egon.example/features/jump"),
+    formatNoteAdded("Jump", "jump has to be higher", "https://egon.example/features/jump"),
     "Added a note to [**Jump**](<https://egon.example/features/jump>).\n*jump has to be higher*",
   );
 });
 
-test("formatNoteAdded includes the asset path when an image was added", () => {
+test("formatNoteAdded promises no repo path for an attached image", () => {
   assert.equal(
-    formatNoteAdded("Jump", "use this HUD", "assets/egon/jump/hud.png"),
-    "Added a note to **Jump**.\n*use this HUD*\nassets/egon/jump/hud.png",
+    formatNoteAdded("Jump", "use this HUD"),
+    "Added a note to **Jump**.\n*use this HUD*",
   );
 });
 
@@ -249,15 +239,15 @@ test("formatPivoting includes the change request", () => {
     "Pivoting **Jump**. Re-entering implement and test.\n*make the HUD smaller*",
   );
   assert.equal(
-    formatPivoting("Jump", "make the HUD smaller", undefined, "https://egon.example/features/jump"),
+    formatPivoting("Jump", "make the HUD smaller", "https://egon.example/features/jump"),
     "Pivoting [**Jump**](<https://egon.example/features/jump>). Re-entering implement and test.\n*make the HUD smaller*",
   );
 });
 
-test("formatPivoting includes the asset path when an image was added", () => {
+test("formatPivoting promises no repo path for an attached image", () => {
   assert.equal(
-    formatPivoting("Jump", "match this HUD", "assets/egon/jump/hud.png"),
-    "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*\nassets/egon/jump/hud.png",
+    formatPivoting("Jump", "match this HUD"),
+    "Pivoting **Jump**. Re-entering implement and test.\n*match this HUD*",
   );
 });
 

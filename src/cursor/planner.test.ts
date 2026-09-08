@@ -3,10 +3,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Feature } from "../features/store.js";
+import type { AssetMeta } from "../assets/store.js";
 import { plannerPrompt } from "./planner.js";
 import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "./plannerPrompt.js";
 import { SPEC_SHEET_TEMPLATE } from "./specTemplate.js";
-import { TESTER_CAPABILITIES_PROMPT } from "./testerCapabilities.js";
+import { RUNNER_CAPABILITIES_PROMPT } from "../suite/capabilities.js";
 
 test("cursor planner prompt is the shared instructions plus the user prompt", () => {
   const feature = { name: "Dash" } as Feature;
@@ -22,6 +23,10 @@ test("cursor planner prompt is the shared instructions plus the user prompt", ()
 test("planner prompt requires a specific spec and clarifying questions", () => {
   const prompt = plannerPrompt({ name: "Dash" } as Feature, ["make it snappy"], "/data/attachments", []);
   assert.match(prompt, /Make the spec as specific as possible/);
+  assert.match(
+    prompt,
+    /A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint/,
+  );
   assert.match(prompt, /You are operating autonomously/);
   assert.match(prompt, /Batch independent Reads\/Glob\/Grep in one turn/);
   assert.match(prompt, /check your last paragraph/);
@@ -71,19 +76,24 @@ test("planner prompt includes the spec sheet template", () => {
   assert.ok(PLANNER_INSTRUCTIONS.includes(SPEC_SHEET_TEMPLATE));
   assert.ok(prompt.includes(SPEC_SHEET_TEMPLATE));
   assert.ok(!user.includes(SPEC_SHEET_TEMPLATE));
-  assert.match(prompt, /## 1\. Context & Goal/);
-  assert.match(prompt, /## 2\. Scope/);
-  assert.match(prompt, /## 4\. Interface \/ Contract/);
-  assert.match(prompt, /## 6\. Verification hooks/);
+  // Headings are asserted by name: the template is renumbered when a section is added.
+  assert.match(prompt, /## \d+\. Context & Goal/);
+  assert.match(prompt, /## \d+\. Scope/);
+  assert.match(prompt, /## \d+\. Interface \/ Contract/);
+  assert.match(prompt, /## \d+\. Verification hooks/);
   assert.match(prompt, /window\.__egon\.state\(\)/);
-  assert.match(prompt, /## 7\. Acceptance criteria/);
-  assert.match(prompt, /Keys: \{KeyW \/ none\}/);
-  assert.match(prompt, /Click: \{x,y \/ none\}/);
-  assert.match(prompt, /## 8\. Explicitly NOT this task/);
-  assert.match(prompt, /Section 6 \(Verification hooks\)/);
-  assert.match(prompt, /Section 7 \(Acceptance criteria\)/);
-  assert.match(prompt, /Section 8 may be a short don't-do list/);
-  assert.match(prompt, /not a pixel guess/);
+  assert.match(prompt, /## \d+\. Test scenarios/);
+  assert.match(prompt, /## \d+\. Acceptance criteria/);
+  assert.match(prompt, /## \d+\. Explicitly NOT this task/);
+  assert.match(prompt, /The Verification hooks section/);
+  assert.match(prompt, /The Test scenarios section/);
+  assert.match(prompt, /The Acceptance criteria section/);
+  assert.match(prompt, /The Explicitly NOT this task section/);
+  // Section numbers must not be baked into the prompt at all.
+  assert.doesNotMatch(prompt, /Section \d+ \(/);
+  assert.match(prompt, /egon\/checks\//);
+  // The retired grammar must be gone: steps live in the checks file now.
+  assert.doesNotMatch(prompt, /Keys: \{KeyW/);
 });
 
 test("planner prompt is static-first then feature-specific", () => {
@@ -127,7 +137,46 @@ test("planner prompts share a static prefix across features", () => {
   assert.ok(prefixEnd > 0);
   assert.equal(dash.slice(0, prefixEnd), jump.slice(0, prefixEnd));
   assert.ok(dash.slice(0, prefixEnd).includes(SPEC_SHEET_TEMPLATE));
-  assert.ok(dash.slice(0, prefixEnd).includes(TESTER_CAPABILITIES_PROMPT));
+  assert.ok(dash.slice(0, prefixEnd).includes(RUNNER_CAPABILITIES_PROMPT));
   assert.ok(dash.slice(0, prefixEnd).includes("Viewport: 99x99"));
   assert.ok(dash.slice(0, prefixEnd).includes("## Art style"));
+});
+
+test("planner prompt injects the asset library index and never the measured facts", () => {
+  const truck: AssetMeta = {
+    id: "garbage-truck-orange.glb",
+    originalFilename: "a3f9c2d1.glb",
+    sha256: "sha",
+    bytes: 481203,
+    kind: "model",
+    format: "glTF 2.0 binary",
+    fileOutput: "glTF binary model, version 2",
+    measured: { bboxMeters: [2.1, 1.9, 5.4], triangles: 1240 },
+    description: "Orange municipal garbage truck, wheels are separate nodes",
+    tags: ["vehicle"],
+    grid: null,
+    parts: [],
+    uploadedAt: "2026-09-08T12:00:00.000Z",
+  };
+  const prompt = plannerPrompt(
+    { name: "Dash" } as Feature,
+    ["make it snappy"],
+    "/data/attachments",
+    [],
+    "",
+    "",
+    [truck],
+  );
+  assert.match(prompt, /Asset library index/);
+  assert.match(prompt, /- `garbage-truck-orange\.glb` — Orange municipal garbage truck/);
+  assert.match(prompt, /never invent a filename/);
+  // The measured column is the implementer's slice; the planner only picks ids.
+  assert.doesNotMatch(prompt, /2\.1 × 1\.9 × 5\.4/);
+  assert.doesNotMatch(prompt, /1\.2k tris/);
+});
+
+test("planner prompt tells an empty library to write None.", () => {
+  const prompt = plannerPrompt({ name: "Dash" } as Feature, [], "/data/attachments", []);
+  assert.match(prompt, /the library is empty/);
+  assert.match(prompt, /write `None\.`/);
 });

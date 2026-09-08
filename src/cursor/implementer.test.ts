@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Feature } from "../features/store.js";
+import type { AssetMeta } from "../assets/store.js";
 import { GODOT_CLI_GUIDE } from "./godotCli.js";
 import { GODOT_WEB_GOTCHAS_PROMPT } from "./godotWebGotchas.js";
 import { buildImplementerSendMessage, freshFixSeedAppendix, implementerPrompt } from "./implementer.js";
@@ -22,10 +23,10 @@ test("implementer prompt includes the short Godot CLI cheat sheet", () => {
   assert.doesNotMatch(prompt, /xargs/);
   assert.doesNotMatch(prompt, /--verbose/);
   assert.doesNotMatch(prompt, /--export-release Web/);
-  assert.match(prompt, /Honor Scope, Out of scope, Implementation notes, Verification hooks/);
+  assert.match(prompt, /Honor Scope, Out of scope, Assets, Implementation notes, Verification hooks/);
   assert.match(
     prompt,
-    /Modify only the files listed in SPEC §3 plus files you create; anything else must be justified under Deviations/,
+    /Modify only the files the SPEC's Relevant files section lists, plus files you create; anything else must be justified under Deviations/,
   );
   assert.match(prompt, /window\.__egon\.state\(\)/);
   assert.doesNotMatch(prompt, /deployment\.json/);
@@ -77,7 +78,7 @@ test("implementer prompts share a static prefix across features", () => {
   assert.ok(dash.slice(0, prefixEnd).includes("Viewport: 99x99"));
   assert.match(
     dash.slice(0, prefixEnd),
-    /Modify only the files listed in SPEC §3 plus files you create/,
+    /Modify only the files the SPEC's Relevant files section lists, plus files you create/,
   );
   assert.ok(dash.slice(0, prefixEnd).includes("Files changed:"));
   assert.ok(dash.slice(0, prefixEnd).includes("Criteria self-verified:"));
@@ -191,3 +192,73 @@ test("freshFixSeedAppendix omits an empty SPEC and placeholders an empty diff", 
   assert.match(appendix, /1\. \[FAIL\] jump/);
 });
 
+
+const TRUCK: AssetMeta = {
+  id: "garbage-truck-orange.glb",
+  originalFilename: "a3f9c2d1.glb",
+  sha256: "sha",
+  bytes: 481203,
+  kind: "model",
+  format: "glTF 2.0 binary",
+  fileOutput: "glTF binary model, version 2",
+  measured: { bboxMeters: [2.1, 1.9, 5.4], triangles: 1240, animations: ["wheels_spin"] },
+  description: "Orange municipal garbage truck",
+  tags: [],
+  grid: null,
+  parts: [],
+  uploadedAt: "2026-09-08T12:00:00.000Z",
+};
+
+const GRASS: AssetMeta = {
+  ...TRUCK,
+  id: "grass-plain.png",
+  kind: "image",
+  format: "PNG",
+  measured: { width: 32, height: 32, colorType: "RGBA" },
+  description: "Top-down seamless grass tile",
+};
+
+test("implementer prompt carries only the assets its spec declared, with measurements", () => {
+  const prompt = implementerPrompt(
+    { name: "Dash" } as Feature,
+    ["make it snappy"],
+    "/data/attachments",
+    [],
+    "",
+    [],
+    { ids: ["garbage-truck-orange.glb"], assets: [TRUCK, GRASS] },
+  );
+  assert.match(prompt, /`garbage-truck-orange\.glb` \| 2\.1 × 1\.9 × 5\.4 m, 1\.2k tris, anims: wheels_spin/);
+  assert.match(prompt, /`assets\/library\/model\/garbage-truck-orange\.glb`/);
+  assert.match(prompt, /Import them from there/);
+  // Handing it the catalog invites a res:// path to an asset promotion never copied in.
+  assert.doesNotMatch(prompt, /grass-plain/);
+});
+
+test("a spec that declares no assets gets no asset section", () => {
+  const prompt = implementerPrompt({ name: "Dash" } as Feature, [], "/data/attachments", []);
+  assert.doesNotMatch(prompt, /assets\/library/);
+  assert.doesNotMatch(prompt, /Assets this SPEC declares/);
+});
+
+test("reference images are never presented to the implementer as importable files", () => {
+  const prompt = implementerPrompt(
+    { name: "Dash" } as Feature,
+    ["match this HUD"],
+    "/data/attachments",
+    [
+      {
+        id: 1,
+        featureId: 1,
+        filename: "hud.png",
+        mimeType: "image/png",
+        storedName: "1.png",
+        createdAt: "2026-09-08T12:00:00.000Z",
+      },
+    ],
+  );
+  assert.match(prompt, /reference material only/);
+  assert.match(prompt, /must not be imported, copied, or referenced by any `res:\/\/` path/);
+  assert.doesNotMatch(prompt, /Import them into the Godot project from there/);
+  assert.doesNotMatch(prompt, /assets\/egon/);
+});

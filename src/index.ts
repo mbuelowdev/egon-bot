@@ -32,6 +32,7 @@ async function main(): Promise<void> {
     onGithubEvent: (event) => pipeline.handleGithubEvent(event),
     syncGithub: () => pipeline.catchUpOpenPrs(),
     beforeDelete: (feature) => pipeline.interruptIfLocked(feature.id),
+    retry: () => pipeline.retry(),
   });
 
   client.once(Events.ClientReady, (readyClient) => {

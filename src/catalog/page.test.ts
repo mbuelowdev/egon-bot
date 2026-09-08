@@ -35,7 +35,7 @@ test("index page shows lifetime token, feature, and agent-time stats", () => {
   assert.match(html, /lifetime agent time/);
 });
 
-test("index page links to the live game, repo, file sharing, and each feature PR", () => {
+test("index page links to the live game, repo, asset portal, and each feature PR", () => {
   const store = new FeatureStore(":memory:");
   const planned = store.createFeature("Dash HUD", "channel-1");
   store.startPlanning(planned.id);
@@ -50,13 +50,15 @@ test("index page links to the live game, repo, file sharing, and each feature PR
   assert.match(html, />Play the game</);
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together"/);
   assert.match(html, />Game repo</);
-  assert.match(html, /href="https:\/\/discord\.mbuelow\.dev"/);
+  assert.match(html, /href="\/assets"/);
   assert.match(html, />Upload assets</);
-  assert.match(html, /Host sprites, audio, and other files on the sharing service/);
+  assert.match(html, /upload and describe them there/);
+  assert.doesNotMatch(html, /sharing service/);
   assert.match(html, /href="https:\/\/github\.com\/mbuelowdev\/lets-vibe-together\/pull\/12"/);
   assert.match(html, /PR #12/);
   assert.doesNotMatch(html, /#agent-log/);
   assert.doesNotMatch(html, />Agent log</);
+  assert.doesNotMatch(html, /data-retry-slug="dash-hud"/);
   assert.match(html, /data-delete-slug="dash-hud"/);
 });
 
@@ -110,6 +112,7 @@ test("collecting, planned, and implemented feature pages include a delete action
     store.getFeatureById(done.id)!,
   );
   store.close();
+  assert.match(collectingHtml, /data-retry-slug="wall-run"/);
   assert.match(collectingHtml, /data-delete-slug="wall-run"/);
   assert.match(collectingHtml, /class="back" href="\/"/);
   assert.match(collectingHtml, /aria-label="Back to feature log"/);
@@ -118,8 +121,10 @@ test("collecting, planned, and implemented feature pages include a delete action
   assert.doesNotMatch(collectingHtml, /title-row/);
   assert.doesNotMatch(collectingHtml, />Feature log</);
   assert.doesNotMatch(collectingHtml, /href="#agent-log"/);
+  assert.match(plannedHtml, /data-retry-slug="dash-hud"/);
   assert.match(plannedHtml, /data-delete-slug="dash-hud"/);
   assert.doesNotMatch(plannedHtml, /href="#agent-log"/);
+  assert.match(doneHtml, /data-retry-slug="jump"/);
   assert.match(doneHtml, /data-delete-slug="jump"/);
 });
 
@@ -164,7 +169,7 @@ test("feature page PR is a GitHub-icon button", () => {
   assert.match(html, /class="feature-actions"/);
   assert.match(
     html,
-    /class="feature-actions">[\s\S]*class="github-pr"[\s\S]*data-delete-slug="dash-hud"/,
+    /class="feature-actions">[\s\S]*class="github-pr"[\s\S]*data-retry-slug="dash-hud"[\s\S]*data-delete-slug="dash-hud"/,
   );
   assert.doesNotMatch(html, /<p class="meta"><a href="https:\/\/github\.com/);
   assert.doesNotMatch(html, /<p class="links">[\s\S]*data-delete-slug/);
@@ -188,6 +193,55 @@ test("feature page lists collected notes with HTML escaped", () => {
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /id="agent-log"/);
   assert.match(html, /No agent log yet/);
+});
+
+test("feature page collapses spec sections except Context & Goal", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-spec-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  mkdirSync(join(dataDir, "features", String(feature.id)), { recursive: true });
+  writeFileSync(
+    join(dataDir, "features", String(feature.id), "SPEC.md"),
+    "# Dash HUD\n\n## 1. Context & Goal\n\nDash across gaps.\n\n## 4. Interface / Contract\n\nThe dash API.\n",
+  );
+  const html = featurePage({ dataDir } as Config, store.getFeatureById(feature.id)!);
+  store.close();
+  assert.match(html, /class="spec-section"/);
+  assert.match(html, /<details class="spec-section" open>/);
+  assert.match(html, /<summary><h2>1\. Context &amp; Goal<\/h2><\/summary>/);
+  assert.match(html, /<details class="spec-section">\s*<summary><h2>4\. Interface \/ Contract<\/h2><\/summary>/);
+  assert.equal([...html.matchAll(/<details class="spec-section" open>/g)].length, 1);
+});
+
+test("feature page opens Acceptance criteria as a plain numbered list", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-criteria-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  mkdirSync(join(dataDir, "features", String(feature.id)), { recursive: true });
+  writeFileSync(
+    join(dataDir, "features", String(feature.id), "SPEC.md"),
+    [
+      "# Dash HUD",
+      "",
+      "## 1. Context & Goal",
+      "",
+      "Dash across gaps.",
+      "",
+      "## 8. Acceptance criteria",
+      "",
+      "1. The player dashes 80 pixels right when Space is tapped.",
+    ].join("\n"),
+  );
+  const html = featurePage({ dataDir } as Config, store.getFeatureById(feature.id)!);
+  store.close();
+  assert.match(html, /<details class="spec-section" open>\s*<summary><h2>1\. Context &amp; Goal<\/h2><\/summary>/);
+  assert.match(
+    html,
+    /<details class="spec-section" open>\s*<summary><h2>8\. Acceptance criteria<\/h2><\/summary>/,
+  );
+  assert.equal([...html.matchAll(/<details class="spec-section" open>/g)].length, 2);
+  assert.match(html, /<li>The player dashes 80 pixels right when Space is tapped\.<\/li>/);
+  assert.doesNotMatch(html, /<table class="criteria">/);
 });
 
 test("feature page shows a circular color dot next to hex colors in notes and spec", () => {
@@ -234,6 +288,19 @@ test("feature page opens proof screenshots in a lightbox", () => {
   assert.match(html, /event\.target !== img/);
   assert.match(html, /classList\.add\("is-open"\)/);
   assert.match(html, /classList\.remove\("is-open"\)/);
+});
+
+test("feature page plays proof video instead of the still when both exist", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-page-video-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  mkdirSync(join(dataDir, "features", String(feature.id), "screenshots"), { recursive: true });
+  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "criterion-1.png"), "png");
+  writeFileSync(join(dataDir, "features", String(feature.id), "screenshots", "criterion-1.webm"), "webm");
+  const html = featurePage({ dataDir } as Config, store.getFeatureById(feature.id)!);
+  store.close();
+  assert.match(html, /<video src="\/features\/dash-hud\/screenshots\/criterion-1\.webm"/);
+  assert.doesNotMatch(html, /<img src="\/features\/dash-hud\/screenshots\/criterion-1\.png"/);
 });
 
 test("feature page shows Discord reference images", () => {

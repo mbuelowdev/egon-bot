@@ -90,9 +90,15 @@ export function loadCursorImages(
   return images;
 }
 
+/**
+ * Discord images are reference material, never game content. The portal is the only
+ * intake for a file that ships. This instruction used to say the opposite — that the
+ * files were already in the working tree and should be imported from there — and an
+ * agent handed an image will otherwise still try to make it game content, except now the
+ * file is not even on disk in the repo.
+ */
 export function attachmentPromptLines(
   attachmentsDir: string,
-  assetDir: string,
   count: number,
   forImplementer: boolean,
 ): string[] {
@@ -100,13 +106,15 @@ export function attachmentPromptLines(
     return [];
   }
   const noun = count === 1 ? "image is" : "images are";
-  const copy = forImplementer
-    ? `Those files are already in the working tree at ${assetDir}. Import them into the Godot project from there (do not re-download).`
-    : `Those files are also in the working tree at ${assetDir}.`;
+  const audience = forImplementer
+    ? "Build what they describe using the library assets the SPEC's Assets section names, or with primitives you draw yourself."
+    : "If a reference image implies this feature needs real art, look for it in the asset library index and name it in the Assets section. If nothing in the library fits, say so in Implementation notes rather than inventing a filename.";
   return [
     "",
     `${String(count)} Discord ${noun} attached to this message as vision input.`,
-    copy,
+    'They are **reference material only** — art direction, mockups, "make it look like this".',
+    "They are not in the working tree and must not be imported, copied, or referenced by any `res://` path.",
+    audience,
     `Original copies remain at ${attachmentsDir}.`,
   ];
 }

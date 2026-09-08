@@ -7,16 +7,16 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "tsc && mkdir -p dist/catalog dist/cursor && cp src/catalog/favicon.ico src/catalog/favicon.png src/catalog/apple-touch-icon.png dist/catalog/ && cp templates/spec-sheet.md docs/godot-cli.md dist/cursor/",
+    "build": "tsc && mkdir -p dist/catalog dist/cursor dist/godot && cp src/catalog/favicon.ico src/catalog/favicon.png src/catalog/apple-touch-icon.png dist/catalog/ && cp templates/spec-sheet.md docs/godot-cli.md dist/cursor/ && cp templates/egon_bridge.gd dist/godot/",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "test": "tsx --test src/config.test.ts src/format.test.ts src/catalog/*.test.ts src/discord/*.test.ts src/features/*.test.ts src/cursor/*.test.ts src/claude/*.test.ts src/git/*.test.ts src/godot/*.test.ts src/pipeline/*.test.ts"
+    "test": "tsx --test src/config.test.ts src/format.test.ts src/catalog/*.test.ts src/discord/*.test.ts src/features/*.test.ts src/events/*.test.ts src/cursor/*.test.ts src/claude/*.test.ts src/git/*.test.ts src/godot/*.test.ts src/assets/*.test.ts src/suite/*.test.ts src/pipeline/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.263",
     "@cursor/sdk": "^1.0.31",
-    "@playwright/mcp": "^0.0.80",
     "discord.js": "^14.22.1",
+    "playwright-core": "1.63.0-alpha-2026-08-31",
     "zod": "^4.5.4"
   },
   "devDependencies": {

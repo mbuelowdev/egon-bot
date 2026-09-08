@@ -3,6 +3,7 @@ import type { Config } from "../config.js";
 import type { Feature, FeatureAttachment, FeatureStore } from "../features/store.js";
 import { loadGameDecisionsMarkdown } from "../features/gameDecisions.js";
 import { loadGameMapMarkdown } from "../godot/gameMap.js";
+import { describedAssets, type AssetMeta } from "../assets/store.js";
 import { createAskDiscordUsersTool, type AskUsersDeps } from "./askUsersTool.js";
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
 import { agentUserMessage, loadCursorImages } from "./images.js";
@@ -17,11 +18,12 @@ export function plannerPrompt(
   attachments: FeatureAttachment[],
   gameMap = "",
   gameDecisions = "",
+  assets: AssetMeta[] = [],
 ): string {
   return [
     PLANNER_INSTRUCTIONS,
     "",
-    plannerUserPrompt(feature, notes, attachmentsDir, attachments, gameMap, gameDecisions),
+    plannerUserPrompt(feature, notes, attachmentsDir, attachments, gameMap, gameDecisions, assets),
   ].join("\n");
 }
 
@@ -34,6 +36,7 @@ export function buildPlannerSendMessage(options: {
   answersAppendix?: string;
   gameMap?: string;
   gameDecisions?: string;
+  assets?: AssetMeta[];
 }): string | SDKUserMessage {
   if (options.followUp !== undefined) {
     return options.followUp;
@@ -46,6 +49,7 @@ export function buildPlannerSendMessage(options: {
     options.attachments,
     options.gameMap ?? "",
     options.gameDecisions ?? "",
+    options.assets ?? [],
   );
   if (options.answersAppendix !== undefined && options.answersAppendix !== "") {
     text = `${text}\n\n${options.answersAppendix}`;
@@ -85,6 +89,7 @@ export async function runCursorPlanner(options: {
       answersAppendix: options.answersAppendix,
       gameMap: loadGameMapMarkdown(options.config),
       gameDecisions: loadGameDecisionsMarkdown(options.config),
+      assets: describedAssets(options.config.dataDir),
     });
     const result = await sendAndWait(
       agent,

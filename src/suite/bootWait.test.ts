@@ -9,7 +9,7 @@ import {
   interpretGodotBoot,
   pollGodotBoot,
   type GodotBootSample,
-} from "./godotBootWait.js";
+} from "./bootWait.js";
 
 const idle: GodotBootSample = {
   statusInlineVisible: false,
