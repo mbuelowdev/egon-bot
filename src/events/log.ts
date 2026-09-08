@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /**
@@ -126,6 +126,51 @@ export function readEvents(dataDir: string, limit = MAX_EVENTS_READ): EventEntry
     }
   }
   return entries.slice(-limit);
+}
+
+function rewriteEvents(dataDir: string, keepLine: (line: string) => boolean): { kept: number; removed: number } {
+  const path = eventsPath(dataDir);
+  if (!existsSync(path)) {
+    return { kept: 0, removed: 0 };
+  }
+  const kept: string[] = [];
+  let removed = 0;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (line.trim() === "") {
+      continue;
+    }
+    if (keepLine(line)) {
+      kept.push(line);
+    } else {
+      removed += 1;
+    }
+  }
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, kept.length === 0 ? "" : `${kept.join("\n")}\n`, "utf8");
+  renameSync(tmp, path);
+  return { kept: kept.length, removed };
+}
+
+function lineFeatureId(line: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (isEventEntry(parsed)) {
+      return parsed.featureId;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/** Drop every event for one feature. Malformed lines stay. Returns whether any were removed. */
+export function deleteEventsForFeature(dataDir: string, featureId: number): boolean {
+  return rewriteEvents(dataDir, (line) => lineFeatureId(line) !== featureId).removed > 0;
+}
+
+/** Empty the log. Malformed lines go too — this is an explicit wipe. */
+export function clearEvents(dataDir: string): void {
+  rewriteEvents(dataDir, () => false);
 }
 
 export type EventGroup = {

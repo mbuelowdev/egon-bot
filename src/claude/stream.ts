@@ -88,6 +88,12 @@ export function claudeSessionId(message: unknown): string | undefined {
   return id !== "" ? id : undefined;
 }
 
+/** Model or tool work on this query — not init, rate-limit, or a session id alone. */
+export function claudeQueryProducedWork(message: unknown): boolean {
+  const rec = asRecord(message);
+  return rec?.type === "assistant" || rec?.type === "user";
+}
+
 export function claudeAssistantError(message: unknown): string | undefined {
   const rec = asRecord(message);
   return rec && rec.type === "assistant" && typeof rec.error === "string" ? rec.error : undefined;

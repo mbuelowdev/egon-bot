@@ -82,6 +82,45 @@ const EVENTS_SCRIPT = `<script>
     });
   };
 
+  var postDelete = function (url, fail) {
+    var password = window.prompt("Password");
+    if (password === null) { return; }
+    window
+      .fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: password }),
+      })
+      .then(function (response) {
+        if (response.ok) {
+          window.location.reload();
+          return;
+        }
+        return response.text().then(function (text) {
+          window.alert(text || fail);
+        });
+      })
+      .catch(function () {
+        window.alert(fail);
+      });
+  };
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) { return; }
+    var one = target.closest("[data-delete-events]");
+    if (one) {
+      var id = one.getAttribute("data-delete-events");
+      if (id) {
+        postDelete("/events/" + encodeURIComponent(id) + "/delete", "Could not delete these events.");
+      }
+      return;
+    }
+    if (target.closest("[data-events-clear]")) {
+      postDelete("/events/delete", "Could not delete the event log.");
+    }
+  });
+
   var schedule = function (delay) {
     if (stopped) { return; }
     if (timer) { window.clearTimeout(timer); }
@@ -214,6 +253,7 @@ function renderFeature(feature: FeatureEvents, openGroups: boolean): string {
         ${dot(feature.level)}
         <h3><a href="/features/${encodeURIComponent(feature.slug)}">${escapeHtml(feature.feature)}</a></h3>
         <span class="event-dur">${escapeHtml(formatEventClock(feature.lastAt))}</span>
+        <button type="button" class="log-jump" data-delete-events="${escapeHtml(String(feature.featureId))}">Delete</button>
       </header>
       <div class="event-groups">
         ${feature.groups
@@ -251,6 +291,7 @@ export function eventsPage(features: FeatureEvents[]): string {
       <div class="events-actions">
         <button type="button" class="log-jump" data-events-expand>Expand all</button>
         <button type="button" class="log-jump" data-events-collapse>Collapse all</button>
+        <button type="button" class="log-jump" data-events-clear>Delete all</button>
         <span class="live" data-live-status aria-live="polite"><span class="dot info"></span>Live</span>
       </div>
       <div id="event-list" data-etag="${escapeHtml(etag)}">${body}</div>

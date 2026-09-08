@@ -10,7 +10,7 @@ import { UserFacingError, type Feature, type FeatureStore } from "../features/st
 import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
 import { loadFeatureAgentLog } from "../cursor/agentLog.js";
-import { groupEvents, readEvents } from "../events/log.js";
+import { clearEvents, deleteEventsForFeature, groupEvents, readEvents } from "../events/log.js";
 import { eventsFragmentEtag, eventsPage, renderEventFeatures } from "./events.js";
 import { featurePage, indexPage } from "./page.js";
 import { parseGithubWebhookEvent, verifyGithubSignature, type GithubWebhookEvent } from "./webhook.js";
@@ -227,6 +227,37 @@ async function handleRequest(
       } catch (error) {
         console.error(`failed to close PR #${String(prNumber)} after catalog delete`, error);
       }
+    }
+    send(res, 204, "", "text/plain; charset=utf-8");
+    return;
+  }
+
+  if (req.method === "POST" && (urlPath === "/events/delete" || urlPath === "/events/delete/")) {
+    const password = parsePassword(await readBody(req));
+    if (password === undefined || !catalogPasswordOk(password)) {
+      send(res, 403, "Wrong password", "text/plain; charset=utf-8");
+      return;
+    }
+    clearEvents(options.config.dataDir);
+    send(res, 204, "", "text/plain; charset=utf-8");
+    return;
+  }
+
+  const eventsDeleteMatch = urlPath.match(/^\/events\/(\d+)\/delete\/?$/);
+  if (req.method === "POST" && eventsDeleteMatch && eventsDeleteMatch[1]) {
+    const featureId = Number(eventsDeleteMatch[1]);
+    if (!Number.isInteger(featureId) || featureId < 1) {
+      send(res, 404, "Not found", "text/plain; charset=utf-8");
+      return;
+    }
+    const password = parsePassword(await readBody(req));
+    if (password === undefined || !catalogPasswordOk(password)) {
+      send(res, 403, "Wrong password", "text/plain; charset=utf-8");
+      return;
+    }
+    if (!deleteEventsForFeature(options.config.dataDir, featureId)) {
+      send(res, 404, "Not found", "text/plain; charset=utf-8");
+      return;
     }
     send(res, 204, "", "text/plain; charset=utf-8");
     return;

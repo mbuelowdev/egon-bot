@@ -426,8 +426,8 @@ a:hover { color: var(--accent-hover); }
   border-color: var(--muted);
   color: var(--header);
 }
-[data-delete-slug] { color: var(--danger); }
-[data-delete-slug]:hover { border-color: var(--danger); color: var(--danger); }
+[data-delete-slug], [data-delete-events], [data-events-clear] { color: var(--danger); }
+[data-delete-slug]:hover, [data-delete-events]:hover, [data-events-clear]:hover { border-color: var(--danger); color: var(--danger); }
 .log-run {
   border: 1px solid var(--line);
   background: var(--elevated);

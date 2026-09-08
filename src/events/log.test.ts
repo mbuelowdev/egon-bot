@@ -9,6 +9,8 @@ import {
   groupEvents,
   readEvents,
   recordEvent,
+  deleteEventsForFeature,
+  clearEvents,
   type EventEntry,
 } from "./log.js";
 
@@ -126,4 +128,26 @@ test("a clock skew backwards does not produce a negative duration", () => {
     { ...event({ step: "b" }), at: "2026-09-08T10:00:00.000Z" },
   ];
   assert.equal(groupEvents(entries)[0]?.groups[0]?.durationMs, 0);
+});
+
+test("deleteEventsForFeature removes one feature and leaves the rest", () => {
+  const dir = dataDir();
+  recordEvent(dir, event({ featureId: 1, step: "dash" }));
+  recordEvent(dir, event({ featureId: 2, feature: "Jump", slug: "jump", step: "jump" }));
+  writeFileSync(eventsPath(dir), `${readFileSync(eventsPath(dir), "utf8")}garbage\n`);
+  assert.equal(deleteEventsForFeature(dir, 1), true);
+  const entries = readEvents(dir);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.featureId, 2);
+  assert.match(readFileSync(eventsPath(dir), "utf8"), /garbage/);
+  assert.equal(deleteEventsForFeature(dir, 1), false);
+});
+
+test("clearEvents wipes the log including malformed lines", () => {
+  const dir = dataDir();
+  recordEvent(dir, event());
+  writeFileSync(eventsPath(dir), `${readFileSync(eventsPath(dir), "utf8")}garbage\n`);
+  clearEvents(dir);
+  assert.deepEqual(readEvents(dir), []);
+  assert.equal(readFileSync(eventsPath(dir), "utf8"), "");
 });

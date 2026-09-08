@@ -598,6 +598,8 @@ test("the /events route renders the pipeline log grouped by feature and phase", 
     assert.match(html, /<span class="event-phase">export<\/span>/);
     assert.match(html, /<span class="event-phase">suite<\/span>/);
     assert.match(html, /expected 4200, actual 0/);
+    assert.match(html, /data-delete-events="/);
+    assert.match(html, /data-events-clear/);
     // The trailing-slash form is the same page, not a 404.
     const slash = await fetch(`http://127.0.0.1:${String(port)}/events/`);
     assert.equal(slash.status, 200);
@@ -688,6 +690,98 @@ test("the /events/fragment route answers 304 for an unchanged log and 200 once i
     assert.equal(moved.status, 200);
     assert.notEqual(moved.headers.get("etag"), etag);
     assert.match(await moved.text(), /PASS second check/);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
+test("pipeline events can be deleted per feature or wiped after the shared password", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-events-delete-"));
+  const store = new FeatureStore(":memory:");
+  const dash = store.createFeature("Dash HUD", "channel-1");
+  const jump = store.createFeature("Jump", "channel-1");
+  const base = {
+    phase: "suite" as const,
+    level: "success" as const,
+  };
+  recordEvent(dataDir, {
+    ...base,
+    at: "2026-09-08T10:00:00.000Z",
+    featureId: dash.id,
+    feature: dash.name,
+    slug: "dash-hud",
+    step: "PASS dash",
+  });
+  recordEvent(dataDir, {
+    ...base,
+    at: "2026-09-08T10:00:10.000Z",
+    featureId: jump.id,
+    feature: jump.name,
+    slug: "jump",
+    step: "PASS jump",
+  });
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({ store, config, onGithubEvent: async () => {} });
+  try {
+    const wrong = await fetch(`http://127.0.0.1:${String(port)}/events/${String(dash.id)}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "nope" }),
+    });
+    assert.equal(wrong.status, 403);
+
+    const page = await (await fetch(`http://127.0.0.1:${String(port)}/events`)).text();
+    assert.match(page, /PASS dash/);
+    assert.match(page, /PASS jump/);
+
+    const one = await fetch(`http://127.0.0.1:${String(port)}/events/${String(dash.id)}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(one.status, 204);
+    const afterOne = await (await fetch(`http://127.0.0.1:${String(port)}/events`)).text();
+    assert.doesNotMatch(afterOne, /PASS dash/);
+    assert.match(afterOne, /PASS jump/);
+    assert.equal(store.getFeatureById(dash.id)?.name, "Dash HUD");
+
+    const missing = await fetch(`http://127.0.0.1:${String(port)}/events/${String(dash.id)}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(missing.status, 404);
+
+    const wipeWrong = await fetch(`http://127.0.0.1:${String(port)}/events/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "nope" }),
+    });
+    assert.equal(wipeWrong.status, 403);
+
+    const wipe = await fetch(`http://127.0.0.1:${String(port)}/events/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: CATALOG_DELETE_PASSWORD }),
+    });
+    assert.equal(wipe.status, 204);
+    const empty = await (await fetch(`http://127.0.0.1:${String(port)}/events`)).text();
+    assert.match(empty, /No pipeline events yet/);
   } finally {
     await stopCatalogServer();
     store.close();

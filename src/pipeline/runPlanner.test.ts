@@ -91,6 +91,42 @@ test("Claude startup usage error runs Cursor and notifies Discord", async () => 
   store.close();
 });
 
+test("usage limit before this query produces work falls back even if Claude was persisted", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
+  store.setPlannerBackend(feature.id, "claude");
+  store.setPlannerAgentId(feature.id, "claude-session");
+  const notes: string[] = [];
+  let cursorGotAppendix: string | undefined;
+  const result = await runFeaturePlanner({
+    config: {} as Config,
+    store,
+    feature: store.getFeatureById(feature.id) ?? feature,
+    deps: emptyDeps(store, feature.id),
+    resume: true,
+    notify: async (content) => {
+      notes.push(content);
+    },
+    inspectSpec: acceptSpec,
+    runners: {
+      claude: async () => {
+        throw new ClaudeUsageLimitError("Claude rate limit rejected", false);
+      },
+      cursor: async (options) => {
+        cursorGotAppendix = options.answersAppendix;
+        assert.equal(options.feature.plannerAgentId, null);
+        return { marker: "PLAN_COMPLETE", agentId: "cursor-1" };
+      },
+    },
+  });
+  assert.equal(result.agentId, "cursor-1");
+  assert.equal(notes.length, 1);
+  assert.match(notes[0] ?? "", /Falling back to the Cursor planner/);
+  assert.equal(store.getFeatureById(feature.id)?.plannerBackend, "cursor");
+  assert.equal(cursorGotAppendix, "Continue the plan. If the spec is done, end with PLAN_COMPLETE or PLAN_BLOCKED.");
+  store.close();
+});
+
 test("usage limit after Claude already started does not fall back", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("dash", "channel-1");

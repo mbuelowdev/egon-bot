@@ -107,6 +107,8 @@ test("expand and collapse controls are present for a GitHub-Actions-style read",
   const html = eventsPage(groupEvents([event()]));
   assert.match(html, /data-events-expand/);
   assert.match(html, /data-events-collapse/);
+  assert.match(html, /data-events-clear/);
+  assert.match(html, /data-delete-events="1"/);
 });
 
 test("a regression failure names the feature that owns the broken check", () => {
@@ -159,6 +161,8 @@ test("the page ships the poll loop and a live indicator", () => {
   assert.ok(html.includes(`data-etag="${etag.replaceAll('"', "&quot;")}"`));
   assert.match(html, /data-live-status/);
   assert.match(html, /\/events\/fragment/);
+  assert.match(html, /\/events\/" \+ encodeURIComponent\(id\) \+ "\/delete/);
+  assert.match(html, /\/events\/delete/);
   assert.match(html, /If-None-Match/);
   assert.match(html, /list\.getAttribute\("data-etag"\)/);
   assert.match(html, /data-detail-key/);

@@ -21,6 +21,7 @@ import { plannerCanUseTool } from "./permissions.js";
 import {
   claudeAssistantError,
   claudeMessageToWatchEvents,
+  claudeQueryProducedWork,
   claudeResultCostUsd,
   claudeResultIsError,
   claudeResultText,
@@ -171,17 +172,16 @@ export async function queryPlanner(options: {
       q.close();
     },
   });
-  const markStarted = (id: string | undefined): void => {
-    if (id && id !== sessionId) {
+  const persistSession = (id: string | undefined): void => {
+    if (!id) {
+      return;
+    }
+    if (id !== sessionId) {
       sessionId = id;
       options.onSession(id);
-    } else if (id && !started) {
-      options.onSession(id);
+      return;
     }
-    if (id) {
-      sessionId = id;
-    }
-    started = true;
+    sessionId = id;
   };
   try {
     if (isAgentCancelRequested()) {
@@ -189,18 +189,7 @@ export async function queryPlanner(options: {
       q.close();
     }
     for await (const message of q) {
-      const sid = claudeSessionId(message);
-      if (sid) {
-        markStarted(sid);
-      }
       const rec = message as { type?: string };
-      if (rec.type === "assistant" || rec.type === "user" || rec.type === "system") {
-        if (sid) {
-          markStarted(sid);
-        } else {
-          started = true;
-        }
-      }
       const assistantError = claudeAssistantError(message);
       if (assistantError && looksLikeClaudeUsageLimit({ error: assistantError, message })) {
         throw new ClaudeUsageLimitError(`Claude ${assistantError}`, started);
@@ -210,6 +199,10 @@ export async function queryPlanner(options: {
         if (looksLikeClaudeUsageLimit({ rateLimitStatus: info?.status, rate_limit_info: info })) {
           throw new ClaudeUsageLimitError("Claude rate limit rejected", started);
         }
+      }
+      persistSession(claudeSessionId(message));
+      if (claudeQueryProducedWork(message)) {
+        started = true;
       }
       for (const event of claudeMessageToWatchEvents(message)) {
         watch.noteEvent(event);
