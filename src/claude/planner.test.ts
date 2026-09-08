@@ -4,13 +4,10 @@ import type { Feature } from "../features/store.js";
 import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "../cursor/plannerPrompt.js";
 import { SPEC_SHEET_TEMPLATE } from "../cursor/specTemplate.js";
 import { RUNNER_CAPABILITIES_PROMPT } from "../suite/capabilities.js";
-import { claudePlannerSystemPrompt, claudePlannerUserPrompt } from "./planner.js";
 
-test("claude planner system prompt is identical and omits the spec path", () => {
-  const prompt = claudePlannerSystemPrompt();
-  assert.ok(prompt.startsWith(PLANNER_INSTRUCTIONS));
+test("claude planner system prompt is the shared instructions and omits the spec path", () => {
+  const prompt = PLANNER_INSTRUCTIONS;
   assert.doesNotMatch(prompt, /docs\/features\//);
-  assert.match(prompt, /Write ONLY the spec file path given in the user message/);
   assert.match(
     prompt,
     /Do not use Bash, subagents, or the web\. A later, separate implementer has shell access/,
@@ -37,17 +34,8 @@ test("claude planner system prompt is identical and omits the spec path", () => 
   assert.doesNotMatch(prompt, /Feature name:/);
 });
 
-test("claude planner user prompt is the shared user prompt", () => {
-  const feature = { name: "Dash" } as Feature;
-  const notes = ["make it snappy"];
-  assert.equal(
-    claudePlannerUserPrompt(feature, notes, "/data/attachments", []),
-    plannerUserPrompt(feature, notes, "/data/attachments", []),
-  );
-});
-
 test("claude planner user prompt is static-first then feature-specific", () => {
-  const prompt = claudePlannerUserPrompt(
+  const prompt = plannerUserPrompt(
     { name: "Dash" } as Feature,
     ["make it snappy"],
     "/data/attachments",
@@ -74,8 +62,8 @@ test("claude planner user prompt is static-first then feature-specific", () => {
 test("claude planner user prompts share a static prefix across features", () => {
   const gameMap = "# Game map\n\n- Viewport: 99x99\n";
   const decisions = "# Game decisions\n\n## Art style\n\npixel\n";
-  const dash = claudePlannerUserPrompt({ name: "Dash" } as Feature, ["a"], "/data/a", [], gameMap, decisions);
-  const jump = claudePlannerUserPrompt({ name: "Jump" } as Feature, ["b"], "/data/b", [], gameMap, decisions);
+  const dash = plannerUserPrompt({ name: "Dash" } as Feature, ["a"], "/data/a", [], gameMap, decisions);
+  const jump = plannerUserPrompt({ name: "Jump" } as Feature, ["b"], "/data/b", [], gameMap, decisions);
   const prefixEnd = dash.indexOf("Feature name:");
   assert.ok(prefixEnd > 0);
   assert.equal(dash.slice(0, prefixEnd), jump.slice(0, prefixEnd));

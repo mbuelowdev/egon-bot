@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Feature } from "../features/store.js";
 import { EGON_STATE_TIMEOUT_MS } from "./statePoll.js";
-import { plannerPrompt } from "../cursor/planner.js";
+import { plannerPrompt } from "../cursor/plannerPrompt.js";
 import {
   RUNNER_CAPABILITIES_PROMPT,
   TESTER_VIEWPORT_HEIGHT,

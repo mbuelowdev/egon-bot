@@ -8,24 +8,8 @@ import { createAskDiscordUsersTool, type AskUsersDeps } from "./askUsersTool.js"
 import { disposeAgent, localAgentOptions, sendAndWait } from "./client.js";
 import { agentUserMessage, loadCursorImages } from "./images.js";
 import { parsePlanMarker, type PlanMarker } from "./planMarker.js";
-import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "./plannerPrompt.js";
+import { plannerPrompt } from "./plannerPrompt.js";
 import { featurePaths } from "./testReport.js";
-
-export function plannerPrompt(
-  feature: Feature,
-  notes: string[],
-  attachmentsDir: string,
-  attachments: FeatureAttachment[],
-  gameMap = "",
-  gameDecisions = "",
-  assets: AssetMeta[] = [],
-): string {
-  return [
-    PLANNER_INSTRUCTIONS,
-    "",
-    plannerUserPrompt(feature, notes, attachmentsDir, attachments, gameMap, gameDecisions, assets),
-  ].join("\n");
-}
 
 export function buildPlannerSendMessage(options: {
   feature: Feature;

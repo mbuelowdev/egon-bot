@@ -4,20 +4,19 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Feature } from "../features/store.js";
 import type { AssetMeta } from "../assets/store.js";
-import { plannerPrompt } from "./planner.js";
-import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "./plannerPrompt.js";
+import { PLANNER_INSTRUCTIONS, plannerPrompt, plannerUserPrompt } from "./plannerPrompt.js";
 import { SPEC_SHEET_TEMPLATE } from "./specTemplate.js";
 import { RUNNER_CAPABILITIES_PROMPT } from "../suite/capabilities.js";
 
-test("cursor planner prompt is the shared instructions plus the user prompt", () => {
+test("planner prompt is the shared instructions plus the user prompt", () => {
   const feature = { name: "Dash" } as Feature;
   const notes = ["make it snappy"];
   const user = plannerUserPrompt(feature, notes, "/data/attachments", []);
   const prompt = plannerPrompt(feature, notes, "/data/attachments", []);
   assert.equal(prompt, `${PLANNER_INSTRUCTIONS}\n\n${user}`);
   assert.doesNotMatch(prompt, /about 64000 tokens/);
-  assert.doesNotMatch(prompt, /Do not use Bash, subagents, or the web/);
-  assert.doesNotMatch(prompt, /Do not draft the entire SPEC in thinking/);
+  assert.match(prompt, /Do not use Bash, subagents, or the web/);
+  assert.match(prompt, /Do not draft the entire SPEC in thinking/);
 });
 
 test("planner prompt requires a specific spec and clarifying questions", () => {
@@ -25,7 +24,7 @@ test("planner prompt requires a specific spec and clarifying questions", () => {
   assert.match(prompt, /Make the spec as specific as possible/);
   assert.match(
     prompt,
-    /A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint/,
+    /Do not use Bash, subagents, or the web\. A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint/,
   );
   assert.match(prompt, /You are operating autonomously/);
   assert.match(prompt, /Batch independent Reads\/Glob\/Grep in one turn/);

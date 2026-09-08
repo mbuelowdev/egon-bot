@@ -1,9 +1,9 @@
 import type { Config } from "../config.js";
-import type { Feature, FeatureAttachment, FeatureStore } from "../features/store.js";
+import type { Feature, FeatureStore } from "../features/store.js";
 import { featureSlug } from "../features/slug.js";
 import { loadGameDecisionsMarkdown } from "../features/gameDecisions.js";
 import { loadGameMapMarkdown } from "../godot/gameMap.js";
-import { describedAssets, type AssetMeta } from "../assets/store.js";
+import { describedAssets } from "../assets/store.js";
 import type { AskUsersDeps } from "../cursor/askQuestions.js";
 import { loadCursorImages } from "../cursor/images.js";
 import { parsePlanMarker, type PlanMarker } from "../cursor/planMarker.js";
@@ -11,35 +11,6 @@ import { PLANNER_INSTRUCTIONS, plannerUserPrompt } from "../cursor/plannerPrompt
 import { featurePaths } from "../cursor/testReport.js";
 import { plannerWritablePaths } from "./permissions.js";
 import { buildClaudeUserPrompt, queryPlanner } from "./query.js";
-
-export function claudePlannerSystemPrompt(): string {
-  return [
-    PLANNER_INSTRUCTIONS,
-    "Write ONLY the spec file path given in the user message.",
-    "Do not use Bash, subagents, or the web. A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint.",
-    "Write the spec with the Write/Edit tools. Do not draft the entire SPEC in thinking and then write it again as the reply.",
-  ].join("\n");
-}
-
-export function claudePlannerUserPrompt(
-  feature: Feature,
-  notes: string[],
-  attachmentsDir: string,
-  attachments: FeatureAttachment[],
-  gameMap = "",
-  gameDecisions = "",
-  assets: AssetMeta[] = [],
-): string {
-  return plannerUserPrompt(
-    feature,
-    notes,
-    attachmentsDir,
-    attachments,
-    gameMap,
-    gameDecisions,
-    assets,
-  );
-}
 
 export async function runClaudePlanner(options: {
   config: Config;
@@ -59,7 +30,7 @@ export async function runClaudePlanner(options: {
   const attachments = options.store.listAttachments(options.feature.id);
   const userText =
     options.followUp ??
-    claudePlannerUserPrompt(
+    plannerUserPrompt(
       options.feature,
       notes,
       attachmentsDir,
@@ -76,7 +47,7 @@ export async function runClaudePlanner(options: {
     config: options.config,
     deps: options.deps,
     specPath: writablePaths,
-    systemPrompt: claudePlannerSystemPrompt(),
+    systemPrompt: PLANNER_INSTRUCTIONS,
     prompt: buildClaudeUserPrompt(userText, images),
     resume,
     logText:

@@ -12,12 +12,14 @@ import { MAX_ACCEPTANCE_CRITERIA } from "./testReport.js";
 import { MAX_CHECKS } from "../features/checkSchema.js";
 
 /**
- * Shared planner instructions for Claude and the Cursor fallback.
- * Backend wrappers add only runtime/tool constraints.
+ * Shared planner instructions for Claude (system prompt) and Cursor (prefix).
+ * Backends add only runtime/tool constraints, not extra copy.
  */
 export const PLANNER_INSTRUCTIONS = [
   "You are the Egon planner for a Godot web game in this working tree.",
-  "You are on a feature branch. You write exactly two files: the SPEC and its checks file. Do not write any other files. Do not commit or push.",
+  "You are on a feature branch. You write exactly two files: the SPEC and its checks file named in the user message. Do not write any other files. Do not commit or push.",
+  "Write the spec with the Write/Edit tools. Do not draft the entire SPEC in thinking and then write it again as the reply.",
+  "Do not use Bash, subagents, or the web. A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint.",
   "You may read existing game code to ground the spec. Batch independent Reads/Glob/Grep in one turn: privately list what you need next, then request every item that does not depend on another's result in this one response.",
   "Ground the spec in the working tree. Read the game before locking UI, names, or file paths.",
   "If the user message includes a GAME_MAP of the last merged tree, prefer it over extra Glob/Grep/Read for orientation.",
@@ -40,7 +42,6 @@ export const PLANNER_INSTRUCTIONS = [
   `Write the machine-executable checks to the checks file named in your instructions, not into the SPEC: a JSON array of at most ${String(MAX_CHECKS)} objects, each with \`name\`, \`scenario\`, \`steps\`, and \`proof\` (\`screenshot\` or \`video\`; default \`screenshot\`). Do not put the proof type in Acceptance criteria. A deterministic runner executes it with no agent in the loop, so a malformed step is rejected at the gate and a vague one has nobody to interpret it.`,
   RUNNER_CAPABILITIES_PROMPT,
   "Make the spec as specific as possible. Name exact sizes, colors, positions, controls, counts, timing, and behavior so the implementer has nothing to guess. Cite existing scene/script paths you grounded in.",
-  "A later, separate implementer has shell access; do not treat your own lack of web access as a game constraint.",
   "",
   "Spec sheet template:",
   SPEC_SHEET_TEMPLATE,
@@ -71,5 +72,21 @@ export function plannerUserPrompt(
     "Feature notes from Discord:",
     noteBlock,
     ...attachmentPromptLines(attachmentsDir, attachments.length, false),
+  ].join("\n");
+}
+
+export function plannerPrompt(
+  feature: Feature,
+  notes: string[],
+  attachmentsDir: string,
+  attachments: FeatureAttachment[],
+  gameMap = "",
+  gameDecisions = "",
+  assets: AssetMeta[] = [],
+): string {
+  return [
+    PLANNER_INSTRUCTIONS,
+    "",
+    plannerUserPrompt(feature, notes, attachmentsDir, attachments, gameMap, gameDecisions, assets),
   ].join("\n");
 }
