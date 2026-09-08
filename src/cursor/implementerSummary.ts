@@ -12,7 +12,7 @@ export const IMPLEMENTER_SUMMARY_PROMPT = [
   "- path — one line per modified or created file",
   "",
   "Criteria self-verified:",
-  "1. [PASS] or [FAIL] evidence from EgonBridge.snapshot() in a headless run / Godot CLI (same numbering as Acceptance criteria). You have no browser: never claim window.__egon.state() evidence.",
+  "1. [PASS] or [FAIL] evidence from get_node(\"/root/EgonBridge\").snapshot() in a headless run / Godot CLI (same numbering as Acceptance criteria). You have no browser: never claim window.__egon.state() evidence.",
   "",
   "Deviations:",
   "- none, or justify any file the SPEC's Relevant files section does not list, and any unmet criterion",

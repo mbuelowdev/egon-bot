@@ -8,7 +8,9 @@ extends Node
 ##    state an earlier feature's checks depend on.
 ##
 ##        func _ready() -> void:
-##            EgonBridge.register_field("playerX", func(): return global_position.x)
+##            get_node("/root/EgonBridge").register_field("playerX", func(): return global_position.x)
+##
+##    `--check-only` does not load autoloads, so the `EgonBridge` identifier fails parse.
 ##
 ##    The suite reads `window.__egon.state()` in the browser, which returns a JSON object
 ##    of every registered field. Provider return values must be JSON-safe: int, float,
@@ -29,7 +31,7 @@ extends Node
 ##
 ##    Scenarios only run in debug builds. A release export ignores the parameter entirely.
 ##
-## Headless self-check: EgonBridge.snapshot() returns the same Dictionary without touching
+## Headless self-check: get_node("/root/EgonBridge").snapshot() returns the same Dictionary without touching
 ## the browser, so `--headless --quit-after` runs can verify field values. Those runs also
 ## print EGON_SCENARIO_ACTIVE / EGON_SCENARIO_UNKNOWN for grepping.
 ##

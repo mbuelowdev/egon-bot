@@ -11,6 +11,9 @@ test("Godot 4 web gotchas name each repeat failure class", () => {
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /COOP\/COEP/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /JavaScriptBridge/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /OS\.has_feature\("web"\)/);
+  assert.match(GODOT_WEB_GOTCHAS_PROMPT, /--check-only/);
+  assert.match(GODOT_WEB_GOTCHAS_PROMPT, /does not load autoloads/);
+  assert.match(GODOT_WEB_GOTCHAS_PROMPT, /get_node\("\/root\/EgonBridge"\)/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /Never hand-edit `\.uid` files/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /`class_name` must be globally unique/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /No addons/);

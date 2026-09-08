@@ -156,7 +156,7 @@ export function generateGameMap(repoDir: string): string {
   lines.push("## Debug bridge");
   lines.push("");
   lines.push(
-    "Fields already exposed through `window.__egon.state()` via `EgonBridge.register_field`.",
+    "Fields already exposed through `window.__egon.state()` via `get_node(\"/root/EgonBridge\").register_field`.",
   );
   lines.push(
     "Reuse a field that already answers your check instead of registering a near-duplicate under a new name.",

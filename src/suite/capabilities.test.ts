@@ -48,6 +48,8 @@ test("runner capabilities describe screenshot and video human proof", () => {
   assert.match(RUNNER_CAPABILITIES_PROMPT, /`proof` field/);
   assert.match(RUNNER_CAPABILITIES_PROMPT, /record_ms/);
   assert.match(RUNNER_CAPABILITIES_PROMPT, /Inherited regression checks are screenshots/);
+  assert.match(RUNNER_CAPABILITIES_PROMPT, /one second more for the scene to settle/);
+  assert.match(RUNNER_CAPABILITIES_PROMPT, /holds each video-proof press briefly/);
 });
 
 test("runner capabilities give a click conversion keyed on the GAME_MAP stretch mode", () => {

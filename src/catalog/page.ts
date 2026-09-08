@@ -260,7 +260,40 @@ a:hover { color: var(--accent-hover); }
 }
 .spec-section-body > :first-child { margin-top: 0; }
 .spec-section-body > :last-child { margin-bottom: 0; }
-.spec ol, .notes { padding-left: 1.25rem; }
+.spec ol, .spec ul, .notes { padding-left: 1.25rem; }
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--elevated);
+}
+.spec table.md {
+  width: 100%;
+  min-width: 28rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.spec table.md th,
+.spec table.md td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+.spec table.md thead th {
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--panel);
+  white-space: nowrap;
+  font-weight: 600;
+}
+.spec table.md tbody tr:last-child td {
+  border-bottom: 0;
+}
 .criteria-wrap {
   overflow-x: auto;
   margin: 0.35rem 0 0.15rem;
@@ -953,7 +986,7 @@ export function featurePage(
       ${refsGallery}
       <section>
         <h2>Spec</h2>
-        <div class="spec">${renderMarkdown(spec, { collapsibleSections: true })}</div>
+        <div class="spec">${renderMarkdown(spec, { collapsibleSections: true, skipLeadingH1: true })}</div>
       </section>
       <section>
         <h2>Proof</h2>

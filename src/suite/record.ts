@@ -1,11 +1,19 @@
 import { writeFileSync } from "node:fs";
 
 /**
- * Human-proof video. Chromium's MediaRecorder on the Godot canvas, started after boot
- * so the clip is gameplay rather than the HTML shell. Not a pass condition.
+ * Human-proof video. Chromium's MediaRecorder on the Godot canvas, started after the
+ * scene warmup so the clip is gameplay rather than the HTML shell or a hitchy first
+ * second. Not a pass condition.
  *
  * `page.evaluate(string)` is an expression (`isFunction: false`); these are IIFEs.
  */
+
+/** First-frame hitch: shaders and physics after the HTML shell reports ready. */
+export const SCENE_WARMUP_MS = 1_000;
+/** Video proof only: keep a press down so WASD/camera motion is visible. Still one press. */
+export const PROOF_PRESS_HOLD_MS = 750;
+/** Linger after each video-proof input so the camera and a step of motion make the clip. */
+export const PROOF_ACTION_GAP_MS = 400;
 
 export type ProofRecordStart = { ok: boolean; error?: string };
 export type ProofRecordStop = { ok: boolean; base64?: string; error?: string };

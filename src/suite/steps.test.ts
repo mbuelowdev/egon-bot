@@ -20,8 +20,8 @@ function fakePage(values: unknown[], log: string[] = []): SuitePage {
       index += 1;
       return { value, first: value, changed: false, settled: true, samples: 1, ms: 1 } as T;
     },
-    press: async (key) => {
-      log.push(`press:${key}`);
+    press: async (key, holdMs) => {
+      log.push(holdMs !== undefined ? `press:${key}:${String(holdMs)}` : `press:${key}`);
     },
     click: async (x, y) => {
       log.push(`click:${String(x)},${String(y)}`);
@@ -37,7 +37,9 @@ function fakePage(values: unknown[], log: string[] = []): SuitePage {
     },
     startProofVideo: async () => false,
     stopProofVideo: async () => false,
-    wait: async () => {},
+    wait: async (ms) => {
+      log.push(`wait:${String(ms)}`);
+    },
   };
 }
 
@@ -159,4 +161,21 @@ test("changed_by uses the reading an earlier step recorded", async () => {
   ]);
   const outcome = await runCheckSteps(fakePage([100, 180]), check, context());
   assert.equal(outcome.ok, true);
+});
+
+test("video-proof pacing holds a press and lingers after input", async () => {
+  const log: string[] = [];
+  const ctx = {
+    ...context(),
+    proofPressHoldMs: 750,
+    proofActionGapMs: 400,
+  };
+  const check = checkOf([
+    { press: "KeyW" },
+    { click: [10, 20] },
+    { expect: "window.__egon.state().ready", equals: true },
+  ]);
+  const outcome = await runCheckSteps(fakePage([true], log), check, ctx);
+  assert.equal(outcome.ok, true);
+  assert.deepEqual(log, ["press:KeyW:750", "wait:400", "click:10,20", "wait:400"]);
 });

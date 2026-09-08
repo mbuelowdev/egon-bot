@@ -18,6 +18,8 @@ test("implementer prompt includes the short Godot CLI cheat sheet", () => {
   assert.ok(prompt.includes(GODOT_WEB_GOTCHAS_PROMPT));
   assert.match(prompt, /godot --headless --path \. --import/);
   assert.match(prompt, /--check-only/);
+  assert.match(prompt, /get_node\("\/root\/EgonBridge"\)\.register_field/);
+  assert.match(prompt, /does not load autoloads/);
   assert.match(prompt, /--quit-after 60/);
   assert.match(prompt, /docs\/godot-cli\.md/);
   assert.doesNotMatch(prompt, /xargs/);

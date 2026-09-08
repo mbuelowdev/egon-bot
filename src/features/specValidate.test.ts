@@ -14,7 +14,7 @@ import {
 
 /** Realistic Verification hooks: the gate requires the bridge named and its fields declared. */
 const VERIFICATION_HOOKS = [
-  '- Mechanism: `EgonBridge.register_field("playerX", func(): return global_position.x)`.',
+  '- Mechanism: `get_node("/root/EgonBridge").register_field("playerX", func(): return global_position.x)`.',
   "- Call: `window.__egon.state()` returns JSON.",
   "- Fields this feature registers:",
   "  - `playerX` (`number`) — the player's x position.",

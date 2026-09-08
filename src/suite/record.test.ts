@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { mimeFor } from "../godot/headers.js";
 import {
+  SCENE_WARMUP_MS,
   START_PROOF_VIDEO_SOURCE,
   STOP_PROOF_VIDEO_SOURCE,
   startProofVideo,
@@ -17,6 +18,10 @@ test("proof video sources are IIFEs that talk to MediaRecorder", () => {
   assert.match(START_PROOF_VIDEO_SOURCE, /MediaRecorder/);
   assert.match(STOP_PROOF_VIDEO_SOURCE, /^\(async \(\) =>/);
   assert.match(STOP_PROOF_VIDEO_SOURCE, /btoa\(binary\)/);
+});
+
+test("the scene warms up for a second before proof recording", () => {
+  assert.equal(SCENE_WARMUP_MS, 1_000);
 });
 
 test("startProofVideo treats a failed evaluate as a skipped clip, not a thrown check", async () => {

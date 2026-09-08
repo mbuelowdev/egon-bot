@@ -17,6 +17,8 @@ test("injected Godot CLI guide is a short subset of the on-disk reference", () =
   assert.match(GODOT_CLI_GUIDE, /EGON_SCENARIO_ACTIVE/);
   assert.match(GODOT_CLI_GUIDE, /godot --headless --path \. --import/);
   assert.match(GODOT_CLI_GUIDE, /--check-only/);
+  assert.match(GODOT_CLI_GUIDE, /does not load autoloads/);
+  assert.match(GODOT_CLI_GUIDE, /get_node\("\/root\/EgonBridge"\)/);
   assert.match(GODOT_CLI_GUIDE, /--quit-after 60/);
   assert.match(GODOT_CLI_GUIDE, /rg -n --max-count 20/);
   assert.match(GODOT_CLI_GUIDE, /Never `cat` a Godot log/);
@@ -31,6 +33,8 @@ test("on-disk Godot CLI guide keeps the extra commands the prompt omits", () => 
   const full = loadGodotCliGuideMarkdown();
   assert.notEqual(GODOT_CLI_GUIDE, full);
   assert.match(full, /xargs/);
+  assert.match(full, /does not load autoloads/);
+  assert.match(full, /get_node\("\/root\/EgonBridge"\)/);
   assert.match(full, /--verbose/);
   assert.match(full, /rg -n --max-count 20/);
   assert.match(full, /Never `cat` a Godot log/);

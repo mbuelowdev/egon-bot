@@ -10,7 +10,7 @@ import { egonStatePollEvaluateSource, type EgonStatePollResult } from "./statePo
 /** Minimal surface the runner needs from a page, so steps stay testable without a browser. */
 export type SuitePage = {
   evaluate: <T>(source: string) => Promise<T>;
-  press: (key: string) => Promise<void>;
+  press: (key: string, holdMs?: number) => Promise<void>;
   click: (x: number, y: number) => Promise<void>;
   move: (x: number, y: number) => Promise<void>;
   drag: (from: [number, number], to: [number, number]) => Promise<void>;
@@ -145,7 +145,17 @@ export type StepContext = {
   screenshots: string[];
   /** Names a screenshot file for this check. */
   screenshotName: (stepName: string, index: number) => string;
+  /** Video proof only: hold each press so motion is visible. Assertions still see one press. */
+  proofPressHoldMs?: number;
+  /** Video proof only: pause after press/click/drag/move so the clip is not a burst of taps. */
+  proofActionGapMs?: number;
 };
+
+async function paceProofInput(page: SuitePage, context: StepContext): Promise<void> {
+  if (context.proofActionGapMs !== undefined && context.proofActionGapMs > 0) {
+    await page.wait(context.proofActionGapMs);
+  }
+}
 
 export async function runStep(
   page: SuitePage,
@@ -153,19 +163,23 @@ export async function runStep(
   context: StepContext,
 ): Promise<StepOutcome> {
   if (step.kind === "press") {
-    await page.press(step.key);
+    await page.press(step.key, context.proofPressHoldMs);
+    await paceProofInput(page, context);
     return { ok: true, detail: `press ${step.key}` };
   }
   if (step.kind === "click") {
     await page.click(step.x, step.y);
+    await paceProofInput(page, context);
     return { ok: true, detail: `click ${String(step.x)},${String(step.y)}` };
   }
   if (step.kind === "move") {
     await page.move(step.x, step.y);
+    await paceProofInput(page, context);
     return { ok: true, detail: `move ${String(step.x)},${String(step.y)}` };
   }
   if (step.kind === "drag") {
     await page.drag(step.from, step.to);
+    await paceProofInput(page, context);
     return {
       ok: true,
       detail: `drag ${step.from.join(",")} to ${step.to.join(",")}`,

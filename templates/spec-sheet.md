@@ -55,7 +55,7 @@ Write `None.` if the feature needs no library assets.
 
 Required debug bridge the implementer must expose. Do not omit this section. Do not invent a different global.
 
-- Mechanism: the `EgonBridge` autoload, already in the project. The implementer calls `EgonBridge.register_field("{field}", func(): return {expression})` once per field, normally in `_ready()`. Do not ask for a hand-rolled `JavaScriptBridge` and do not reassign `window.__egon`.
+- Mechanism: the `EgonBridge` autoload, already in the project. The implementer calls `get_node("/root/EgonBridge").register_field("{field}", func(): return {expression})` once per field, normally in `_ready()`. Do not use the `EgonBridge` identifier — `--check-only` does not load autoloads. Do not ask for a hand-rolled `JavaScriptBridge` and do not reassign `window.__egon`.
 - Call: `window.__egon.state()` returns a JSON object of every registered field — this feature's and every earlier feature's.
 - Fields this feature registers, with type and meaning:
   - `{name}` (`{number|string|boolean|…}`) — `{what it represents}`

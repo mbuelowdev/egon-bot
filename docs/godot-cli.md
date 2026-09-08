@@ -22,6 +22,8 @@ godot --headless --path . --script res://path/to/script.gd --check-only
 
 **Expect:** exit 0 and no `SCRIPT ERROR` / `Parse Error` / `Compile Error`. `--check-only` only works with `--script`. It does not load autoloads or scenes, so a clean parse is necessary, not sufficient.
 
+Autoload identifiers such as `EgonBridge` are undefined during `--check-only`. In gameplay scripts write `get_node("/root/EgonBridge").register_field(...)` (or `$"/root/EgonBridge"`), not `EgonBridge.register_field(...)`. `--quit-after` / `--scene` loads autoloads and is the check that the call is valid at runtime.
+
 All scripts:
 
 ```bash

@@ -113,7 +113,7 @@ export function implementerPrompt(
     "",
     ...gameMapPromptSection(gameMap),
     `Feature name: ${feature.name}`,
-    `Implement the spec at docs/features/${slug}/SPEC.md. Honor Scope, Out of scope, Assets, Implementation notes, Verification hooks, and Explicitly NOT this task. Register every Verification hooks field on the \`EgonBridge\` autoload. Build the scenarios its Test scenarios section declares. Self-check Acceptance criteria before finishing by running each scenario headless with \`-- --egon-scenario=NAME\` and reading \`EgonBridge.snapshot()\` in a headless \`--quit-after\` run. Do not do anything the spec marks out of scope.`,
+    `Implement the spec at docs/features/${slug}/SPEC.md. Honor Scope, Out of scope, Assets, Implementation notes, Verification hooks, and Explicitly NOT this task. Register every Verification hooks field with \`get_node("/root/EgonBridge").register_field\` — not the \`EgonBridge\` autoload identifier, which \`--check-only\` does not define. Build the scenarios its Test scenarios section declares. Self-check Acceptance criteria before finishing by running each scenario headless with \`-- --egon-scenario=NAME\` and reading \`get_node("/root/EgonBridge").snapshot()\` in a headless \`--quit-after\` run. Do not do anything the spec marks out of scope.`,
     "",
     ...acceptanceCriteriaPromptSection(criteria),
     ...declaredAssetsPromptSection(declaredAssets.ids, declaredAssets.assets),

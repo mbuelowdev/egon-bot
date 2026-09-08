@@ -27,6 +27,7 @@ export const GODOT_CLI_GUIDE = [
   "```",
   "",
   "Always `rg -n --max-count 20`. Never `cat` a Godot log.",
+  "`--check-only` does not load autoloads: the `EgonBridge` identifier fails parse. Call `get_node(\"/root/EgonBridge\")` (or `$\"/root/EgonBridge\"`).",
   "Loop: import → parse-check changed `.gd` only → smoke-run → run every affected scenario → grep log. Do not Web-export.",
   "A scenario run must print EGON_SCENARIO_ACTIVE with the name you asked for. EGON_SCENARIO_UNKNOWN means it is not registered — that is a failure to fix before finishing.",
   "Full commands and expect-conditions: `docs/godot-cli.md`.",

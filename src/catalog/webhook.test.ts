@@ -30,6 +30,15 @@ test("renderMarkdown still uses a numbered list for prose criteria", () => {
   assert.doesNotMatch(html, /<table class="criteria">/);
 });
 
+test("renderMarkdown turns dash and star bullets into an unordered list", () => {
+  const html = renderMarkdown("### In scope\n\n- Dash action\n* HUD charge counter\n+ Keep existing jump\n");
+  assert.match(html, /<ul>/);
+  assert.match(html, /<li>Dash action<\/li>/);
+  assert.match(html, /<li>HUD charge counter<\/li>/);
+  assert.match(html, /<li>Keep existing jump<\/li>/);
+  assert.doesNotMatch(html, /<p>Dash action<\/p>/);
+});
+
 test("renderMarkdown escapes HTML", () => {
   const html = renderMarkdown("<script>alert(1)</script>");
   assert.match(html, /&lt;script&gt;/);
@@ -82,9 +91,9 @@ test("renderMarkdown wraps major spec headings as collapsed details", () => {
       "",
       "Stay on web export.",
     ].join("\n"),
-    { collapsibleSections: true },
+    { collapsibleSections: true, skipLeadingH1: true },
   );
-  assert.match(html, /<h1>Dash<\/h1>/);
+  assert.doesNotMatch(html, /<h1>/);
   assert.match(html, /<details class="spec-section" open>\n<summary><h2>1\. Context &amp; Goal<\/h2><\/summary>/);
   assert.match(html, /<p>Dash across gaps\.<\/p>/);
   assert.match(html, /<details class="spec-section">\n<summary><h2>2\. Scope<\/h2><\/summary>/);
@@ -96,10 +105,47 @@ test("renderMarkdown wraps major spec headings as collapsed details", () => {
   assert.equal([...html.matchAll(/<details class="spec-section">/g)].length, 4);
 });
 
+test("renderMarkdown still renders a leading h1 without skipLeadingH1", () => {
+  const html = renderMarkdown("# Title\n\nHello");
+  assert.match(html, /<h1>Title<\/h1>/);
+  assert.match(html, /<p>Hello<\/p>/);
+});
+
 test("renderMarkdown leaves h2 headings in place without collapsibleSections", () => {
   const html = renderMarkdown("## 2. Scope\n\nHello");
   assert.match(html, /<h2>2\. Scope<\/h2>/);
   assert.doesNotMatch(html, /<details/);
+});
+
+test("renderMarkdown turns pipe tables into HTML tables", () => {
+  const html = renderMarkdown(
+    [
+      "| node | center | radius | color |",
+      "|---------|------------|--------|-----------|",
+      "| Blob1 | (1200, 700) | 160 | #155E54 dark teal |",
+      "| Blob2 | (1650, 680) | 140 | #3D9B8C light teal |",
+    ].join("\n"),
+  );
+  assert.match(html, /<div class="md-table-wrap"><table class="md">/);
+  assert.match(html, /<thead><tr><th>node<\/th><th>center<\/th><th>radius<\/th><th>color<\/th><\/tr><\/thead>/);
+  assert.match(html, /<td>Blob1<\/td><td>\(1200, 700\)<\/td><td>160<\/td>/);
+  assert.match(
+    html,
+    /#155E54<span class="color-dot" style="background:#155E54" aria-hidden="true"><\/span> dark teal/,
+  );
+  assert.doesNotMatch(html, /<p>\| node/);
+});
+
+test("renderMarkdown honors table column alignment", () => {
+  const html = renderMarkdown("| left | mid | right |\n|:---|:---:|---:|\n| a | b | c |");
+  assert.match(html, /<th>left<\/th><th style="text-align:center">mid<\/th><th style="text-align:right">right<\/th>/);
+  assert.match(html, /<td>a<\/td><td style="text-align:center">b<\/td><td style="text-align:right">c<\/td>/);
+});
+
+test("renderMarkdown leaves a lone pipe line as a paragraph", () => {
+  const html = renderMarkdown("| not a table |");
+  assert.match(html, /<p>\| not a table \|<\/p>/);
+  assert.doesNotMatch(html, /<table/);
 });
 
 test("renderMarkdown shows a color dot next to hex colors", () => {

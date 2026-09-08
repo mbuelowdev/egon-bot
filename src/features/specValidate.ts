@@ -65,7 +65,7 @@ function verificationHookProblems(markdown: string, fields: string[]): string[] 
   }
   if (!/EgonBridge/.test(section)) {
     problems.push(
-      "Verification hooks must register fields on the `EgonBridge` autoload (`EgonBridge.register_field`)",
+      "Verification hooks must register fields on the `EgonBridge` autoload (`get_node(\"/root/EgonBridge\").register_field`)",
     );
   }
   const declared = new Set<string>();

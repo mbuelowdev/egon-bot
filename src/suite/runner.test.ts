@@ -60,7 +60,9 @@ function fakeSession(options: SessionOptions = {}): SuiteSession {
       const value = options.stateValue === undefined ? true : options.stateValue;
       return { value, first: value, changed: false, settled: true, samples: 1, ms: 1 } as T;
     },
-    press: async () => {},
+    press: async (key, holdMs) => {
+      options.proofLog?.push(holdMs !== undefined ? `press:${key}:${String(holdMs)}` : `press:${key}`);
+    },
     click: async () => {},
     move: async () => {},
     drag: async () => {},
@@ -247,6 +249,7 @@ test("a current-feature video check records a capped clip and a poster", async (
   });
   assert.equal(result.results[0]?.ok, true);
   assert.deepEqual(proofLog, [
+    "wait:1000",
     "start",
     "wait:8000",
     "stop:criterion-1.webm",
@@ -280,4 +283,42 @@ test("inherited video checks stay stills", async () => {
     proofLog.filter((line) => line === "start" || line.startsWith("stop:")),
     [],
   );
+});
+
+test("every check waits for the scene to settle before steps", async () => {
+  const proofLog: string[] = [];
+  const dir = gameRepo({ dash: [check("dash works")] });
+  await runScenarioSuite({
+    gameRepoDir: dir,
+    port: 8080,
+    slug: "dash",
+    screenshotsDir: screenshotsDir(),
+    open: async () => fakeSession({ proofLog }),
+  });
+  assert.deepEqual(proofLog, ["wait:1000"]);
+});
+
+test("video-proof presses are held and spaced so motion is visible", async () => {
+  const proofLog: string[] = [];
+  const dir = gameRepo({
+    dash: [
+      {
+        name: "walks",
+        scenario: "default",
+        proof: "video",
+        steps: [{ press: "KeyW" }, { expect: "window.__egon.state().ready", equals: true }],
+      },
+    ],
+  });
+  await runScenarioSuite({
+    gameRepoDir: dir,
+    port: 8080,
+    slug: "dash",
+    screenshotsDir: screenshotsDir(),
+    open: async () => fakeSession({ proofLog }),
+  });
+  assert.ok(proofLog.includes("wait:1000"));
+  assert.ok(proofLog.includes("press:KeyW:750"));
+  assert.ok(proofLog.includes("wait:400"));
+  assert.ok(proofLog.includes("start"));
 });

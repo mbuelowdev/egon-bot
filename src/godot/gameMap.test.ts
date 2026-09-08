@@ -293,7 +293,7 @@ test("parseBridgeFields keeps a provider that itself ends in a call", () => {
     [{ name: "score", provider: "func(): return get_score()" }],
   );
   assert.deepEqual(
-    parseBridgeFields('\tEgonBridge.register_field("alive", _is_alive)\n'),
+    parseBridgeFields('\tget_node("/root/EgonBridge").register_field("alive", _is_alive)\n'),
     [{ name: "alive", provider: "_is_alive" }],
   );
 });

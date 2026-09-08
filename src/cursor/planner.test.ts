@@ -85,6 +85,7 @@ test("planner prompt includes the spec sheet template", () => {
   assert.match(prompt, /## \d+\. Acceptance criteria/);
   assert.match(prompt, /## \d+\. Explicitly NOT this task/);
   assert.match(prompt, /The Verification hooks section/);
+  assert.match(prompt, /get_node\("\/root\/EgonBridge"\)\.register_field/);
   assert.match(prompt, /The Test scenarios section/);
   assert.match(prompt, /The Acceptance criteria section/);
   assert.match(prompt, /The Explicitly NOT this task section/);

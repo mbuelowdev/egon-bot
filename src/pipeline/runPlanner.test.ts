@@ -355,7 +355,7 @@ test("default inspect reads the game-repo SPEC and follow-up rewrites it", async
               chunks.push("- `default` (existing) — the game as it normally boots.", "");
             } else if (heading.endsWith("Verification hooks")) {
               chunks.push(
-                '- Mechanism: `EgonBridge.register_field("ready", func(): return _ready)`.',
+                '- Mechanism: `get_node("/root/EgonBridge").register_field("ready", func(): return _ready)`.',
                 "- Call: `window.__egon.state()` returns JSON.",
                 "",
               );

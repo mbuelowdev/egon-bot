@@ -12,7 +12,14 @@ import {
   type GodotBootResult,
 } from "./bootWait.js";
 import { TESTER_VIEWPORT_HEIGHT, TESTER_VIEWPORT_WIDTH } from "./capabilities.js";
-import { startProofVideo, stopProofVideo, waitMs } from "./record.js";
+import {
+  PROOF_ACTION_GAP_MS,
+  PROOF_PRESS_HOLD_MS,
+  SCENE_WARMUP_MS,
+  startProofVideo,
+  stopProofVideo,
+  waitMs,
+} from "./record.js";
 import { loadAllChecks, type SuiteCheck } from "./regression.js";
 import type { SuiteCheckResult, SuiteResult } from "./report.js";
 import { runCheckSteps, type StepContext, type SuitePage } from "./steps.js";
@@ -164,13 +171,18 @@ async function runOneCheck(
         consoleErrors: session.consoleErrors(),
       };
     }
+    await session.wait(SCENE_WARMUP_MS);
+    const video = wantsVideoProof(entry);
     const context: StepContext = {
       previous: new Map(),
       screenshots: [],
       screenshotName: screenshotNamer(index),
+      ...(video
+        ? { proofPressHoldMs: PROOF_PRESS_HOLD_MS, proofActionGapMs: PROOF_ACTION_GAP_MS }
+        : {}),
     };
     let recordStop: Promise<boolean> = Promise.resolve(false);
-    if (wantsVideoProof(entry)) {
+    if (video) {
       const started = await session.startProofVideo();
       if (started) {
         const page = session;
@@ -240,7 +252,10 @@ async function defaultOpenSession(options: { screenshotsDir: string }): Promise<
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60_000 });
       },
       evaluate: <T>(source: string) => page.evaluate(source) as Promise<T>,
-      press: (key) => page.keyboard.press(key),
+      press: (key, holdMs) =>
+        holdMs !== undefined && holdMs > 0
+          ? page.keyboard.press(key, { delay: holdMs })
+          : page.keyboard.press(key),
       click: (x, y) => page.mouse.click(x, y),
       move: (x, y) => page.mouse.move(x, y),
       drag: async (from, to) => {
