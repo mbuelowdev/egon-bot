@@ -186,7 +186,11 @@ export async function mergePullRequest(
   execGh: ExecGh = defaultExecGh,
 ): Promise<void> {
   try {
-    await execGh(config.gameRepoDir, ["pr", "merge", String(prNumber)], ghEnv(config));
+    await execGh(
+      config.gameRepoDir,
+      ["pr", "merge", String(prNumber), "--squash"],
+      ghEnv(config),
+    );
   } catch (error) {
     const text = error instanceof Error ? error.message : String(error);
     if (/already merged|was already merged/i.test(text)) {

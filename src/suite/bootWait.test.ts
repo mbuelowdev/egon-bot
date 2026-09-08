@@ -167,7 +167,7 @@ test("boot-wait evaluate becomes ready after #status is removed and pixels exist
   const pixels = new Uint8ClampedArray(16 * 16 * 4);
   const overlay: FakeEl = { style: { display: "", visibility: "visible" }, textContent: "" };
   const progress: FakeEl = { style: { display: "block", visibility: "" }, textContent: "" };
-  const canvas = { width: 960, height: 540 };
+  const canvas = { width: 640, height: 360 };
   let statusLookups = 0;
   const previous = globalThis.document;
   const document = {
@@ -232,7 +232,7 @@ test("boot-wait evaluate becomes ready after #status is removed and pixels exist
 
 test("boot-wait evaluate times out on a persistent blank canvas", async () => {
   const restore = installFakeGodotPage({
-    canvas: { width: 960, height: 540 },
+    canvas: { width: 640, height: 360 },
   });
   try {
     const wait = eval(`(${godotBootWaitEvaluateSource(40, 10)})`) as () => Promise<{
@@ -255,7 +255,7 @@ test("boot-wait evaluate fails on a visible #status-notice", async () => {
       style: { display: "block", visibility: "" },
       textContent: "Missing features: SharedArrayBuffer",
     },
-    canvas: { width: 960, height: 540 },
+    canvas: { width: 640, height: 360 },
   });
   try {
     const wait = eval(`(${godotBootWaitEvaluateSource(200, 10)})`) as () => Promise<{

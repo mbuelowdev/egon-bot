@@ -26,7 +26,7 @@ test("a well-formed checks file parses into typed steps", () => {
     checks([
       { await: "window.__egon.state().screen", equals: "victory" },
       { press: "Space" },
-      { click: [480, 270] },
+      { click: [320, 180] },
       { drag: [[10, 10], [20, 20]] },
       { expect: "window.__egon.state().score", at_least: 10 },
       { screenshot: "victory-score" },
@@ -73,8 +73,8 @@ test("a sleep-shaped step is rejected outright", () => {
 
 test("coordinates outside the runner viewport are rejected", () => {
   assert.ok(
-    problems(checks([{ click: [1000, 270] }, { expect: "window.__egon.state().x", equals: 1 }])).some(
-      (p) => /fall outside the 960x540 viewport/.test(p),
+    problems(checks([{ click: [700, 180] }, { expect: "window.__egon.state().x", equals: 1 }])).some(
+      (p) => /fall outside the 640x360 viewport/.test(p),
     ),
   );
   assert.ok(

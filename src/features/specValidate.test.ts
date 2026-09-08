@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MAX_ACCEPTANCE_CRITERIA } from "../cursor/testReport.js";
+import { SPEC_SHEET_TEMPLATE } from "../cursor/specTemplate.js";
 import {
   countNumberedCriteria,
   declaredScenarioNames,
@@ -93,6 +94,26 @@ test("template headings and placeholders are extracted from the spec sheet", () 
     "Explicitly NOT this task",
   ]);
   assert.ok(templatePlaceholders().length > 0);
+  // `{field}` / `{expression}` used to appear in the EgonBridge mechanism line. The
+  // planner copies that sentence, so treating them as fill-in tokens always failed the gate.
+  assert.ok(!templatePlaceholders().includes("{field}"));
+  assert.ok(!templatePlaceholders().includes("{expression}"));
+});
+
+test("copying the template's EgonBridge mechanism sentence is not a leftover placeholder", () => {
+  const mechanism = SPEC_SHEET_TEMPLATE.split("\n").find((line) => line.includes("register_field"));
+  assert.ok(mechanism);
+  const result = validateFeatureSpec(
+    spec({
+      hooks: [
+        mechanism,
+        "- Call: `window.__egon.state()` returns JSON.",
+        "- Fields this feature registers:",
+        "  - `playerX` (`number`) — the player's x position.",
+      ].join("\n"),
+    }),
+  );
+  assert.equal(result.ok, true, result.ok === false ? result.problems.join("\n") : "");
 });
 
 test("a filled spec with plain-language criteria and a scenario passes", () => {

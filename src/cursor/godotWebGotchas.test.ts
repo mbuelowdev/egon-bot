@@ -19,6 +19,8 @@ test("Godot 4 web gotchas name each repeat failure class", () => {
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /No addons/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /export_presets\.cfg/);
   assert.match(GODOT_WEB_GOTCHAS_PROMPT, /ensureWebExportPreset/);
+  assert.match(GODOT_WEB_GOTCHAS_PROMPT, /640×360/);
+  assert.match(GODOT_WEB_GOTCHAS_PROMPT, /window\/size\/viewport_width/);
 });
 
 test("implementer prompt injects the static Godot 4 web gotcha list", () => {

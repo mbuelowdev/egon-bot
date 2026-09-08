@@ -268,6 +268,7 @@ function parseProjectGodot(raw: string): ProjectMap {
   const godotVersion = features.find((item) => /^\d+\.\d+/.test(item)) ?? "unknown";
   const renderer =
     unquote(rendering.get("renderer/rendering_method") ?? "") || rendererFromFeatures(features) || "unknown";
+  // Omitted keys are Godot 4's engine default (not this project's 640×360 convention).
   const width = unquote(display.get("window/size/viewport_width") ?? "") || "1152";
   const height = unquote(display.get("window/size/viewport_height") ?? "") || "648";
   const stretchMode = unquote(display.get("window/stretch/mode") ?? "") || "disabled";

@@ -14,7 +14,7 @@ test("runner capabilities describe a deterministic program, not an agent", () =>
   assert.match(RUNNER_CAPABILITIES_PROMPT, /There is no agent in the loop/);
   assert.match(RUNNER_CAPABILITIES_PROMPT, /cannot:[\s\S]*- Improvise/);
   assert.match(RUNNER_CAPABILITIES_PROMPT, new RegExp(TESTER_VIEWPORT_SIZE));
-  assert.equal(TESTER_VIEWPORT_SIZE, "960x540");
+  assert.equal(TESTER_VIEWPORT_SIZE, "640x360");
   // The MCP tester's vocabulary is gone; nothing should still describe those tools.
   assert.doesNotMatch(RUNNER_CAPABILITIES_PROMPT, /browser_press_key|browser_mouse_click_xy|browser_evaluate/);
   assert.doesNotMatch(RUNNER_CAPABILITIES_PROMPT, /caps=vision|snapshot-mode=none/);

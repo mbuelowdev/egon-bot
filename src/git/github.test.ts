@@ -99,7 +99,7 @@ test("closePullRequest closes an open PR", async () => {
 
 test("mergePullRequest uses gh pr merge", async () => {
   const execGh: ExecGh = async (_cwd, args) => {
-    assert.deepEqual(args, ["pr", "merge", "12"]);
+    assert.deepEqual(args, ["pr", "merge", "12", "--squash"]);
     return { stdout: "", stderr: "" };
   };
   await mergePullRequest(config, 12, execGh);

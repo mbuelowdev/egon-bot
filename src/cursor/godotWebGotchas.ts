@@ -12,4 +12,5 @@ export const GODOT_WEB_GOTCHAS_PROMPT = [
   "- `class_name` must be globally unique. Reusing a name fails parse or export.",
   "- No addons. Do not add, enable, or depend on `addons/`.",
   "- Do not touch `export_presets.cfg`. `ensureWebExportPreset` owns the Web preset.",
+  "- Keep `window/size/viewport_width` and `viewport_height` at 640×360 (same as the Chromium suite). Do not change window size, stretch mode, or `canvas_resize_policy` unless the SPEC says to.",
 ].join("\n");

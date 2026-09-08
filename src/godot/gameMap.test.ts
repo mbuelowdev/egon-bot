@@ -31,8 +31,8 @@ Hud="res://hud.tscn"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
+window/size/viewport_width=640
+window/size/viewport_height=360
 
 [input]
 
@@ -145,7 +145,7 @@ test("generateGameMap indexes project settings, scenes, scripts, and merged spec
   assert.match(map, /Godot: 4\.4/);
   assert.match(map, /Renderer: forward_plus/);
   assert.match(map, /Main scene: res:\/\/main\.tscn/);
-  assert.match(map, /Viewport: 1280x720/);
+  assert.match(map, /Viewport: 640x360/);
   // Absent from project.godot means Godot defaults, and those mean no scaling at all.
   assert.match(map, /Stretch: disabled \(aspect keep\)/);
   assert.match(map, /GameState → res:\/\/game_state\.gd \(singleton\)/);
