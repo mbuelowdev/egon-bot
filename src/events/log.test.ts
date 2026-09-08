@@ -81,6 +81,14 @@ test("an empty detail is dropped rather than stored as a blank field", () => {
   assert.equal(readEvents(dir)[0]?.detail, undefined);
 });
 
+test("a model label round-trips and a blank one is dropped", () => {
+  const dir = dataDir();
+  recordEvent(dir, event({ model: "grok 4.6 high" }));
+  assert.equal(readEvents(dir)[0]?.model, "grok 4.6 high");
+  recordEvent(dir, event({ step: "no model", model: "  " }));
+  assert.equal(readEvents(dir)[1]?.model, undefined);
+});
+
 test("consecutive same-phase events become one group, a repeat becomes another", () => {
   // A feature that went round the loop twice must show two Export groups, not one blur.
   const entries: EventEntry[] = [

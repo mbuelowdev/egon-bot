@@ -15,7 +15,7 @@ export const MAX_NUMBERED_CHOICES = 3;
 
 const MODAL_TITLE_LIMIT = 45;
 
-export type AnswerChoice = 1 | 2 | 3 | "other";
+export type AnswerChoice = 1 | 2 | 3 | "default" | "other";
 
 export type ParsedAnswerButton = {
   featureId: number;
@@ -133,6 +133,21 @@ export function formatChoiceAnswer(question: string, choice: 1 | 2 | 3): string 
   return `${choice}. ${text}`;
 }
 
+/** Value after `Default if unanswered:`, or the first numbered choice if that line is missing. */
+export function parseProposedDefault(question: string): string {
+  for (const line of question.split(/\r?\n/).reverse()) {
+    const match = line.trim().match(/^Default if unanswered:\s*(.*)$/i);
+    if (!match) {
+      continue;
+    }
+    const value = (match[1] ?? "").trim();
+    if (value !== "") {
+      return value;
+    }
+  }
+  return parseNumberedChoices(question)[0] ?? "";
+}
+
 export function answerButtonRow(
   featureId: number,
   choiceCount: number,
@@ -149,9 +164,15 @@ export function answerButtonRow(
   }
   row.addComponents(
     new ButtonBuilder()
+      .setCustomId(`${ANSWER_BUTTON_CUSTOM_ID_PREFIX}${String(featureId)}:default`)
+      .setLabel("Default")
+      .setStyle(count > 0 ? ButtonStyle.Secondary : ButtonStyle.Primary),
+  );
+  row.addComponents(
+    new ButtonBuilder()
       .setCustomId(`${ANSWER_BUTTON_CUSTOM_ID_PREFIX}${String(featureId)}:other`)
       .setLabel(count > 0 ? "Answer other" : "Answer")
-      .setStyle(count > 0 ? ButtonStyle.Secondary : ButtonStyle.Primary),
+      .setStyle(ButtonStyle.Secondary),
   );
   return row;
 }
@@ -172,6 +193,9 @@ export function parseAnswerButtonCustomId(customId: string): ParsedAnswerButton 
   }
   if (choiceRaw === "other") {
     return { featureId, choice: "other" };
+  }
+  if (choiceRaw === "default") {
+    return { featureId, choice: "default" };
   }
   const choice = parsePositiveInt(choiceRaw);
   if (choice === undefined || !isChoiceIndex(choice)) {
@@ -199,9 +223,9 @@ function modalTitle(featureName: string): string {
 export function answerOtherModal(featureId: number, featureName: string): ModalBuilder {
   const text = new TextInputBuilder()
     .setCustomId(ANSWER_TEXT_INPUT_ID)
-    .setLabel("Answer")
+    .setLabel("Answer (empty = default)")
     .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
+    .setRequired(false)
     .setMaxLength(2000);
   return new ModalBuilder()
     .setCustomId(`${ANSWER_MODAL_CUSTOM_ID_PREFIX}${String(featureId)}`)

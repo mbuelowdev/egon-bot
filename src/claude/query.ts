@@ -10,6 +10,7 @@ import {
   setActiveAgentRun,
 } from "../cursor/activeRun.js";
 import { beginLiveRunLog, type AgentLogContext } from "../cursor/agentLog.js";
+import { formatModelLabel } from "../format.js";
 import { activeRunDurationMs, resetAgentIdle, takeAgentIdleMs } from "../cursor/agentIdle.js";
 import {
   beginAgentWatch,
@@ -160,6 +161,7 @@ export async function queryPlanner(options: {
     config: options.config,
     featureId: options.deps.featureId,
     role: "planner",
+    model: formatModelLabel(CLAUDE_PLANNER_MODEL, CLAUDE_PLANNER_EFFORT),
   };
   const runId = sessionId !== "" ? sessionId : "claude-planner";
   const live = beginLiveRunLog(log, { agentId: sessionId || "claude-pending" }, options.logText, runId);

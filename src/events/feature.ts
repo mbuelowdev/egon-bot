@@ -13,6 +13,7 @@ export function recordFeatureEvent(options: {
   level?: EventLevel;
   detail?: string;
   durationMs?: number;
+  model?: string;
 }): void {
   recordEvent(options.dataDir, {
     featureId: options.feature.id,
@@ -23,5 +24,6 @@ export function recordFeatureEvent(options: {
     level: options.level ?? "info",
     ...(options.detail !== undefined ? { detail: options.detail } : {}),
     ...(options.durationMs !== undefined ? { durationMs: options.durationMs } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
   });
 }

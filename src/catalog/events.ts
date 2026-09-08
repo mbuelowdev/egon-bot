@@ -213,10 +213,14 @@ function renderStep(event: EventEntry): string {
     event.durationMs === undefined
       ? ""
       : ` <span class="event-count">(${escapeHtml(formatEventDuration(event.durationMs))})</span>`;
+  const model =
+    event.model === undefined || event.model === ""
+      ? ""
+      : ` <span class="event-model">${escapeHtml(event.model)}</span>`;
   return `<li class="event-step">
           ${dot(event.level)}
           <span class="event-time">${escapeHtml(formatEventClock(event.at))}</span>
-          <span class="event-text">${escapeHtml(event.step)}${duration}${detail}</span>
+          <span class="event-text">${escapeHtml(event.step)}${model}${duration}${detail}</span>
         </li>`;
 }
 

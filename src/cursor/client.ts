@@ -10,6 +10,7 @@ import {
   type SendOptions,
 } from "@cursor/sdk";
 import { cursorModelForRole, type Config } from "../config.js";
+import { formatCursorRoleModel } from "../format.js";
 import { recordRunTokens, refreshPresence } from "../discord/presence.js";
 import {
   isAgentCancelRequested,
@@ -99,7 +100,12 @@ export async function sendAndWait(
       },
     });
     if (log) {
-      live = beginLiveRunLog(log, agent, userText, run.id);
+      live = beginLiveRunLog(
+        { ...log, model: log.model ?? formatCursorRoleModel(log.config, log.role) },
+        agent,
+        userText,
+        run.id,
+      );
       if (run.supports("stream")) {
         const writer = live;
         const activity = watch;
@@ -185,7 +191,13 @@ export async function sendAndWait(
     if (live) {
       await live.finish(outcome, run);
     } else if (log) {
-      await persistRunLog(log, agent, userText, run, outcome);
+      await persistRunLog(
+        { ...log, model: log.model ?? formatCursorRoleModel(log.config, log.role) },
+        agent,
+        userText,
+        run,
+        outcome,
+      );
     }
     await refreshPresence();
   }

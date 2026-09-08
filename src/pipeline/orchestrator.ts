@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Client } from "discord.js";
 import { featurePageUrl, githubRepoSlug, githubRepoWebUrl, type Config } from "../config.js";
 import { cancelActiveAgentRun, clearAgentCancel } from "../cursor/activeRun.js";
+import { ClaudeUsageLimitError } from "../claude/usageLimit.js";
 import { StuckAgentError } from "../cursor/agentWatch.js";
 import { runImplementer } from "../cursor/implementer.js";
 import { persistImplementerSummary } from "../cursor/implementerSummary.js";
@@ -18,7 +19,7 @@ import { saveFeatureImage, type IncomingImage } from "../features/saveImage.js";
 import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureAttachment, type FeatureStore } from "../features/store.js";
 import { isStoppablePipelineState } from "../features/state.js";
-import { formatDeployFailure, formatDeploySuccess, formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
+import { formatCursorRoleModel, formatDeployFailure, formatDeploySuccess, formatFeatureName, formatImplementationStart, formatPlanningStart, formatPivoting, PHASE_EMOJI } from "../format.js";
 import { recordFeatureEvent } from "../events/feature.js";
 import { cleanupAfterMerge, ensureDeploymentBump } from "../git/accept.js";
 import {
@@ -190,8 +191,6 @@ export function createPipeline(ctx: {
           feature: latest,
           deps,
           resume: Boolean(options.resume),
-          notify,
-          catalogUrl: featureCatalogUrl(latest),
         });
         feature = ctx.store.getFeatureById(featureId) ?? latest;
         if (haltIfNeeded()) {
@@ -251,6 +250,7 @@ export function createPipeline(ctx: {
           feature,
           phase: "implement",
           step: options.resume && feature.implementerAgentId ? "Implementer resumed" : "Implementer started",
+          model: formatCursorRoleModel(ctx.config, "implementer"),
         });
         await notify(formatImplementationStart(feature.name, featureCatalogUrl(feature)));
         if (haltIfNeeded()) {
@@ -336,6 +336,10 @@ export function createPipeline(ctx: {
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof ClaudeUsageLimitError) {
+        console.error(`pipeline claude usage limit: ${message}`);
+        throw error;
+      }
       await notify(`Pipeline error: ${message}`);
       throw error;
     }

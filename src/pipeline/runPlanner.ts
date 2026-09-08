@@ -1,6 +1,7 @@
 import { recordFeatureEvent } from "../events/feature.js";
-import { formatPlannerFallback } from "../format.js";
 import type { Config } from "../config.js";
+import { CLAUDE_PLANNER_EFFORT, CLAUDE_PLANNER_MODEL } from "../claude/query.js";
+import { formatCursorRoleModel, formatModelLabel } from "../format.js";
 import { inspectFeatureSpec } from "../features/artifacts.js";
 import {
   specFixFollowUp,
@@ -48,8 +49,6 @@ type PlannerAttempt = {
   store: FeatureStore;
   feature: Feature;
   deps: AskUsersDeps;
-  notify: (content: string) => Promise<void>;
-  catalogUrl?: string;
   runners?: PlannerRunners;
   followUp?: string;
 };
@@ -79,19 +78,25 @@ async function invokePlanner(options: PlannerAttempt): Promise<PlannerRunResult>
     });
   } catch (error) {
     const usage = error instanceof ClaudeUsageLimitError;
-    const started = error instanceof ClaudeUsageLimitError ? error.started : false;
     if (
       !shouldFallbackToCursorPlanner({
         plannerBackend: latest.plannerBackend,
         usageLimit: usage,
-        startedThisQuery: started,
       })
     ) {
       throw error;
     }
-    await options.notify(formatPlannerFallback(latest.name, options.catalogUrl));
+    console.log(`claude usage limit; falling back to cursor planner for ${latest.name}`);
     options.store.setPlannerAgentId(latest.id, null);
     options.store.setPlannerBackend(latest.id, "cursor");
+    recordFeatureEvent({
+      dataDir: options.config.dataDir,
+      feature: latest,
+      phase: "plan",
+      step: "Fell back to Cursor planner",
+      level: "warning",
+      model: formatCursorRoleModel(options.config, "planner"),
+    });
     const fresh = options.store.getFeatureById(latest.id) ?? latest;
     return runCursor({
       config: options.config,
@@ -109,8 +114,6 @@ export async function runFeaturePlanner(options: {
   feature: Feature;
   deps: AskUsersDeps;
   resume: boolean;
-  notify: (content: string) => Promise<void>;
-  catalogUrl?: string;
   runners?: PlannerRunners;
   inspectSpec?: (config: Config, feature: Feature) => SpecValidation;
 }): Promise<PlannerRunResult> {
@@ -126,7 +129,17 @@ export async function runFeaturePlanner(options: {
     });
   };
   const startedAt = Date.now();
-  event(options.resume ? "Planner resumed" : "Planner started");
+  const latestForStart = options.store.getFeatureById(options.feature.id) ?? options.feature;
+  recordFeatureEvent({
+    dataDir: options.config.dataDir,
+    feature: options.feature,
+    phase: "plan",
+    step: options.resume ? "Planner resumed" : "Planner started",
+    model:
+      latestForStart.plannerBackend === "cursor"
+        ? formatCursorRoleModel(options.config, "planner")
+        : formatModelLabel(CLAUDE_PLANNER_MODEL, CLAUDE_PLANNER_EFFORT),
+  });
   const followUp = await resolveFollowUp(options.deps, options.resume, options.feature);
   const result = await invokePlanner({ ...options, followUp });
   if (result.marker !== "PLAN_COMPLETE") {

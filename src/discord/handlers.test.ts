@@ -656,6 +656,47 @@ test("numbered answer button submits that choice immediately", async () => {
   store.close();
 });
 
+test("planner waiters stay blocked until the answered reply is posted", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "Pick:\n1. Jump high\n2. Dash");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  let waiterSettled = false;
+  const pending = waitForQuestionAnswer(feature.id, 1000).then((answer) => {
+    waiterSettled = true;
+    return answer;
+  });
+  let waiterSettledDuringReply = true;
+  const interaction = fakeButton(`egon-qa:${String(feature.id)}:1`);
+  interaction.reply = async (payload: ReplyPayload) => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    waiterSettledDuringReply = waiterSettled;
+    interaction.replied = true;
+    interaction.replies.push(payload);
+  };
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(waiterSettledDuringReply, false);
+  assert.equal(await pending, "1. Jump high");
+  assert.equal(contentOf(interaction.replies[0]), "Michael answered: 1. Jump high");
+  store.close();
+});
+
+test("Default button submits the proposed default", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "Pick:\n1. Jump high\n2. Dash\nDefault if unanswered: High");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  const pending = waitForQuestionAnswer(feature.id, 1000);
+  const interaction = fakeButton(`egon-qa:${String(feature.id)}:default`);
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(await pending, "High");
+  assert.equal(contentOf(interaction.replies[0]), "Michael answered: High");
+  assert.equal(interaction.modals.length, 0);
+  store.close();
+});
+
 test("Answer other opens a modal instead of submitting", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("Jump", "chan");
@@ -684,6 +725,21 @@ test("answer modal submits the typed text", async () => {
   await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
   assert.equal(await pending, "about 3 tiles");
   assert.equal(contentOf(interaction.replies[0]), "Michael answered: about 3 tiles");
+  store.close();
+});
+
+test("empty answer modal submits the proposed default", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Jump", "chan");
+  store.setPendingQuestion(feature.id, "How high?\nDefault if unanswered: 3 tiles");
+  store.setDiscordIds(feature.id, { messageId: "m1" });
+  const pending = waitForQuestionAnswer(feature.id, 1000);
+  const interaction = fakeModal(`egon-qa-modal:${String(feature.id)}`, "", {
+    fieldValues: { answer: "   " },
+  });
+  await handleInteraction(interaction as unknown as Interaction, { ...ctx, store });
+  assert.equal(await pending, "3 tiles");
+  assert.equal(contentOf(interaction.replies[0]), "Michael answered: 3 tiles");
   store.close();
 });
 

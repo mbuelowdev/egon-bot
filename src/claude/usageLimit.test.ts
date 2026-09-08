@@ -42,12 +42,11 @@ test("looksLikeClaudeUsageLimit ignores auth, overload, and transient 429", () =
   assert.equal(looksLikeClaudeUsageLimit(new Error("PLAN_BLOCKED")), false);
 });
 
-test("shouldFallbackToCursorPlanner only when usage limit and this query never started", () => {
+test("shouldFallbackToCursorPlanner when Claude hits a usage limit", () => {
   assert.equal(
     shouldFallbackToCursorPlanner({
       plannerBackend: null,
       usageLimit: true,
-      startedThisQuery: false,
     }),
     true,
   );
@@ -55,15 +54,6 @@ test("shouldFallbackToCursorPlanner only when usage limit and this query never s
     shouldFallbackToCursorPlanner({
       plannerBackend: "claude",
       usageLimit: true,
-      startedThisQuery: true,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldFallbackToCursorPlanner({
-      plannerBackend: "claude",
-      usageLimit: true,
-      startedThisQuery: false,
     }),
     true,
   );
@@ -71,7 +61,6 @@ test("shouldFallbackToCursorPlanner only when usage limit and this query never s
     shouldFallbackToCursorPlanner({
       plannerBackend: "cursor",
       usageLimit: true,
-      startedThisQuery: false,
     }),
     false,
   );
@@ -79,7 +68,6 @@ test("shouldFallbackToCursorPlanner only when usage limit and this query never s
     shouldFallbackToCursorPlanner({
       plannerBackend: null,
       usageLimit: false,
-      startedThisQuery: false,
     }),
     false,
   );

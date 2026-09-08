@@ -107,13 +107,9 @@ export function isClaudeUsageLimitError(error: unknown): error is ClaudeUsageLim
 export function shouldFallbackToCursorPlanner(input: {
   plannerBackend: "claude" | "cursor" | null;
   usageLimit: boolean;
-  startedThisQuery: boolean;
 }): boolean {
   if (!input.usageLimit) {
     return false;
   }
-  if (input.plannerBackend === "cursor") {
-    return false;
-  }
-  return !input.startedThisQuery;
+  return input.plannerBackend !== "cursor";
 }

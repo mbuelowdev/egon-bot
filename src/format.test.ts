@@ -7,10 +7,11 @@ import {
   formatDuration,
   formatFeatureName,
   formatImplementationStart,
+  formatModelLabel,
+  formatCursorRoleModel,
   formatNoteAdded,
   formatPivoting,
   formatPlanStarted,
-  formatPlannerFallback,
   formatPlanningStart,
   formatReviewReady,
   formatSuitePassOutcome,
@@ -39,6 +40,25 @@ test("formatDuration compacts wall-clock", () => {
   assert.equal(formatDuration(90_000_000), "1d 1h");
 });
 
+test("formatModelLabel turns ids and effort into a log string", () => {
+  assert.equal(formatModelLabel("grok-4.6", "high"), "grok 4.6 high");
+  assert.equal(formatModelLabel("claude-opus-5", "high"), "claude opus 5 high");
+  assert.equal(formatModelLabel("composer-2.5", "none"), "composer 2.5");
+  assert.equal(formatModelLabel("composer-2.5"), "composer 2.5");
+});
+
+test("formatCursorRoleModel uses the role's configured model and effort", () => {
+  const config = {
+    cursorModelImplementer: "grok-4.6",
+    cursorModelImplementerParams: [{ id: "reasoning", value: "high" }],
+    cursorModelTester: "composer-2.5",
+    cursorModelTesterParams: [{ id: "reasoning", value: "low" }],
+  } as Parameters<typeof formatCursorRoleModel>[0];
+  assert.equal(formatCursorRoleModel(config, "planner"), "grok 4.6 high");
+  assert.equal(formatCursorRoleModel(config, "implementer"), "grok 4.6 high");
+  assert.equal(formatCursorRoleModel(config, "tester"), "composer 2.5 low");
+});
+
 test("escapeDiscordMarkdown keeps user markdown from applying", () => {
   assert.equal(escapeDiscordMarkdown("use **bold** and _italics_"), "use \\*\\*bold\\*\\* and \\_italics\\_");
   assert.equal(escapeDiscordMarkdown("code `x` spoil ||y||"), "code \\`x\\` spoil \\|\\|y\\|\\|");
@@ -52,13 +72,6 @@ test("formatPlanStarted prefixes the planning emoji", () => {
   assert.equal(
     formatPlanStarted("Dash HUD", "https://egon.example/features/dash-hud"),
     `${PHASE_EMOJI.planning} Started planning [**Dash HUD**](<https://egon.example/features/dash-hud>). Progress will be posted in this channel.`,
-  );
-});
-
-test("formatPlannerFallback names the Cursor fallback", () => {
-  assert.equal(
-    formatPlannerFallback("Dash HUD"),
-    `${PHASE_EMOJI.planning} Claude usage limit while planning **Dash HUD**. Falling back to the Cursor planner.`,
   );
 });
 

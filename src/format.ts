@@ -1,3 +1,4 @@
+import { cursorModelForRole, type Config, type CursorSdkRole } from "./config.js";
 import {
   criterionStatusLabel,
   overallTestLabel,
@@ -143,11 +144,6 @@ export function formatPlanStarted(name: string, pageUrl?: string): string {
   return `${PHASE_EMOJI.planning} Started planning ${formatFeatureName(name, pageUrl)}. Progress will be posted in this channel.`;
 }
 
-/** Channel line when Claude planning cannot start because of usage limits. */
-export function formatPlannerFallback(name: string, pageUrl?: string): string {
-  return `${PHASE_EMOJI.planning} Claude usage limit while planning ${formatFeatureName(name, pageUrl)}. Falling back to the Cursor planner.`;
-}
-
 /** Channel line when a plan run starts, with collected notes listed below. */
 export function formatPlanningStart(name: string, notes: string[], pageUrl?: string): string {
   const title = `${PHASE_EMOJI.planning} Planning ${formatFeatureName(name, pageUrl)}.`;
@@ -180,6 +176,29 @@ export function formatPivoting(name: string, text: string, pageUrl?: string): st
     `Pivoting ${formatFeatureName(name, pageUrl)}. Re-entering implement and test.`,
     text,
   );
+}
+
+/**
+ * Human-readable model for logs: `grok-4.6` + high → `grok 4.6 high`.
+ * Effort `none` is omitted so the id stands alone.
+ */
+export function formatModelLabel(id: string, effort?: string): string {
+  const name = id.replaceAll("-", " ").trim();
+  const extra = effort?.trim();
+  if (extra === undefined || extra === "" || extra === "none") {
+    return name;
+  }
+  return `${name} ${extra}`;
+}
+
+/** Cursor SDK model for a role, including reasoning effort when set. */
+export function formatCursorRoleModel(config: Config, role: CursorSdkRole): string | undefined {
+  const model = cursorModelForRole(config, role);
+  if (typeof model.id !== "string" || model.id.trim() === "") {
+    return undefined;
+  }
+  const effort = model.params?.find((param) => param.id === "reasoning")?.value;
+  return formatModelLabel(model.id, effort);
 }
 
 /** Compact count: 1500 → 1.5k, 1_200_000 → 1.2M. */

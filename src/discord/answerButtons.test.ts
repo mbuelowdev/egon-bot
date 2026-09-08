@@ -10,6 +10,7 @@ import {
   parseAnswerButtonCustomId,
   parseAnswerModalCustomId,
   parseNumberedChoices,
+  parseProposedDefault,
 } from "./answerButtons.js";
 
 test("parseNumberedChoices reads consecutive 1. 2. 3. lines", () => {
@@ -47,32 +48,53 @@ test("normalizeChoices keeps up to three non-empty strings", () => {
   assert.deepEqual(normalizeChoices(["1. Bright cyan", "2) Hot magenta"]), ["Bright cyan", "Hot magenta"]);
 });
 
-test("numbered buttons plus Answer other round-trip custom ids", () => {
+test("numbered buttons plus Default and Answer other round-trip custom ids", () => {
   const row = answerButtonRow(7, 3).toJSON();
   const buttons = row.components ?? [];
-  assert.equal(buttons.length, 4);
+  assert.equal(buttons.length, 5);
   const labels = buttons.map((button) =>
     button.type === ComponentType.Button ? button.label : undefined,
   );
-  assert.deepEqual(labels, ["1.", "2.", "3.", "Answer other"]);
+  assert.deepEqual(labels, ["1.", "2.", "3.", "Default", "Answer other"]);
   assert.equal(buttons[0] && "style" in buttons[0] ? buttons[0].style : undefined, ButtonStyle.Primary);
+  assert.equal(buttons[3] && "style" in buttons[3] ? buttons[3].style : undefined, ButtonStyle.Secondary);
   assert.deepEqual(
     parseAnswerButtonCustomId(buttons[0] && "custom_id" in buttons[0] ? (buttons[0].custom_id ?? "") : ""),
     { featureId: 7, choice: 1 },
   );
   assert.deepEqual(
     parseAnswerButtonCustomId(buttons[3] && "custom_id" in buttons[3] ? (buttons[3].custom_id ?? "") : ""),
+    { featureId: 7, choice: "default" },
+  );
+  assert.deepEqual(
+    parseAnswerButtonCustomId(buttons[4] && "custom_id" in buttons[4] ? (buttons[4].custom_id ?? "") : ""),
     { featureId: 7, choice: "other" },
   );
   assert.equal(parseAnswerButtonCustomId("egon-qa-modal:7"), undefined);
 });
 
-test("no numbered choices yields a single Answer button", () => {
-  const button = answerButtonRow(4, 0).toJSON().components?.[0];
-  assert.ok(button && button.type === ComponentType.Button);
-  assert.equal(button.label, "Answer");
-  assert.equal(button.style, ButtonStyle.Primary);
-  assert.deepEqual(parseAnswerButtonCustomId(button.custom_id ?? ""), { featureId: 4, choice: "other" });
+test("no numbered choices yields Default then Answer", () => {
+  const buttons = answerButtonRow(4, 0).toJSON().components ?? [];
+  assert.equal(buttons.length, 2);
+  const first = buttons[0];
+  const second = buttons[1];
+  assert.ok(first && first.type === ComponentType.Button);
+  assert.ok(second && second.type === ComponentType.Button);
+  assert.equal(first.label, "Default");
+  assert.equal(first.style, ButtonStyle.Primary);
+  assert.equal(second.label, "Answer");
+  assert.equal(second.style, ButtonStyle.Secondary);
+  assert.deepEqual(parseAnswerButtonCustomId(first.custom_id ?? ""), { featureId: 4, choice: "default" });
+  assert.deepEqual(parseAnswerButtonCustomId(second.custom_id ?? ""), { featureId: 4, choice: "other" });
+});
+
+test("parseProposedDefault reads the unanswered-default line", () => {
+  assert.equal(
+    parseProposedDefault("Pick:\n1. Jump high\n2. Stay low\nDefault if unanswered: High"),
+    "High",
+  );
+  assert.equal(parseProposedDefault("1. Jump high\n2. Stay low"), "Jump high");
+  assert.equal(parseProposedDefault("open question"), "");
 });
 
 test("formatChoiceAnswer uses the matching numbered line", () => {

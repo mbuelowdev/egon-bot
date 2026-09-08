@@ -9,6 +9,7 @@ import type { Config } from "../config.js";
 import type { AskUsersDeps } from "../cursor/askQuestions.js";
 import { FeatureStore } from "../features/store.js";
 import { requiredSpecHeadings, type SpecValidation } from "../features/specValidate.js";
+import { readEvents } from "../events/log.js";
 import { runFeaturePlanner } from "./runPlanner.js";
 
 function emptyDeps(store: FeatureStore, featureId: number): AskUsersDeps {
@@ -35,9 +36,6 @@ test("existing Cursor plannerBackend never calls Claude", async () => {
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async () => {
-      throw new Error("should not notify");
-    },
     inspectSpec: acceptSpec,
     runners: {
       claude: async () => {
@@ -56,10 +54,83 @@ test("existing Cursor plannerBackend never calls Claude", async () => {
   store.close();
 });
 
-test("Claude startup usage error runs Cursor and notifies Discord", async () => {
+test("planner start events name the model the run will use", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-plan-model-"));
+  const store = new FeatureStore(":memory:");
+  const claudeFeature = store.createFeature("claude dash", "channel-1");
+  await runFeaturePlanner({
+    config: { dataDir } as Config,
+    store,
+    feature: claudeFeature,
+    deps: emptyDeps(store, claudeFeature.id),
+    resume: false,
+    inspectSpec: acceptSpec,
+    runners: {
+      claude: async () => ({ marker: "PLAN_COMPLETE", agentId: "claude-1" }),
+      cursor: async () => {
+        throw new Error("Cursor should not run");
+      },
+    },
+  });
+  const cursorFeature = store.createFeature("cursor dash", "channel-2");
+  store.setPlannerBackend(cursorFeature.id, "cursor");
+  await runFeaturePlanner({
+    config: {
+      dataDir,
+      cursorModelImplementer: "grok-4.6",
+      cursorModelImplementerParams: [{ id: "reasoning", value: "high" }],
+    } as Config,
+    store,
+    feature: store.getFeatureById(cursorFeature.id) ?? cursorFeature,
+    deps: emptyDeps(store, cursorFeature.id),
+    resume: false,
+    inspectSpec: acceptSpec,
+    runners: {
+      claude: async () => {
+        throw new Error("Claude should not run");
+      },
+      cursor: async () => ({ marker: "PLAN_COMPLETE", agentId: "cursor-1" }),
+    },
+  });
+  const events = readEvents(dataDir);
+  const claudeStart = events.find((entry) => entry.featureId === claudeFeature.id && entry.step === "Planner started");
+  const cursorStart = events.find((entry) => entry.featureId === cursorFeature.id && entry.step === "Planner started");
+  assert.equal(claudeStart?.model, "claude opus 5 high");
+  assert.equal(cursorStart?.model, "grok 4.6 high");
+  store.close();
+});
+
+test("usage-limit fallback records the Cursor planner model", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-plan-fallback-"));
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("dash", "channel-1");
-  const notes: string[] = [];
+  await runFeaturePlanner({
+    config: {
+      dataDir,
+      cursorModelImplementer: "grok-4.6",
+      cursorModelImplementerParams: [{ id: "reasoning", value: "high" }],
+    } as Config,
+    store,
+    feature,
+    deps: emptyDeps(store, feature.id),
+    resume: false,
+    inspectSpec: acceptSpec,
+    runners: {
+      claude: async () => {
+        throw new ClaudeUsageLimitError("You have reached your specified API usage limits", false);
+      },
+      cursor: async () => ({ marker: "PLAN_COMPLETE", agentId: "cursor-1" }),
+    },
+  });
+  const events = readEvents(dataDir);
+  assert.equal(events.find((entry) => entry.step === "Planner started")?.model, "claude opus 5 high");
+  assert.equal(events.find((entry) => entry.step === "Fell back to Cursor planner")?.model, "grok 4.6 high");
+  store.close();
+});
+
+test("Claude startup usage error runs Cursor without Discord notify", async () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("dash", "channel-1");
   let cursorGotAppendix: string | undefined;
   const result = await runFeaturePlanner({
     config: {} as Config,
@@ -67,10 +138,6 @@ test("Claude startup usage error runs Cursor and notifies Discord", async () => 
     feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async (content) => {
-      notes.push(content);
-    },
-    catalogUrl: "https://egon.example/features/dash",
     inspectSpec: acceptSpec,
     runners: {
       claude: async () => {
@@ -84,8 +151,6 @@ test("Claude startup usage error runs Cursor and notifies Discord", async () => 
     },
   });
   assert.equal(result.agentId, "cursor-1");
-  assert.equal(notes.length, 1);
-  assert.match(notes[0] ?? "", /Falling back to the Cursor planner/);
   assert.equal(store.getFeatureById(feature.id)?.plannerBackend, "cursor");
   assert.equal(cursorGotAppendix, undefined);
   store.close();
@@ -96,7 +161,6 @@ test("usage limit before this query produces work falls back even if Claude was 
   const feature = store.createFeature("dash", "channel-1");
   store.setPlannerBackend(feature.id, "claude");
   store.setPlannerAgentId(feature.id, "claude-session");
-  const notes: string[] = [];
   let cursorGotAppendix: string | undefined;
   const result = await runFeaturePlanner({
     config: {} as Config,
@@ -104,9 +168,6 @@ test("usage limit before this query produces work falls back even if Claude was 
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: true,
-    notify: async (content) => {
-      notes.push(content);
-    },
     inspectSpec: acceptSpec,
     runners: {
       claude: async () => {
@@ -120,44 +181,37 @@ test("usage limit before this query produces work falls back even if Claude was 
     },
   });
   assert.equal(result.agentId, "cursor-1");
-  assert.equal(notes.length, 1);
-  assert.match(notes[0] ?? "", /Falling back to the Cursor planner/);
   assert.equal(store.getFeatureById(feature.id)?.plannerBackend, "cursor");
   assert.equal(cursorGotAppendix, "Continue the plan. If the spec is done, end with PLAN_COMPLETE or PLAN_BLOCKED.");
   store.close();
 });
 
-test("usage limit after Claude already started does not fall back", async () => {
+test("usage limit after Claude already started still falls back to Cursor", async () => {
   const store = new FeatureStore(":memory:");
   const feature = store.createFeature("dash", "channel-1");
   store.setPlannerBackend(feature.id, "claude");
   store.setPlannerAgentId(feature.id, "claude-session");
   let cursorCalls = 0;
-  await assert.rejects(
-    () =>
-      runFeaturePlanner({
-        config: {} as Config,
-        store,
-        feature: store.getFeatureById(feature.id) ?? feature,
-        deps: emptyDeps(store, feature.id),
-        resume: true,
-        notify: async () => {
-          throw new Error("should not notify");
-        },
-        inspectSpec: acceptSpec,
-        runners: {
-          claude: async () => {
-            throw new ClaudeUsageLimitError("spend cap", true);
-          },
-          cursor: async () => {
-            cursorCalls += 1;
-            return { marker: "PLAN_COMPLETE", agentId: "cursor-1" };
-          },
-        },
-      }),
-    (error: unknown) => error instanceof ClaudeUsageLimitError,
-  );
-  assert.equal(cursorCalls, 0);
+  const result = await runFeaturePlanner({
+    config: {} as Config,
+    store,
+    feature: store.getFeatureById(feature.id) ?? feature,
+    deps: emptyDeps(store, feature.id),
+    resume: true,
+    inspectSpec: acceptSpec,
+    runners: {
+      claude: async () => {
+        throw new ClaudeUsageLimitError("Claude rate limit rejected", true);
+      },
+      cursor: async () => {
+        cursorCalls += 1;
+        return { marker: "PLAN_COMPLETE", agentId: "cursor-1" };
+      },
+    },
+  });
+  assert.equal(cursorCalls, 1);
+  assert.equal(result.agentId, "cursor-1");
+  assert.equal(store.getFeatureById(feature.id)?.plannerBackend, "cursor");
   store.close();
 });
 
@@ -174,9 +228,6 @@ test("invalid SPEC after PLAN_COMPLETE sends one targeted follow-up", async () =
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async () => {
-      throw new Error("should not notify");
-    },
     inspectSpec: () => {
       inspectCalls += 1;
       if (inspectCalls === 1) {
@@ -223,9 +274,6 @@ test("spec still invalid after one follow-up is PLAN_BLOCKED", async () => {
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async () => {
-      throw new Error("should not notify");
-    },
     inspectSpec: () => ({
       ok: false,
       problems: ["Missing heading: ## 1. Context & Goal"],
@@ -258,9 +306,6 @@ test("PLAN_BLOCKED skips the spec gate", async () => {
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async () => {
-      throw new Error("should not notify");
-    },
     inspectSpec: () => {
       inspectCalls += 1;
       return { ok: false, problems: ["should not inspect"] };
@@ -294,9 +339,6 @@ test("default inspect reads the game-repo SPEC and follow-up rewrites it", async
     feature: store.getFeatureById(feature.id) ?? feature,
     deps: emptyDeps(store, feature.id),
     resume: false,
-    notify: async () => {
-      throw new Error("should not notify");
-    },
     runners: {
       claude: async () => {
         throw new Error("Claude should not run");

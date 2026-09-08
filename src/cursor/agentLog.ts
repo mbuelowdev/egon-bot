@@ -22,6 +22,8 @@ export type AgentLogEntry = {
   user: string;
   result?: string;
   errorMessage?: string;
+  /** Display label for the model that ran this turn, e.g. `grok 4.6 high`. */
+  model?: string;
   steps: AgentLogStep[];
 };
 
@@ -29,6 +31,7 @@ export type AgentLogContext = {
   config: Config;
   featureId: number;
   role: AgentRole;
+  model?: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -426,6 +429,7 @@ export async function persistRunLog(
       status: "running",
       user: userMessage,
       steps: [],
+      ...(log.model !== undefined && log.model !== "" ? { model: log.model } : {}),
     };
     let user = entry.user !== "" ? entry.user : userMessage;
     let steps = entry.steps;
@@ -454,6 +458,7 @@ export async function persistRunLog(
       errorMessage: outcome.errorMessage,
       steps,
       updatedAt: new Date().toISOString(),
+      ...(log.model !== undefined && log.model !== "" ? { model: log.model } : {}),
     });
   } catch (error) {
     console.error("failed to persist agent log", error);
@@ -487,6 +492,7 @@ export function beginLiveRunLog(
     status: "running",
     user: userMessage,
     steps: [],
+    ...(log.model !== undefined && log.model !== "" ? { model: log.model } : {}),
   };
   upsertAgentLog(log.config.dataDir, log.featureId, entry);
   let timer: ReturnType<typeof setTimeout> | undefined;

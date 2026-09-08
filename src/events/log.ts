@@ -50,6 +50,8 @@ export type EventEntry = {
   /** Shown when the step is expanded: stderr, a failing check, a report excerpt. */
   detail?: string;
   durationMs?: number;
+  /** AI model for this step, e.g. `grok 4.6 high`. */
+  model?: string;
 };
 
 export type EventInput = Omit<EventEntry, "at"> & { at?: string };
@@ -68,12 +70,14 @@ function clipDetail(detail: string): string {
 
 /** Append one event. Never throws — a broken log must not fail a pipeline run. */
 export function recordEvent(dataDir: string, input: EventInput): void {
-  const { detail: rawDetail, at, ...rest } = input;
+  const { detail: rawDetail, at, model, ...rest } = input;
   const detail = rawDetail === undefined ? undefined : clipDetail(rawDetail);
+  const modelLabel = typeof model === "string" ? model.trim() : "";
   const entry: EventEntry = {
     ...rest,
     at: at ?? new Date().toISOString(),
     ...(detail !== undefined && detail !== "" ? { detail } : {}),
+    ...(modelLabel !== "" ? { model: modelLabel } : {}),
   };
   try {
     const path = eventsPath(dataDir);

@@ -15,6 +15,7 @@ import {
   formatChoiceAnswer,
   parseAnswerButtonCustomId,
   parseAnswerModalCustomId,
+  parseProposedDefault,
   type ParsedAnswerButton,
 } from "./answerButtons.js";
 import {
@@ -272,10 +273,15 @@ async function submitQuestionAnswer(
     await replyError(interaction, "This question already has an answer.");
     return;
   }
-  deliverQuestionAnswer(featureId, recorded.pendingAnswer);
   await clearQuestionButtons(interaction);
   const content = `${escapeDiscordMarkdown(displayName(interaction))} answered: ${escapeDiscordMarkdown(recorded.pendingAnswer)}`;
-  await interaction.reply(noLinkPreview({ content, ephemeral: false }));
+  try {
+    await interaction.reply(noLinkPreview({ content, ephemeral: false }));
+  } catch (error) {
+    console.error("failed to post question answer", error);
+  }
+  // Unblock the next planner question only after the answer is visible in Discord.
+  deliverQuestionAnswer(featureId, recorded.pendingAnswer);
 }
 
 async function requireOpenQuestion(
@@ -321,12 +327,11 @@ async function handleAnswerButton(
     await interaction.showModal(answerOtherModal(click.featureId, feature?.name ?? "feature"));
     return;
   }
-  await submitQuestionAnswer(
-    interaction,
-    ctx,
-    click.featureId,
-    formatChoiceAnswer(open.pendingQuestion, click.choice),
-  );
+  const answer =
+    click.choice === "default"
+      ? parseProposedDefault(open.pendingQuestion)
+      : formatChoiceAnswer(open.pendingQuestion, click.choice);
+  await submitQuestionAnswer(interaction, ctx, click.featureId, answer);
 }
 
 async function handleAnswerModal(
@@ -338,10 +343,7 @@ async function handleAnswerModal(
   if (!open) {
     return;
   }
-  await submitQuestionAnswer(
-    interaction,
-    ctx,
-    featureId,
-    interaction.fields.getTextInputValue(ANSWER_TEXT_INPUT_ID),
-  );
+  const typed = interaction.fields.getTextInputValue(ANSWER_TEXT_INPUT_ID).trim();
+  const answer = typed === "" ? parseProposedDefault(open.pendingQuestion) : typed;
+  await submitQuestionAnswer(interaction, ctx, featureId, answer);
 }

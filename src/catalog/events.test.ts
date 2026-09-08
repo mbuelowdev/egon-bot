@@ -72,6 +72,14 @@ test("each phase becomes a collapsible group with a status dot and step count", 
   );
 });
 
+test("a step with a model shows it beside the text", () => {
+  const html = eventsPage(
+    groupEvents([event({ phase: "plan", step: "Planner started", model: "grok 4.6 high" })]),
+  );
+  assert.match(html, /Planner started/);
+  assert.match(html, /<span class="event-model">grok 4.6 high<\/span>/);
+});
+
 test("the newest group opens so the interesting part is visible without clicking", () => {
   const html = eventsPage(
     groupEvents([

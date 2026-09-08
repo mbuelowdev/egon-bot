@@ -45,6 +45,7 @@ const EVENT_STYLES = `
 .event-step { padding: 0.15rem 0; display: flex; gap: 0.6rem; align-items: baseline; }
 .event-time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; flex: none; }
 .event-text { min-width: 0; word-break: break-word; }
+.event-model { color: var(--muted); font-size: 0.8rem; font-family: ui-monospace, Menlo, monospace; }
 .event-detail { margin: 0.2rem 0 0.35rem; }
 .event-detail > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
 .event-detail pre {
@@ -451,6 +452,11 @@ a:hover { color: var(--accent-hover); }
   text-transform: uppercase;
   color: var(--accent);
 }
+.log-model {
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  font-size: 0.78rem;
+}
 .log-msg { padding: 0.85rem 1rem; border-top: 1px solid var(--line); }
 .log-msg.user { background: #5865f214; }
 .log-label {
@@ -800,10 +806,15 @@ export function renderAgentLog(entries: AgentLogEntry[], now: number = Date.now(
         entry.errorMessage && entry.status !== "finished"
           ? `<div class="log-msg assistant"><div class="log-label">Error</div><pre>${escapeHtml(entry.errorMessage)}</pre></div>`
           : "";
+      const model =
+        entry.model !== undefined && entry.model !== ""
+          ? `<span class="log-model">${escapeHtml(entry.model)}</span>`
+          : "";
       const open = index === entries.length - 1 ? " open" : "";
       return `<details class="log-run" data-run-id="${escapeHtml(entry.runId)}"${open}>
         <summary>
           <span class="log-role">${escapeHtml(ROLE_LABEL[entry.role] ?? entry.role)}</span>
+          ${model}
           <span class="meta${statusClass}">${escapeHtml(statusText)}</span>
         </summary>
         <div class="log-msg user">

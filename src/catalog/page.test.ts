@@ -344,6 +344,7 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
       agentId: "p1",
       runId: "r1",
       status: "finished",
+      model: "grok 4.6 high",
       user: "Write ONLY this file <SPEC>",
       result: "PLAN_COMPLETE",
       steps: [
@@ -356,6 +357,8 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
   store.close();
   assert.match(html, /id="agent-log"/);
   assert.match(html, /Planner/);
+  assert.match(html, /grok 4.6 high/);
+  assert.match(html, /class="log-model"/);
   assert.match(html, /Write ONLY this file &lt;SPEC&gt;/);
   assert.match(html, /PLAN_COMPLETE/);
   assert.match(html, /read · player\.gd/);

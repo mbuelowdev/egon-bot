@@ -176,7 +176,7 @@ test("applyStreamEvent treats a longer snapshot as a replacement, not a second c
 test("beginLiveRunLog writes the prompt immediately and flushes tool calls", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-agent-log-"));
   const live = beginLiveRunLog(
-    { config: { dataDir } as Config, featureId: 3, role: "planner" },
+    { config: { dataDir } as Config, featureId: 3, role: "planner", model: "grok 4.6 high" },
     { agentId: "p1" } as SDKAgent,
     "Write the spec",
     "run-1",
@@ -185,6 +185,7 @@ test("beginLiveRunLog writes the prompt immediately and flushes tool calls", asy
   assert.equal(started.length, 1);
   assert.equal(started[0]?.status, "running");
   assert.equal(started[0]?.user, "Write the spec");
+  assert.equal(started[0]?.model, "grok 4.6 high");
   live.applyEvent({
     type: "tool_call",
     call_id: "c1",
@@ -200,5 +201,6 @@ test("beginLiveRunLog writes the prompt immediately and flushes tool calls", asy
   assert.equal(done.length, 1);
   assert.equal(done[0]?.status, "finished");
   assert.equal(done[0]?.result, "PLAN_COMPLETE");
+  assert.equal(done[0]?.model, "grok 4.6 high");
 });
 
