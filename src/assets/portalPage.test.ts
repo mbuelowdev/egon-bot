@@ -85,6 +85,9 @@ test("the page carries the drop zone, the undescribed badge, the view toggle, an
   assert.match(html, /id="label-sprites"/);
   assert.match(html, /<dialog id="sheet-picker">/);
   assert.match(html, /id="sheet-grid"/);
+  // File input and sprite-sheet state cannot share the identifier `picker`.
+  assert.equal((html.match(/\bconst picker\b/g) ?? []).length, 1);
+  assert.match(html, /const sheet = \{ groups:/);
   assert.match(html, /id="filename"/);
   assert.match(html, /id="replace-hint"/);
   assert.match(html, /id="attach"/);

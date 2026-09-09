@@ -598,7 +598,7 @@ const GROUP_FILL = [
   "rgba(80, 220, 220, 0.28)",
   "rgba(255, 220, 80, 0.28)",
 ];
-const picker = { groups: [], selection: new Set(), anchor: null, editingIndex: -1, columns: 0, rows: 0 };
+const sheet = { groups: [], selection: new Set(), anchor: null, editingIndex: -1, columns: 0, rows: 0 };
 
 function cellKey(col, row) { return col + "," + row; }
 function parseCellKey(key) {
@@ -607,8 +607,8 @@ function parseCellKey(key) {
 }
 
 function groupFillAt(col, row) {
-  for (let i = 0; i < picker.groups.length; i += 1) {
-    const cells = picker.groups[i].cells;
+  for (let i = 0; i < sheet.groups.length; i += 1) {
+    const cells = sheet.groups[i].cells;
     for (let n = 0; n < cells.length; n += 1) {
       if (cells[n].col === col && cells[n].row === row) {
         return GROUP_FILL[i % GROUP_FILL.length];
@@ -624,33 +624,33 @@ function paintCells() {
     const btn = nodes[i];
     const col = parseInt(btn.dataset.col, 10);
     const row = parseInt(btn.dataset.row, 10);
-    const selected = picker.selection.has(cellKey(col, row));
+    const selected = sheet.selection.has(cellKey(col, row));
     btn.classList.toggle("selected", selected);
     btn.style.background = selected ? "" : groupFillAt(col, row);
   }
-  const n = picker.selection.size;
+  const n = sheet.selection.size;
   $("sheet-selected").textContent = n === 0 ? "" : n === 1 ? "1 cell selected" : n + " cells selected";
 }
 
 function onCellClick(event, col, row) {
   event.preventDefault();
-  if (event.shiftKey && picker.anchor) {
-    const c0 = Math.min(picker.anchor.col, col);
-    const c1 = Math.max(picker.anchor.col, col);
-    const r0 = Math.min(picker.anchor.row, row);
-    const r1 = Math.max(picker.anchor.row, row);
+  if (event.shiftKey && sheet.anchor) {
+    const c0 = Math.min(sheet.anchor.col, col);
+    const c1 = Math.max(sheet.anchor.col, col);
+    const r0 = Math.min(sheet.anchor.row, row);
+    const r1 = Math.max(sheet.anchor.row, row);
     for (let r = r0; r <= r1; r += 1) {
       for (let c = c0; c <= c1; c += 1) {
-        picker.selection.add(cellKey(c, r));
+        sheet.selection.add(cellKey(c, r));
       }
     }
   } else if (event.ctrlKey || event.metaKey) {
     const key = cellKey(col, row);
-    if (picker.selection.has(key)) { picker.selection.delete(key); } else { picker.selection.add(key); }
-    picker.anchor = { col: col, row: row };
+    if (sheet.selection.has(key)) { sheet.selection.delete(key); } else { sheet.selection.add(key); }
+    sheet.anchor = { col: col, row: row };
   } else {
-    picker.selection = new Set([cellKey(col, row)]);
-    picker.anchor = { col: col, row: row };
+    sheet.selection = new Set([cellKey(col, row)]);
+    sheet.anchor = { col: col, row: row };
   }
   paintCells();
 }
@@ -663,8 +663,8 @@ function renderSheetGrid() {
   const m = asset.measured || {};
   const columns = Math.floor(m.width / w);
   const rows = Math.floor(m.height / h);
-  picker.columns = columns;
-  picker.rows = rows;
+  sheet.columns = columns;
+  sheet.rows = rows;
   const grid = $("sheet-grid");
   grid.style.gridTemplateColumns = "repeat(" + columns + ", 1fr)";
   grid.style.gridTemplateRows = "repeat(" + rows + ", 1fr)";
@@ -687,18 +687,18 @@ function renderSheetGrid() {
 function renderPickerGroups() {
   const list = $("sheet-groups");
   list.replaceChildren();
-  if (picker.groups.length === 0) {
+  if (sheet.groups.length === 0) {
     const li = document.createElement("li");
     li.className = "none";
     li.textContent = "No groups yet.";
     list.appendChild(li);
     return;
   }
-  picker.groups.forEach((group, index) => {
+  sheet.groups.forEach((group, index) => {
     const li = document.createElement("li");
     const choose = document.createElement("button");
     choose.type = "button";
-    choose.className = "group" + (picker.editingIndex === index ? " active" : "");
+    choose.className = "group" + (sheet.editingIndex === index ? " active" : "");
     const label = document.createElement("span");
     label.textContent = group.description;
     const count = document.createElement("span");
@@ -712,9 +712,9 @@ function renderPickerGroups() {
     remove.textContent = "Remove";
     remove.addEventListener("click", (event) => {
       event.stopPropagation();
-      picker.groups.splice(index, 1);
-      if (picker.editingIndex === index) { picker.editingIndex = -1; $("sheet-group-desc").value = ""; $("sheet-add").textContent = "Add group"; }
-      else if (picker.editingIndex > index) { picker.editingIndex -= 1; }
+      sheet.groups.splice(index, 1);
+      if (sheet.editingIndex === index) { sheet.editingIndex = -1; $("sheet-group-desc").value = ""; $("sheet-add").textContent = "Add group"; }
+      else if (sheet.editingIndex > index) { sheet.editingIndex -= 1; }
       renderPickerGroups();
       paintCells();
     });
@@ -724,11 +724,11 @@ function renderPickerGroups() {
 }
 
 function editPickerGroup(index) {
-  const group = picker.groups[index];
+  const group = sheet.groups[index];
   if (!group) { return; }
-  picker.editingIndex = index;
-  picker.selection = new Set(group.cells.map((cell) => cellKey(cell.col, cell.row)));
-  picker.anchor = group.cells[0] ? { col: group.cells[0].col, row: group.cells[0].row } : null;
+  sheet.editingIndex = index;
+  sheet.selection = new Set(group.cells.map((cell) => cellKey(cell.col, cell.row)));
+  sheet.anchor = group.cells[0] ? { col: group.cells[0].col, row: group.cells[0].row } : null;
   $("sheet-group-desc").value = group.description;
   $("sheet-add").textContent = "Update group";
   $("sheet-error").textContent = "";
@@ -737,7 +737,7 @@ function editPickerGroup(index) {
 }
 
 function selectedCells() {
-  return [...picker.selection].map(parseCellKey).sort((a, b) => a.row - b.row || a.col - b.col);
+  return [...sheet.selection].map(parseCellKey).sort((a, b) => a.row - b.row || a.col - b.col);
 }
 
 function addPickerGroup() {
@@ -748,13 +748,13 @@ function addPickerGroup() {
     return;
   }
   const group = { description: description, cells: cells };
-  if (picker.editingIndex >= 0) {
-    picker.groups[picker.editingIndex] = group;
-    picker.editingIndex = -1;
+  if (sheet.editingIndex >= 0) {
+    sheet.groups[sheet.editingIndex] = group;
+    sheet.editingIndex = -1;
   } else {
-    picker.groups.push(group);
+    sheet.groups.push(group);
   }
-  picker.selection = new Set();
+  sheet.selection = new Set();
   $("sheet-group-desc").value = "";
   $("sheet-add").textContent = "Add group";
   $("sheet-error").textContent = "";
@@ -765,10 +765,10 @@ function addPickerGroup() {
 function openPicker() {
   const asset = state.current;
   if (!asset || $("label-sprites").disabled) { return; }
-  picker.groups = copyGroups(state.cellGroupsDraft);
-  picker.selection = new Set();
-  picker.anchor = null;
-  picker.editingIndex = -1;
+  sheet.groups = copyGroups(state.cellGroupsDraft);
+  sheet.selection = new Set();
+  sheet.anchor = null;
+  sheet.editingIndex = -1;
   $("sheet-group-desc").value = "";
   $("sheet-add").textContent = "Add group";
   $("sheet-error").textContent = "";
@@ -784,7 +784,7 @@ function openPicker() {
 
 function closePicker(commit) {
   if (commit) {
-    state.cellGroupsDraft = copyGroups(picker.groups);
+    state.cellGroupsDraft = copyGroups(sheet.groups);
     renderGroupSummary();
   }
   $("sheet-picker").close();
@@ -1028,7 +1028,7 @@ $("close").addEventListener("click", () => { state.queue = []; state.current = n
 $("cell-width").addEventListener("input", updateGridHint);
 $("cell-height").addEventListener("input", updateGridHint);
 $("label-sprites").addEventListener("click", () => openPicker());
-$("sheet-clear").addEventListener("click", () => { picker.selection = new Set(); paintCells(); });
+$("sheet-clear").addEventListener("click", () => { sheet.selection = new Set(); paintCells(); });
 $("sheet-add").addEventListener("click", () => addPickerGroup());
 $("sheet-done").addEventListener("click", () => closePicker(true));
 $("sheet-cancel").addEventListener("click", () => closePicker(false));
