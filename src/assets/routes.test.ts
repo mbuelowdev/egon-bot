@@ -242,7 +242,7 @@ test("an upload is detected, stored, described, and served back", async () => {
     };
     assert.equal(updated.asset.id, "hero-walk-cycle.png");
     assert.match(updated.asset.measuredText, /512 × 256 RGBA, grid 32 × 32 \(16 × 8 = 128 frames\)/);
-    assert.equal(updated.asset.promotedPath, "assets/library/image/hero-walk-cycle.png");
+    assert.equal(updated.asset.promotedPath, "assets/images/hero-walk-cycle.png");
 
     const bytes = await fetch(`${h.base}/assets/file/${encodeURIComponent(updated.asset.id)}`);
     assert.equal(bytes.status, 200);
@@ -435,7 +435,7 @@ test("the filename box renames the asset and refuses a name already taken", asyn
     assert.equal(renamed.status, 200);
     const { asset } = (await renamed.json()) as { asset: { id: string; promotedPath: string } };
     assert.equal(asset.id, "dirt-tile-rough.png");
-    assert.equal(asset.promotedPath, "assets/library/image/dirt-tile-rough.png");
+    assert.equal(asset.promotedPath, "assets/images/dirt-tile-rough.png");
     assert.equal((await fetch(`${h.base}/assets/file/dirt-tile-rough.png`)).status, 200);
 
     const clash = await save(h, "dirt-tile-rough.png", {

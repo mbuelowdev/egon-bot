@@ -90,7 +90,7 @@ test("declaredAssetIds reads library ids off the Assets section's list items", (
     "## 4. Assets",
     "",
     "Library assets this feature uses, named by exact `id`. The implementer copies each one",
-    "into `assets/library/{kind}/{id}` in the game repo.",
+    "into `assets/images/{id}` in the game repo.",
     "",
     "- `garbage-truck-orange.glb` — parked at the depot; the bbox is already metres.",
     "- `grass-plain.png` — ground tile under the depot, tiled 8 x 8.",

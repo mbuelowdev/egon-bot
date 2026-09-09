@@ -130,7 +130,14 @@ test("the id comes from the description at first save and never changes again", 
     readFileSync(assetFilePath(dir, "orange-municipal-garbage-truck.glb") as string, "utf8"),
     "glb-bytes",
   );
-  assert.equal(promotedAssetPath(edited as { id: string; kind: "model" }), "assets/library/model/orange-municipal-garbage-truck.glb");
+  assert.equal(promotedAssetPath(edited as { id: string; kind: "model" }), "assets/models/orange-municipal-garbage-truck.glb");
+});
+
+test("promoted assets land under assets/{kind plural}", () => {
+  assert.equal(promotedAssetPath({ id: "a.png", kind: "image" }), "assets/images/a.png");
+  assert.equal(promotedAssetPath({ id: "a.glb", kind: "model" }), "assets/models/a.glb");
+  assert.equal(promotedAssetPath({ id: "a.ogg", kind: "audio" }), "assets/audio/a.ogg");
+  assert.equal(promotedAssetPath({ id: "a.ttf", kind: "font" }), "assets/fonts/a.ttf");
 });
 
 test("an undescribed asset is in the library but invisible to agents", () => {

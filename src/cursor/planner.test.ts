@@ -170,6 +170,9 @@ test("planner prompt injects the asset library index and never the measured fact
   assert.match(prompt, /Asset library index/);
   assert.match(prompt, /- `garbage-truck-orange\.glb` — Orange municipal garbage truck/);
   assert.match(prompt, /never invent a filename/);
+  assert.match(prompt, /assets\/images\/\{id\}/);
+  assert.match(prompt, /assets\/models\/\{id\}/);
+  assert.match(prompt, /assets\/fonts\/\{id\}/);
   // The measured column is the implementer's slice; the planner only picks ids.
   assert.doesNotMatch(prompt, /2\.1 × 1\.9 × 5\.4/);
   assert.doesNotMatch(prompt, /1\.2k tris/);

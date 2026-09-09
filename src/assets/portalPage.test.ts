@@ -39,7 +39,7 @@ function embedded(html: string): Array<Record<string, unknown>> {
 test("each asset carries its measured summary and promoted path to the browser", () => {
   const view = portalAsset(TRUCK);
   assert.equal(view.measuredText, "2.1 × 1.9 × 5.4 m, 1.2k tris");
-  assert.equal(view.promotedPath, "assets/library/model/garbage-truck-orange.glb");
+  assert.equal(view.promotedPath, "assets/models/garbage-truck-orange.glb");
 });
 
 test("the portal ships every asset, described or not, so the gallery can flag the gaps", () => {

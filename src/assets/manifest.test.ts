@@ -82,7 +82,10 @@ test("the manifest groups by kind and carries measured facts and descriptions", 
   assert.match(markdown, /^## Audio$/m);
   assert.match(markdown, /\| `garbage-truck-orange\.glb` \| 2\.1 × 1\.9 × 5\.4 m, 1\.2k tris, anims: wheels_spin \|/);
   assert.match(markdown, /\| `hero-walk\.png` \| 512 × 256 RGBA, grid 32 × 32 \(16 × 8 = 128 frames\) \|/);
-  assert.match(markdown, /after promotion the path is `assets\/library\/\{kind\}\/\{id\}`/);
+  assert.match(markdown, /after promotion the path is `assets\/images\/\{id\}`/);
+  assert.match(markdown, /`assets\/models\/\{id\}`/);
+  assert.match(markdown, /`assets\/audio\/\{id\}`/);
+  assert.match(markdown, /`assets\/fonts\/\{id\}`/);
 });
 
 test("an asset with no description is absent from the manifest entirely", () => {
@@ -115,6 +118,8 @@ test("the planner's index lists every described asset and carries no measured co
   assert.doesNotMatch(lines, /1\.2k tris/);
   assert.doesNotMatch(lines, /128 frames/);
   assert.match(lines, /do not invent one/);
+  assert.match(lines, /`assets\/images\/\{id\}`/);
+  assert.match(lines, /`assets\/models\/\{id\}`/);
 });
 
 test("an empty library still tells the planner to write None.", () => {
@@ -129,7 +134,8 @@ test("the implementer's section carries measurements for exactly its spec's ids"
     [TRUCK, GRASS, HERO, HIT],
   ).join("\n");
   assert.match(lines, /`garbage-truck-orange\.glb` \| 2\.1 × 1\.9 × 5\.4 m/);
-  assert.match(lines, /`assets\/library\/model\/garbage-truck-orange\.glb`/);
+  assert.match(lines, /`assets\/models\/garbage-truck-orange\.glb`/);
+  assert.match(lines, /`assets\/images\/hero-walk\.png`/);
   assert.match(lines, /`hero-walk\.png` \| 512 × 256 RGBA, grid 32 × 32 \(16 × 8 = 128 frames\)/);
   assert.doesNotMatch(lines, /grass-plain/);
   assert.doesNotMatch(lines, /hit\.ogg/);

@@ -3,7 +3,7 @@ import { featureSlug } from "../features/slug.js";
 import { gameDecisionsPromptSection } from "../features/gameDecisions.js";
 import { gameMapPromptSection } from "../godot/gameMap.js";
 import { assetIndexPromptSection } from "../assets/manifest.js";
-import type { AssetMeta } from "../assets/store.js";
+import { PROMOTED_PATH_RULE, type AssetMeta } from "../assets/store.js";
 import { plannerAskDiscordInstructions } from "./askQuestions.js";
 import { attachmentPromptLines } from "./images.js";
 import { SPEC_SHEET_TEMPLATE } from "./specTemplate.js";
@@ -24,7 +24,7 @@ export const PLANNER_INSTRUCTIONS = [
   "Ground the spec in the working tree. Read the game before locking UI, names, or file paths.",
   "If the user message includes a GAME_MAP of the last merged tree, prefer it over extra Glob/Grep/Read for orientation.",
   "If the user message includes GAME_DECISIONS, treat filled headings (art style, camera, control scheme, palette) as settled. Do not re-ask those. Ask only if a heading is unset and this feature depends on it, or if this feature must change a settled choice.",
-  "The Assets section names the library assets this feature uses, by exact `id` from the asset library index in the user message. Humans upload and describe those assets; an id that is not in the index does not exist, so never invent a filename and never name an asset you hope exists. The index's descriptions say what each asset is for; the measured facts (bounding box, grid) reach the implementer, not you, so say in the Assets section how the asset is used and let the implementer scale it. If nothing in the library fits, write `None.` and specify the placeholder in Implementation notes instead.",
+  `The Assets section names the library assets this feature uses, by exact \`id\` from the asset library index in the user message. Humans upload and describe those assets; an id that is not in the index does not exist, so never invent a filename and never name an asset you hope exists. The index's descriptions say what each asset is for; the measured facts (bounding box, grid) reach the implementer, not you, so say in the Assets section how the asset is used and let the implementer scale it. When the spec cites a \`res://\` path for a library asset, it must be ${PROMOTED_PATH_RULE} — never another directory. If nothing in the library fits, write \`None.\` and specify the placeholder in Implementation notes instead.`,
   "",
   "You are operating autonomously. The user is not watching in real time and cannot answer questions mid-task, so asking 'Want me to…?' or 'Shall I…?' will block the work. For reversible actions that follow from the original request, proceed without asking.",
   "Exception: Discord questions via ask_discord_users are the only allowed human gate. Never invent unspecified layout, numbers, feel, copy, colors, sizes, timing, or controls. If a material detail is not in the notes, the images, GAME_DECISIONS, or the existing game, ask within the ask budget; if it stays unanswered, use the stated default.",

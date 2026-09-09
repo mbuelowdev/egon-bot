@@ -30,7 +30,7 @@
 
 ## 4. Assets
 
-Library assets this feature uses, named by **exact `id`** from the Asset library manifest. The implementer copies each one from the asset library into `assets/library/{kind}/{id}` in the game repo and imports it there.
+Library assets this feature uses, named by **exact `id`** from the Asset library manifest. The implementer copies each one from the asset library into `assets/images/`, `assets/models/`, `assets/audio/`, or `assets/fonts/` (by kind) as `{id}` and imports it there. Cite those paths when the spec names a `res://` location.
 
 - `{asset-id}` — {how this feature uses it: where it is placed, what it represents, any scaling or import setting that matters}
 

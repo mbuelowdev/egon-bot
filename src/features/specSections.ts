@@ -66,7 +66,7 @@ export function assetsSection(markdown: string): string | undefined {
 
 /**
  * Library asset ids the Assets section names, read only off list items: the section's
- * prose mentions `assets/library/{kind}/{id}` and `ColorRect`, and neither is a
+ * prose mentions `assets/images/{id}` and `ColorRect`, and neither is a
  * declaration. `None.` yields nothing, which is a valid answer.
  */
 export function declaredAssetIds(markdown: string): string[] {

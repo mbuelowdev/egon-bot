@@ -26,8 +26,20 @@ export const THUMBS_DIR_NAME = ".thumbs";
 /** Companion files (a `.gltf`'s `.bin`, an `.obj`'s `.mtl`, extra animation clips). */
 export const PARTS_DIR_NAME = ".parts";
 export const SIDECAR_SUFFIX = ".json";
-/** Where a promoted asset lands in the game repo. Committed with the implementer's work. */
-export const PROMOTED_ASSETS_REPO_DIR = "assets/library";
+/**
+ * Repo subdirectory under `assets/` for a promoted asset of this kind. Plural folders so
+ * they read as Godot content dirs (`assets/images/`), not a library dump.
+ */
+export const PROMOTED_KIND_DIRS: Record<AssetKind, string> = {
+  image: "images",
+  model: "models",
+  audio: "audio",
+  font: "fonts",
+};
+
+/** What agents are told: a library asset's `res://` path must be one of these. */
+export const PROMOTED_PATH_RULE =
+  "`assets/images/{id}`, `assets/models/{id}`, `assets/audio/{id}`, or `assets/fonts/{id}`";
 
 const MAX_ID_STEM = 60;
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -326,14 +338,18 @@ export function findAssetBySha(dataDir: string, sha256: string): AssetMeta | und
   return listAssets(dataDir).find((meta) => meta.sha256 === sha256);
 }
 
+export function promotedKindDir(kind: AssetKind): string {
+  return PROMOTED_KIND_DIRS[kind];
+}
+
 /** Game-repo path this asset gets once a feature promotes it. */
 export function promotedAssetPath(meta: Pick<AssetMeta, "id" | "kind">): string {
-  return `${PROMOTED_ASSETS_REPO_DIR}/${meta.kind}/${meta.id}`;
+  return `assets/${promotedKindDir(meta.kind)}/${meta.id}`;
 }
 
 /** Companions land beside their asset, so a `.gltf`'s relative `.bin` path still resolves. */
 export function promotedPartPath(meta: Pick<AssetMeta, "kind">, filename: string): string {
-  return `${PROMOTED_ASSETS_REPO_DIR}/${meta.kind}/${filename}`;
+  return `assets/${promotedKindDir(meta.kind)}/${filename}`;
 }
 
 function withDerivedGrid(measured: AssetMeasurement | undefined, grid: GridSpec | null): AssetMeasurement | undefined {
@@ -667,7 +683,7 @@ export type AssetWriteResult = { ok: true; meta: AssetMeta } | { ok: false; reas
 
 /**
  * Rename the stored file. The id is normally frozen after first save, because promotion
- * writes it into the game repo as `assets/library/{kind}/{id}` and specs name it — this
+ * writes it into the game repo as `assets/{kind plural}/{id}` and specs name it — this
  * is the one deliberate exception, and it is a human's call, not something a description
  * edit does behind their back.
  *

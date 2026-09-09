@@ -1,7 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AssetKind } from "./allowlist.js";
-import { describedAssets, formatCellGroupCoords, formatCellGroups, promotedAssetPath, type AssetMeta } from "./store.js";
+import {
+  describedAssets,
+  formatCellGroupCoords,
+  formatCellGroups,
+  promotedAssetPath,
+  PROMOTED_PATH_RULE,
+  type AssetMeta,
+} from "./store.js";
 
 /**
  * `ASSETS.md` is generated from the sidecars, mirroring `GAME_MAP.md`: deterministic,
@@ -147,7 +154,7 @@ export function renderAssetManifest(assets: AssetMeta[]): string {
     "uploaded them. Not an LLM summary.",
     "",
     "An asset is only in the game once a feature copies it in. Name the ones you use in the SPEC's",
-    "Assets section by exact id; after promotion the path is `assets/library/{kind}/{id}`.",
+    `Assets section by exact id; after promotion the path is ${PROMOTED_PATH_RULE}.`,
     "",
   ];
   if (rows.length === 0) {
@@ -217,6 +224,7 @@ export function assetIndexPromptSection(assets: AssetMeta[]): string[] {
     "Asset library index. Name the assets this feature needs in the SPEC's Assets section, by exact id.",
     "Only described assets are listed. An id that is not in this list does not exist — do not invent one,",
     "and if nothing here fits, say so in Implementation notes rather than naming a file you hope exists.",
+    `A library asset's path in the game repo is ${PROMOTED_PATH_RULE}. Cite that location whenever the spec names a \`res://\` path; never another directory.`,
     "",
   ];
   if (rows.length === 0) {
@@ -287,7 +295,7 @@ export function declaredAssetsPromptSection(ids: string[], assets: AssetMeta[]):
   const withParts = anyParts(declared);
   const lines = [
     "Assets this SPEC declares. They are already copied into the working tree at the paths below.",
-    "Import them from there — do not re-download them, and do not reference any other library asset:",
+    "Import them from there — do not re-download them, do not copy them to another folder, and do not reference any other library asset:",
     "nothing else was copied in, so a `res://` path to one would be broken.",
     "",
   ];

@@ -37,7 +37,7 @@ The project currently boots an empty `Main` Node (`res://main.tscn`) with no wor
 - `res://player.tscn` — player circle, portrait, outline, `Camera2D`
 - `res://player.gd` — tap-step + held movement, `moveCount`, camera smoothing setup
 - `res://world.tscn` — painterly ground, accent blobs, ink border
-- `res://assets/library/images/portrait-of-egon.webp` — copy of library asset `portrait-of-egon.webp` (import there; do not invent another filename)
+- `res://assets/images/portrait-of-egon.webp` — copy of library asset `portrait-of-egon.webp` (import there; do not invent another filename)
 
 ### Existing patterns / conventions
 
@@ -47,7 +47,7 @@ The project currently boots an empty `Main` Node (`res://main.tscn`) with no wor
 
 ## 4. Assets
 
-- `portrait-of-egon.webp` — the player's face. Copy into `res://assets/library/images/portrait-of-egon.webp` and assign it as the `Sprite2D` texture on the player. Uniformly scale to **cover** a 64×64 px square (scale = `64 / min(texture_width, texture_height)`), centered on the player origin, then clip to a 64px-diameter circle. Overflow is cropped by the clip; do not stretch non-uniformly. Leave the import filter **linear** (not nearest).
+- `portrait-of-egon.webp` — the player's face. Copy into `res://assets/images/portrait-of-egon.webp` and assign it as the `Sprite2D` texture on the player. Uniformly scale to **cover** a 64×64 px square (scale = `64 / min(texture_width, texture_height)`), centered on the player origin, then clip to a 64px-diameter circle. Overflow is cropped by the clip; do not stretch non-uniformly. Leave the import filter **linear** (not nearest).
 
 ## 5. Interface / Contract
 

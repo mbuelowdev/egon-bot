@@ -37,14 +37,14 @@ test("promotion copies only declared assets and leaves the library untouched", (
   const grass = describedAsset(dataDir, "grass.png", "Grass tile", "grass-bytes");
   describedAsset(dataDir, "dirt.png", "Dirt tile", "dirt-bytes");
   const result = promoteAssets({ dataDir, gameRepoDir, ids: [grass] });
-  assert.deepEqual(result.copied, ["assets/library/image/grass-tile.png"]);
+  assert.deepEqual(result.copied, ["assets/images/grass-tile.png"]);
   assert.deepEqual(result.skipped, []);
   assert.deepEqual(result.missing, []);
   assert.equal(
-    readFileSync(join(gameRepoDir, "assets", "library", "image", "grass-tile.png"), "utf8"),
+    readFileSync(join(gameRepoDir, "assets", "images", "grass-tile.png"), "utf8"),
     "grass-bytes",
   );
-  assert.equal(existsSync(join(gameRepoDir, "assets", "library", "image", "dirt-tile.png")), false);
+  assert.equal(existsSync(join(gameRepoDir, "assets", "images", "dirt-tile.png")), false);
   assert.equal(listAssets(dataDir).length, 2);
 });
 
@@ -52,22 +52,22 @@ test("promotion is idempotent across two runs", () => {
   const { dataDir, gameRepoDir } = library();
   const grass = describedAsset(dataDir, "grass.png", "Grass tile", "grass-bytes");
   promoteAssets({ dataDir, gameRepoDir, ids: [grass] });
-  const dest = join(gameRepoDir, "assets", "library", "image", "grass-tile.png");
+  const dest = join(gameRepoDir, "assets", "images", "grass-tile.png");
   const firstMtime = statSync(dest).mtimeMs;
   const second = promoteAssets({ dataDir, gameRepoDir, ids: [grass, grass] });
   assert.deepEqual(second.copied, []);
-  assert.deepEqual(second.skipped, ["assets/library/image/grass-tile.png"]);
+  assert.deepEqual(second.skipped, ["assets/images/grass-tile.png"]);
   assert.equal(statSync(dest).mtimeMs, firstMtime);
 });
 
 test("a repo copy whose contents drifted is replaced", () => {
   const { dataDir, gameRepoDir } = library();
   const grass = describedAsset(dataDir, "grass.png", "Grass tile", "grass-bytes");
-  const dest = join(gameRepoDir, "assets", "library", "image", "grass-tile.png");
-  mkdirSync(join(gameRepoDir, "assets", "library", "image"), { recursive: true });
+  const dest = join(gameRepoDir, "assets", "images", "grass-tile.png");
+  mkdirSync(join(gameRepoDir, "assets", "images"), { recursive: true });
   writeFileSync(dest, "someone-hand-edited-this");
   const result = promoteAssets({ dataDir, gameRepoDir, ids: [grass] });
-  assert.deepEqual(result.copied, ["assets/library/image/grass-tile.png"]);
+  assert.deepEqual(result.copied, ["assets/images/grass-tile.png"]);
   assert.equal(readFileSync(dest, "utf8"), "grass-bytes");
 });
 
@@ -101,13 +101,13 @@ test("companion files are promoted into the same directory as their asset", () =
 
   const result = promoteAssets({ dataDir, gameRepoDir, ids: [id] });
   assert.deepEqual(result.copied, [
-    "assets/library/model/garbage-truck.gltf",
-    "assets/library/model/truck-diffuse.png",
-    "assets/library/model/truck.bin",
+    "assets/models/garbage-truck.gltf",
+    "assets/models/truck-diffuse.png",
+    "assets/models/truck.bin",
   ]);
   assert.deepEqual(result.missing, []);
   // A .gltf references its .bin by relative path, so they must land side by side.
-  const dir = join(gameRepoDir, "assets", "library", "model");
+  const dir = join(gameRepoDir, "assets", "models");
   assert.equal(readFileSync(join(dir, "truck.bin"), "utf8"), "bin-bytes");
   assert.equal(readFileSync(join(dir, "truck-diffuse.png"), "utf8"), "tex-bytes");
 
@@ -128,6 +128,6 @@ test("a companion file missing from disk is reported, not silently dropped", () 
   attachAssetPart({ dataDir, id, filename: "truck.bin", buffer: Buffer.from("bin") });
   rmSync(partFilePath(dataDir, id, "truck.bin") as string);
   const result = promoteAssets({ dataDir, gameRepoDir, ids: [id] });
-  assert.deepEqual(result.copied, ["assets/library/model/garbage-truck.gltf"]);
+  assert.deepEqual(result.copied, ["assets/models/garbage-truck.gltf"]);
   assert.deepEqual(result.missing, ["garbage-truck.gltf / truck.bin"]);
 });

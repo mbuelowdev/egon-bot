@@ -231,8 +231,9 @@ test("implementer prompt carries only the assets its spec declared, with measure
     { ids: ["garbage-truck-orange.glb"], assets: [TRUCK, GRASS] },
   );
   assert.match(prompt, /`garbage-truck-orange\.glb` \| 2\.1 × 1\.9 × 5\.4 m, 1\.2k tris, anims: wheels_spin/);
-  assert.match(prompt, /`assets\/library\/model\/garbage-truck-orange\.glb`/);
+  assert.match(prompt, /`assets\/models\/garbage-truck-orange\.glb`/);
   assert.match(prompt, /Import them from there/);
+  assert.match(prompt, /do not copy them to another folder/);
   // Handing it the catalog invites a res:// path to an asset promotion never copied in.
   assert.doesNotMatch(prompt, /grass-plain/);
 });
@@ -240,6 +241,7 @@ test("implementer prompt carries only the assets its spec declared, with measure
 test("a spec that declares no assets gets no asset section", () => {
   const prompt = implementerPrompt({ name: "Dash" } as Feature, [], "/data/attachments", []);
   assert.doesNotMatch(prompt, /assets\/library/);
+  assert.doesNotMatch(prompt, /Path in this repo/);
   assert.doesNotMatch(prompt, /Assets this SPEC declares/);
 });
 
