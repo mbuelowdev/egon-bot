@@ -9,10 +9,10 @@ import { featureSlug } from "../features/slug.js";
 import { UserFacingError, type Feature, type FeatureStore } from "../features/store.js";
 import { closePullRequest } from "../git/github.js";
 import { mimeFor } from "../godot/headers.js";
-import { loadFeatureAgentLog } from "../cursor/agentLog.js";
+import { loadFeatureAgentLog, readAgentLog } from "../cursor/agentLog.js";
 import { clearEvents, deleteEventsForFeature, groupEvents, readEvents } from "../events/log.js";
 import { eventsFragmentEtag, eventsPage, renderEventFeatures } from "./events.js";
-import { featurePage, indexPage } from "./page.js";
+import { agentLogFragmentEtag, featurePage, indexPage, renderAgentLog } from "./page.js";
 import { parseGithubWebhookEvent, verifyGithubSignature, type GithubWebhookEvent } from "./webhook.js";
 import { handleAssetRequest } from "../assets/routes.js";
 
@@ -80,6 +80,22 @@ function send(res: ServerResponse, status: number, body: string, contentType: st
   }
   res.writeHead(status, headers);
   res.end(body);
+}
+
+function sendHtmlFragment(req: IncomingMessage, res: ServerResponse, html: string, etag: string): void {
+  const requested = req.headers["if-none-match"];
+  const given = Array.isArray(requested) ? requested[0] : requested;
+  if (given === etag) {
+    res.writeHead(304, { ETag: etag, "Cache-Control": "no-store" });
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    ETag: etag,
+  });
+  res.end(html);
 }
 
 export function catalogPasswordOk(password: string): boolean {
@@ -335,20 +351,7 @@ async function handleRequest(
 
   if (urlPath === "/events/fragment") {
     const html = renderEventFeatures(groupEvents(readEvents(options.config.dataDir)));
-    const etag = eventsFragmentEtag(html);
-    const requested = req.headers["if-none-match"];
-    const given = Array.isArray(requested) ? requested[0] : requested;
-    if (given === etag) {
-      res.writeHead(304, { ETag: etag, "Cache-Control": "no-store" });
-      res.end();
-      return;
-    }
-    res.writeHead(200, {
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "no-store",
-      ETag: etag,
-    });
-    res.end(html);
+    sendHtmlFragment(req, res, html, eventsFragmentEtag(html));
     return;
   }
 
@@ -359,6 +362,18 @@ async function handleRequest(
       eventsPage(groupEvents(readEvents(options.config.dataDir))),
       "text/html; charset=utf-8",
     );
+    return;
+  }
+
+  const logFragment = urlPath.match(/^\/features\/([^/]+)\/log\/?$/);
+  if (logFragment && logFragment[1]) {
+    const feature = findFeatureBySlug(options.store, logFragment[1]);
+    if (!feature) {
+      send(res, 404, "Not found", "text/plain; charset=utf-8");
+      return;
+    }
+    const html = renderAgentLog(readAgentLog(options.config.dataDir, feature.id));
+    sendHtmlFragment(req, res, html, agentLogFragmentEtag(html));
     return;
   }
 

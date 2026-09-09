@@ -696,6 +696,76 @@ test("the /events/fragment route answers 304 for an unchanged log and 200 once i
   }
 });
 
+test("the /features/:slug/log route answers 304 for an unchanged agent log and 200 once it moves", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-agent-log-"));
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  store.startPlanning(feature.id);
+  const specDir = join(dataDir, "features", String(feature.id));
+  mkdirSync(specDir, { recursive: true });
+  const writeLog = (steps: unknown[]): void => {
+    writeFileSync(
+      join(specDir, "agent-log.jsonl"),
+      `${JSON.stringify({
+        at: "2026-09-06T12:04:00.000Z",
+        role: "planner",
+        agentId: "p1",
+        runId: "r1",
+        status: "finished",
+        user: "Write the spec",
+        steps,
+      })}\n`,
+    );
+  };
+  writeLog([{ type: "thinking", text: "first thought" }]);
+
+  const port = await freePort();
+  const config = loadConfig({
+    DISCORD_TOKEN: "token",
+    DISCORD_APP_ID: "app",
+    DISCORD_CHANNEL_ID: "channel",
+    DISCORD_GUILD_ID: "guild",
+    CURSOR_API_KEY: "cursor",
+    CLAUDE_CODE_OAUTH_TOKEN: "oauth",
+    GAME_REPO_HTTPS_URL: "https://github.com/org/game.git",
+    GITHUB_TOKEN: "ghp_test",
+    GITHUB_WEBHOOK_SECRET: "whsec",
+    DATA_DIR: dataDir,
+    FEATURES_HTTP_PORT: String(port),
+  });
+  await serveCatalog({ store, config, onGithubEvent: async () => {} });
+  try {
+    const url = `http://127.0.0.1:${String(port)}/features/dash-hud/log`;
+    const first = await fetch(url);
+    assert.equal(first.status, 200);
+    const etag = first.headers.get("etag");
+    assert.ok(etag && etag.length > 2, "fragment must carry an ETag");
+    const html = await first.text();
+    assert.match(html, /first thought/);
+    assert.match(html, /data-step-key="r1:0" open/);
+    assert.doesNotMatch(html, /<!doctype html>/i);
+
+    const unchanged = await fetch(url, { headers: { "If-None-Match": etag } });
+    assert.equal(unchanged.status, 304);
+    assert.equal(await unchanged.text(), "");
+
+    writeLog([
+      { type: "thinking", text: "first thought" },
+      { type: "tool", name: "read", args: { path: "SPEC.md" } },
+    ]);
+    const moved = await fetch(url, { headers: { "If-None-Match": etag } });
+    assert.equal(moved.status, 200);
+    assert.notEqual(moved.headers.get("etag"), etag);
+    const next = await moved.text();
+    assert.match(next, /read · SPEC\.md/);
+    assert.doesNotMatch(next, /data-step-key="r1:0" open/);
+    assert.match(next, /data-step-key="r1:1" open/);
+  } finally {
+    await stopCatalogServer();
+    store.close();
+  }
+});
+
 test("pipeline events can be deleted per feature or wiped after the shared password", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "egon-catalog-events-delete-"));
   const store = new FeatureStore(":memory:");

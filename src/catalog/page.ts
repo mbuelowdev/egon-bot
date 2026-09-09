@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Config } from "../config.js";
@@ -63,6 +64,7 @@ const EVENT_STYLES = `
   display: inline-flex; align-items: center; gap: 0.4rem;
   margin-left: auto; color: var(--muted); font-size: 0.85rem;
 }
+.live[hidden] { display: none; }
 .live .dot { animation: live-pulse 2s ease-in-out infinite; }
 @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .live .dot { animation: none; } }
@@ -462,6 +464,26 @@ a:hover { color: var(--accent-hover); }
 }
 [data-delete-slug], [data-delete-events], [data-events-clear] { color: var(--danger); }
 [data-delete-slug]:hover, [data-delete-events]:hover, [data-events-clear]:hover { border-color: var(--danger); color: var(--danger); }
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.4rem;
+  margin: 1.35rem 0 0.85rem;
+}
+.log-head h2 {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin: 0;
+}
+.log-head [data-follow-agents] { margin-left: auto; }
+.log-head .live { margin-left: 0; }
+[data-follow-agents][aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--header);
+}
 .log-run {
   border: 1px solid var(--line);
   background: var(--elevated);
@@ -603,48 +625,207 @@ const LIGHTBOX_SCRIPT = `<script>
 })();
 </script>`;
 
+/** Poll interval while the tab is visible. Thinking arrives in ~400ms flushes. */
+export const AGENT_LOG_POLL_MS = 2_000;
+/** Backoff after a failed poll, so a restarting server is not hammered. */
+export const AGENT_LOG_POLL_BACKOFF_MS = 15_000;
+
+/** Weak-free content ETag so an unchanged poll costs a 304 and no body. */
+export function agentLogFragmentEtag(html: string): string {
+  return `"${createHash("sha1").update(html).digest("hex")}"`;
+}
+
 const AGENT_LOG_SCRIPT = `<script>
 (() => {
-  const runs = document.querySelectorAll("details.log-run[data-run-id]");
-  if (runs.length === 0) {
-    return;
-  }
   const key = "egon-agent-log:" + window.location.pathname;
-  let saved = {};
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-        saved = parsed;
-      }
+  const list = document.getElementById("agent-log-list");
+  const status = document.querySelector("[data-agent-log-status]");
+  const followBtn = document.querySelector("[data-follow-agents]");
+
+  const disclosureKey = (el) => {
+    const run = el.getAttribute("data-run-id");
+    if (run) { return "r:" + run; }
+    const step = el.getAttribute("data-step-key");
+    if (step) { return "s:" + step; }
+    return null;
+  };
+  const disclosures = (root) => (root || document).querySelectorAll("details[data-run-id], details[data-step-key]");
+  // Last run and its last thinking/tool stay open by following the tail, not because
+  // the reader chose them. Skip those so a later swap can collapse them.
+  const followSkip = (root) => {
+    const skip = {};
+    const runs = (root || document).querySelectorAll("details.log-run");
+    const lastRun = runs[runs.length - 1];
+    if (!lastRun) { return skip; }
+    const runId = lastRun.getAttribute("data-run-id");
+    if (runId) { skip["r:" + runId] = true; }
+    const msgs = lastRun.querySelectorAll(".log-msg");
+    const last = msgs[msgs.length - 1];
+    if (last && last.tagName === "DETAILS") {
+      const step = last.getAttribute("data-step-key");
+      if (step) { skip["s:" + step] = true; }
     }
-  } catch {
-    saved = {};
-  }
-  for (const el of runs) {
-    const id = el.getAttribute("data-run-id");
-    if (id && Object.prototype.hasOwnProperty.call(saved, id)) {
-      el.open = Boolean(saved[id]);
+    return skip;
+  };
+  const snapshot = (root) => {
+    const open = {};
+    const seen = {};
+    const skip = followSkip(root);
+    disclosures(root).forEach((el) => {
+      const id = disclosureKey(el);
+      if (!id || skip[id]) { return; }
+      seen[id] = true;
+      if (el.open) { open[id] = true; }
+    });
+    return { open, seen };
+  };
+  const restore = (root, state) => {
+    disclosures(root).forEach((el) => {
+      const id = disclosureKey(el);
+      if (!id || !state.seen[id]) { return; }
+      el.open = Boolean(state.open[id]);
+    });
+  };
+  const lastStepOf = (root) => {
+    const runs = root.querySelectorAll("details.log-run");
+    const lastRun = runs[runs.length - 1];
+    if (!lastRun) { return { lastRun: null, last: null }; }
+    const msgs = lastRun.querySelectorAll(".log-msg");
+    return { lastRun, last: msgs[msgs.length - 1] || null };
+  };
+  const followTail = () => {
+    if (!list) { return ""; }
+    const found = lastStepOf(list);
+    if (found.lastRun) { found.lastRun.open = true; }
+    if (found.last && found.last.tagName === "DETAILS") {
+      found.last.open = true;
     }
-  }
-  const persist = () => {
+    const body = found.last ? found.last.querySelector(".thinking-body, .tool-body") : null;
+    if (body) { body.scrollTop = body.scrollHeight; }
+    const target = found.last || found.lastRun;
+    if (target) { target.scrollIntoView({ block: "end" }); }
+    return found.last && found.last.tagName === "DETAILS"
+      ? (found.last.getAttribute("data-step-key") || "")
+      : "";
+  };
+  const persistRuns = () => {
     const next = {};
-    for (const el of runs) {
+    document.querySelectorAll("details.log-run[data-run-id]").forEach((el) => {
       const id = el.getAttribute("data-run-id");
-      if (id) {
-        next[id] = el.open;
-      }
-    }
+      if (id) { next[id] = el.open; }
+    });
     try {
       window.localStorage.setItem(key, JSON.stringify(next));
     } catch {
       /* ignore quota / private mode */
     }
   };
-  for (const el of runs) {
-    el.addEventListener("toggle", persist);
-  }
+  const applySavedRuns = () => {
+    let saved = {};
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          saved = parsed;
+        }
+      }
+    } catch {
+      saved = {};
+    }
+    document.querySelectorAll("details.log-run[data-run-id]").forEach((el) => {
+      const id = el.getAttribute("data-run-id");
+      if (id && Object.prototype.hasOwnProperty.call(saved, id)) {
+        el.open = Boolean(saved[id]);
+      }
+    });
+  };
+  const bindRuns = () => {
+    document.querySelectorAll("details.log-run[data-run-id]").forEach((el) => {
+      el.addEventListener("toggle", persistRuns);
+    });
+  };
+
+  applySavedRuns();
+  bindRuns();
+
+  if (!list || !followBtn || !window.fetch) { return; }
+  const src = list.getAttribute("data-src");
+  if (!src) { return; }
+
+  let etag = list.getAttribute("data-etag");
+  let timer = null;
+  let following = false;
+
+  const setStatus = (text, level) => {
+    if (!status) { return; }
+    status.hidden = false;
+    status.innerHTML = '<span class="dot ' + level + '"></span>' + text;
+  };
+  const schedule = (delay) => {
+    if (!following) { return; }
+    if (timer) { window.clearTimeout(timer); }
+    timer = window.setTimeout(poll, delay);
+  };
+  const poll = () => {
+    if (!following) { return; }
+    if (document.hidden) {
+      setStatus("Paused", "info");
+      schedule(${String(AGENT_LOG_POLL_MS)});
+      return;
+    }
+    const headers = etag ? { "If-None-Match": etag } : {};
+    window.fetch(src, { headers: headers, cache: "no-store" })
+      .then((res) => {
+        if (!following) { return null; }
+        if (res.status === 304) {
+          setStatus("Live", "info");
+          schedule(${String(AGENT_LOG_POLL_MS)});
+          return null;
+        }
+        if (!res.ok) { throw new Error("status " + res.status); }
+        etag = res.headers.get("ETag");
+        return res.text();
+      })
+      .then((html) => {
+        if (!following || html === null || html === undefined) { return; }
+        const state = snapshot(list);
+        list.innerHTML = html;
+        restore(list, state);
+        followTail();
+        bindRuns();
+        persistRuns();
+        setStatus("Live", "info");
+        schedule(${String(AGENT_LOG_POLL_MS)});
+      })
+      .catch(() => {
+        if (!following) { return; }
+        setStatus("Reconnecting", "warning");
+        schedule(${String(AGENT_LOG_POLL_BACKOFF_MS)});
+      });
+  };
+  const startFollow = () => {
+    following = true;
+    followBtn.setAttribute("aria-pressed", "true");
+    followBtn.textContent = "Following";
+    setStatus("Live", "info");
+    followTail();
+    schedule(0);
+  };
+  const stopFollow = () => {
+    following = false;
+    if (timer) { window.clearTimeout(timer); timer = null; }
+    followBtn.setAttribute("aria-pressed", "false");
+    followBtn.textContent = "Follow agents";
+    if (status) { status.hidden = true; }
+  };
+  followBtn.addEventListener("click", () => {
+    if (following) { stopFollow(); } else { startFollow(); }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (following && !document.hidden) { schedule(0); }
+  });
+  window.addEventListener("beforeunload", () => { following = false; });
 })();
 </script>`;
 
@@ -791,9 +972,11 @@ function runningStatusLabel(entry: AgentLogEntry, now: number): { text: string; 
   return { text: `running · ${activity}${tool}`, stuck: false };
 }
 
-function renderLogStep(step: AgentLogStep): string {
+function renderLogStep(step: AgentLogStep, stepKey?: string, open = false): string {
+  const keyAttr = stepKey ? ` data-step-key="${escapeHtml(stepKey)}"` : "";
+  const openAttr = open ? " open" : "";
   if (step.type === "thinking") {
-    return `<details class="log-msg thinking">
+    return `<details class="log-msg thinking"${keyAttr}${openAttr}>
       <summary>Thinking</summary>
       <div class="thinking-body spec">${renderMarkdown(truncate(step.text, 20_000))}</div>
     </details>`;
@@ -802,12 +985,12 @@ function renderLogStep(step: AgentLogStep): string {
     const hint = toolHint(step);
     const title = hint === "" ? step.name : `${step.name} · ${hint}`;
     const body = toolBody(step);
-    return `<details class="log-msg tool">
+    return `<details class="log-msg tool"${keyAttr}${openAttr}>
       <summary>${escapeHtml(title)}</summary>
       ${body === "" ? "" : `<pre class="tool-body">${escapeHtml(body)}</pre>`}
     </details>`;
   }
-  return `<div class="log-msg assistant">
+  return `<div class="log-msg assistant"${keyAttr}>
     <div class="log-label">Agent</div>
     <div class="spec">${renderMarkdown(step.text)}</div>
   </div>`;
@@ -815,7 +998,7 @@ function renderLogStep(step: AgentLogStep): string {
 
 export function renderAgentLog(entries: AgentLogEntry[], now: number = Date.now()): string {
   if (entries.length === 0) {
-    return `<p class="empty">No agent log yet. Prompts and replies show up while a run is in progress — refresh to pick up new output.</p>`;
+    return `<p class="empty">No agent log yet. Prompts and replies show up while a run is in progress.</p>`;
   }
   return entries
     .map((entry, index) => {
@@ -829,11 +1012,18 @@ export function renderAgentLog(entries: AgentLogEntry[], now: number = Date.now(
               ? " log-status-running"
               : "";
       const statusText = running?.text ?? `${entry.status} · ${formatLogTime(entry.at)}`;
+      const lastEntry = index === entries.length - 1;
       const steps =
         entry.steps.length > 0
-          ? entry.steps.map(renderLogStep).join("")
+          ? entry.steps
+              .map((step, stepIndex) => {
+                const lastStep = lastEntry && stepIndex === entry.steps.length - 1;
+                const open = lastStep && (step.type === "thinking" || step.type === "tool");
+                return renderLogStep(step, `${entry.runId}:${String(stepIndex)}`, open);
+              })
+              .join("")
           : entry.result
-            ? renderLogStep({ type: "assistant", text: entry.result })
+            ? renderLogStep({ type: "assistant", text: entry.result }, `${entry.runId}:result`)
             : "";
       const error =
         entry.errorMessage && entry.status !== "finished"
@@ -964,6 +1154,7 @@ export function featurePage(
           .join("")}</div>
       </section>`;
   const pr = githubPrButton(feature);
+  const logHtml = renderAgentLog(agentLog);
   const notesSection =
     notes.length === 0
       ? ""
@@ -993,8 +1184,12 @@ export function featurePage(
         ${gallery}
       </section>
       <section id="agent-log">
-        <h2>Agent log</h2>
-        ${renderAgentLog(agentLog)}
+        <div class="log-head">
+          <h2>Agent log</h2>
+          <button type="button" class="log-jump" data-follow-agents aria-pressed="false">Follow agents</button>
+          <span class="live" data-agent-log-status hidden aria-live="polite"></span>
+        </div>
+        <div id="agent-log-list" data-src="/features/${encodeURIComponent(slug)}/log" data-etag="${escapeHtml(agentLogFragmentEtag(logHtml))}">${logHtml}</div>
       </section>
     </main>
     </div>`,

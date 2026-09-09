@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { Config } from "../config.js";
 import { FeatureStore } from "../features/store.js";
-import { featurePage, indexPage, renderAgentLog } from "./page.js";
+import {
+  AGENT_LOG_POLL_BACKOFF_MS,
+  AGENT_LOG_POLL_MS,
+  agentLogFragmentEtag,
+  featurePage,
+  indexPage,
+  renderAgentLog,
+} from "./page.js";
 
 const links = {
   gamePublicUrl: "https://lets-vibe-together.mbuelow.dev",
@@ -368,9 +375,143 @@ test("feature page renders prompts, agent text, and tool calls from the log", ()
   assert.match(html, /class="log-msg thinking"/);
   assert.match(html, /class="thinking-body spec"/);
   assert.match(html, /data-run-id="r1"/);
+  assert.match(html, /data-step-key="r1:0"/);
   assert.match(html, /class="log-run" data-run-id="r1" open>/);
+  assert.match(html, /id="agent-log-list"/);
+  assert.match(html, /data-src="\/features\/dash-hud\/log"/);
+  assert.match(html, /data-follow-agents/);
+  assert.match(html, />Follow agents</);
+  assert.match(html, /data-agent-log-status/);
   assert.match(html, /egon-agent-log:/);
   assert.match(html, /localStorage/);
+  assert.match(html, /If-None-Match/);
+  assert.match(html, /startFollow/);
+  assert.match(html, /scrollIntoView/);
+  assert.match(html, new RegExp(`schedule\\(${String(AGENT_LOG_POLL_MS)}\\)`));
+  assert.match(html, new RegExp(`schedule\\(${String(AGENT_LOG_POLL_BACKOFF_MS)}\\)`));
+  assert.doesNotMatch(html, /\$\{/);
+});
+
+test("renderAgentLog opens the last thinking or tool until the next step arrives", () => {
+  const base = {
+    at: "2026-09-06T12:04:00.000Z",
+    role: "planner" as const,
+    agentId: "p1",
+    runId: "r1",
+    status: "running" as const,
+    user: "plan it",
+  };
+  const thinkingOnly = renderAgentLog([{ ...base, steps: [{ type: "thinking", text: "hmm" }] }]);
+  assert.match(thinkingOnly, /class="log-msg thinking" data-step-key="r1:0" open>/);
+
+  const thinkingThenTool = renderAgentLog([
+    {
+      ...base,
+      steps: [
+        { type: "thinking", text: "hmm" },
+        { type: "tool", name: "read", args: { path: "player.gd" } },
+      ],
+    },
+  ]);
+  assert.match(thinkingThenTool, /class="log-msg thinking" data-step-key="r1:0">/);
+  assert.doesNotMatch(thinkingThenTool, /data-step-key="r1:0" open/);
+  assert.match(thinkingThenTool, /class="log-msg tool" data-step-key="r1:1" open>/);
+
+  const thinkingThenAssistant = renderAgentLog([
+    {
+      ...base,
+      status: "finished",
+      steps: [
+        { type: "thinking", text: "hmm" },
+        { type: "assistant", text: "PLAN_COMPLETE" },
+      ],
+    },
+  ]);
+  assert.doesNotMatch(thinkingThenAssistant, /data-step-key="r1:0" open/);
+  assert.match(thinkingThenAssistant, /data-step-key="r1:1"/);
+});
+
+test("agent log steps keep stable keys so a poll can restore what the reader had open", () => {
+  const first = renderAgentLog([
+    {
+      at: "2026-09-06T12:04:00.000Z",
+      role: "planner",
+      agentId: "p1",
+      runId: "r1",
+      status: "running",
+      user: "plan it",
+      steps: [{ type: "thinking", text: "hmm" }],
+    },
+  ]);
+  const later = renderAgentLog([
+    {
+      at: "2026-09-06T12:04:00.000Z",
+      role: "planner",
+      agentId: "p1",
+      runId: "r1",
+      status: "running",
+      user: "plan it",
+      steps: [
+        { type: "thinking", text: "hmm, more" },
+        { type: "tool", name: "read", args: { path: "SPEC.md" } },
+      ],
+    },
+  ]);
+  assert.match(first, /data-step-key="r1:0"/);
+  assert.match(later, /data-step-key="r1:0"/);
+  assert.match(later, /data-step-key="r1:1"/);
+});
+
+test("the feature page ships a Follow agents control that starts polling", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  const entries = [
+    {
+      at: "2026-09-06T12:04:00.000Z",
+      role: "planner" as const,
+      agentId: "p1",
+      runId: "r1",
+      status: "finished" as const,
+      user: "plan it",
+      steps: [] as const,
+    },
+  ];
+  const html = featurePage(
+    { dataDir: "/tmp/egon-missing" } as Config,
+    store.getFeatureById(feature.id)!,
+    [],
+    entries,
+  );
+  store.close();
+  const body = renderAgentLog(entries);
+  const etag = agentLogFragmentEtag(body);
+  assert.ok(html.includes(`data-etag="${etag.replaceAll('"', "&quot;")}"`));
+  assert.match(html, /data-src="\/features\/dash-hud\/log"/);
+  assert.match(html, /data-follow-agents aria-pressed="false">Follow agents</);
+  assert.match(html, /data-agent-log-status hidden/);
+  assert.match(html, /startFollow/);
+  assert.match(html, /stopFollow/);
+  assert.match(html, /scrollIntoView\(\{ block: "end" \}\)/);
+  assert.match(html, /followSkip/);
+  assert.match(html, /document\.hidden/);
+  assert.match(html, /visibilitychange/);
+  assert.match(html, /Reconnecting/);
+  assert.match(html, /Paused/);
+  // Polling stays off until the reader opts in.
+  assert.doesNotMatch(html, /startFollow\(\);\s*\}\)\(\)/);
+  assert.match(html, /followBtn\.addEventListener\("click"/);
+});
+
+test("the injected catalog scripts are syntactically valid JavaScript", () => {
+  const store = new FeatureStore(":memory:");
+  const feature = store.createFeature("Dash HUD", "channel-1");
+  const html = featurePage({ dataDir: "/tmp/egon-missing" } as Config, store.getFeatureById(feature.id)!);
+  store.close();
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1] ?? "");
+  assert.ok(scripts.length > 0);
+  for (const source of scripts) {
+    assert.doesNotThrow(() => new Function(source), `script did not parse: ${source.slice(0, 80)}`);
+  }
 });
 
 test("renderAgentLog leaves every run collapsed except the last", () => {
