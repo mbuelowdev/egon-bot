@@ -45,6 +45,15 @@ export type AssetPart = {
   uploadedAt: string;
 };
 
+/** One cell in a uniform sprite sheet. Origin is the top-left cell, 0-based. */
+export type SpriteCell = { col: number; row: number };
+
+/** Named selection of sheet cells — "flower variants", "walk down". */
+export type SpriteCellGroup = {
+  description: string;
+  cells: SpriteCell[];
+};
+
 export type AssetMeta = {
   id: string;
   originalFilename: string;
@@ -57,9 +66,13 @@ export type AssetMeta = {
   description: string;
   tags: string[];
   grid: GridSpec | null;
+  /** Present only when a human labeled cells on a sheet. Omitted when empty. */
+  cellGroups?: SpriteCellGroup[];
   parts: AssetPart[];
   uploadedAt: string;
 };
+
+const MAX_CELL_GROUPS = 256;
 
 export function assetsDir(dataDir: string): string {
   return join(dataDir, ASSETS_DIR_NAME);
@@ -227,6 +240,7 @@ function parseMeta(raw: string): AssetMeta | undefined {
       description: typeof meta.description === "string" ? meta.description : "",
       tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === "string") : [],
       grid: meta.grid && typeof meta.grid === "object" ? (meta.grid as GridSpec) : null,
+      ...cellGroupsField(normalizeCellGroups(meta.cellGroups)),
       parts: parseParts(meta.parts),
       uploadedAt: typeof meta.uploadedAt === "string" ? meta.uploadedAt : "",
     };
@@ -247,13 +261,26 @@ export function readAssetMeta(dataDir: string, id: string): AssetMeta | undefine
   }
 }
 
+function cellGroupsField(groups: SpriteCellGroup[] | undefined): { cellGroups?: SpriteCellGroup[] } {
+  return groups !== undefined && groups.length > 0 ? { cellGroups: groups } : {};
+}
+
+/** Drop the key rather than persist `"cellGroups": []`, so unlabeled sidecars stay as they were. */
+function sidecarPayload(meta: AssetMeta): AssetMeta {
+  if (meta.cellGroups === undefined || meta.cellGroups.length === 0) {
+    const { cellGroups: _dropped, ...rest } = meta;
+    return rest;
+  }
+  return meta;
+}
+
 export function writeAssetMeta(dataDir: string, meta: AssetMeta): void {
   const path = sidecarPath(dataDir, meta.id);
   if (path === undefined) {
     throw new Error(`Refusing to write a sidecar for unsafe asset id: ${meta.id}`);
   }
   mkdirSync(assetsDir(dataDir), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(meta, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(sidecarPayload(meta), null, 2)}\n`);
 }
 
 /** Every asset in the library, described or not, sorted by id. Never throws. */
@@ -352,6 +379,150 @@ export function normalizeGrid(grid: unknown): GridSpec | null {
   return { cellWidth, cellHeight };
 }
 
+function parseSpriteCell(raw: unknown): SpriteCell | undefined {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+  const candidate = raw as { col?: unknown; row?: unknown };
+  const col = Number(candidate.col);
+  const row = Number(candidate.row);
+  if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || row < 0) {
+    return undefined;
+  }
+  return { col, row };
+}
+
+/**
+ * Named cell groups on a uniform sheet. Invalid entries are dropped, not fatal.
+ * When `columns` / `rows` are known, cells outside the sheet are dropped too.
+ */
+export function normalizeCellGroups(raw: unknown, columns?: number, rows?: number): SpriteCellGroup[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: SpriteCellGroup[] = [];
+  for (const item of raw) {
+    if (out.length >= MAX_CELL_GROUPS) {
+      break;
+    }
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const candidate = item as { description?: unknown; cells?: unknown };
+    const description = typeof candidate.description === "string" ? candidate.description.trim() : "";
+    if (description === "" || !Array.isArray(candidate.cells)) {
+      continue;
+    }
+    const seen = new Set<string>();
+    const cells: SpriteCell[] = [];
+    for (const entry of candidate.cells) {
+      const cell = parseSpriteCell(entry);
+      if (cell === undefined) {
+        continue;
+      }
+      if (columns !== undefined && cell.col >= columns) {
+        continue;
+      }
+      if (rows !== undefined && cell.row >= rows) {
+        continue;
+      }
+      const key = `${String(cell.col)},${String(cell.row)}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      cells.push(cell);
+    }
+    cells.sort((a, b) => a.row - b.row || a.col - b.col);
+    if (cells.length === 0) {
+      continue;
+    }
+    out.push({ description, cells });
+  }
+  return out;
+}
+
+function consecutiveRanges(values: number[]): Array<[number, number]> {
+  if (values.length === 0) {
+    return [];
+  }
+  const ranges: Array<[number, number]> = [];
+  let start = values[0] as number;
+  let prev = values[0] as number;
+  for (let i = 1; i < values.length; i += 1) {
+    const value = values[i] as number;
+    if (value === prev + 1) {
+      prev = value;
+      continue;
+    }
+    ranges.push([start, prev]);
+    start = value;
+    prev = value;
+  }
+  ranges.push([start, prev]);
+  return ranges;
+}
+
+function colsByRow(cells: SpriteCell[]): Array<{ row: number; cols: number[] }> {
+  const byRow = new Map<number, number[]>();
+  for (const cell of cells) {
+    const cols = byRow.get(cell.row) ?? [];
+    cols.push(cell.col);
+    byRow.set(cell.row, cols);
+  }
+  return [...byRow.keys()]
+    .sort((a, b) => a - b)
+    .map((row) => ({ row, cols: (byRow.get(row) ?? []).sort((a, b) => a - b) }));
+}
+
+/** Compact cell list for manifests: `row 0, cols 2–4; row 1, col 0`. */
+export function formatCellGroupCells(cells: SpriteCell[]): string {
+  return colsByRow(cells)
+    .map(({ row, cols }) => {
+      const colText = consecutiveRanges(cols)
+        .map(([from, to]) => (from === to ? `col ${String(from)}` : `cols ${String(from)}–${String(to)}`))
+        .join(", ");
+      return `row ${String(row)}, ${colText}`;
+    })
+    .join("; ");
+}
+
+/** Exact 0-based coordinates for the implementer: `(2,0)–(4,0), (0,1)`. */
+export function formatCellGroupCoords(cells: SpriteCell[]): string {
+  const parts: string[] = [];
+  for (const { row, cols } of colsByRow(cells)) {
+    for (const [from, to] of consecutiveRanges(cols)) {
+      if (from === to) {
+        parts.push(`(${String(from)},${String(row)})`);
+      } else {
+        parts.push(`(${String(from)},${String(row)})–(${String(to)},${String(row)})`);
+      }
+    }
+  }
+  return parts.join(", ");
+}
+
+/** `flower variants (row 0, cols 2–4); walk down (row 1, cols 0–3)`, or empty. */
+export function formatCellGroups(groups: SpriteCellGroup[] | undefined): string {
+  if (groups === undefined || groups.length === 0) {
+    return "";
+  }
+  return groups.map((group) => `${group.description} (${formatCellGroupCells(group.cells)})`).join("; ");
+}
+
+function pruneCellGroups(
+  groups: SpriteCellGroup[] | undefined,
+  measured: AssetMeasurement | undefined,
+  grid: GridSpec | null,
+): SpriteCellGroup[] | undefined {
+  if (grid === null || groups === undefined || groups.length === 0) {
+    return undefined;
+  }
+  const derived = deriveGrid(grid, measured);
+  const normalized = normalizeCellGroups(groups, derived?.columns, derived?.rows);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 /** Write the bytes and the sidecar. The id is minted here and never changes again. */
 export function saveAsset(options: {
   dataDir: string;
@@ -428,7 +599,7 @@ function renameAsset(dataDir: string, from: string, to: string): void {
 export function updateAsset(
   dataDir: string,
   id: string,
-  patch: { description?: string; tags?: string[]; grid?: GridSpec | null },
+  patch: { description?: string; tags?: string[]; grid?: GridSpec | null; cellGroups?: unknown },
 ): AssetMeta | undefined {
   const meta = readAssetMeta(dataDir, id);
   if (meta === undefined) {
@@ -437,12 +608,18 @@ export function updateAsset(
   const description = patch.description === undefined ? meta.description : patch.description.trim();
   const grid = patch.grid === undefined ? meta.grid : patch.grid;
   const measured = withDerivedGrid(meta.measured, grid);
+  const rawGroups = patch.cellGroups !== undefined ? patch.cellGroups : meta.cellGroups;
   const next: AssetMeta = {
     ...meta,
     description,
     tags: patch.tags === undefined ? meta.tags : normalizeTags(patch.tags),
     grid,
   };
+  delete next.cellGroups;
+  const groups = pruneCellGroups(normalizeCellGroups(rawGroups), measured, grid);
+  if (groups !== undefined) {
+    next.cellGroups = groups;
+  }
   if (measured === undefined) {
     delete next.measured;
   } else {
@@ -551,6 +728,7 @@ export function replaceAssetBytes(options: {
   }
   writeFileSync(path, options.buffer);
   const measured = withDerivedGrid(options.detected.measured, meta.grid);
+  const groups = pruneCellGroups(meta.cellGroups, measured, meta.grid);
   const next: AssetMeta = {
     ...meta,
     originalFilename: options.originalFilename,
@@ -560,6 +738,10 @@ export function replaceAssetBytes(options: {
     fileOutput: options.detected.fileOutput,
     uploadedAt: (options.now ?? new Date()).toISOString(),
   };
+  delete next.cellGroups;
+  if (groups !== undefined) {
+    next.cellGroups = groups;
+  }
   if (measured === undefined) {
     delete next.measured;
   } else {

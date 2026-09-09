@@ -116,6 +116,8 @@ button.primary { background: var(--accent); border-color: var(--accent); }
 button.primary:hover { background: var(--accent-hover); }
 button.danger { color: var(--danger); }
 button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button:disabled:hover { border-color: var(--line); }
 input, textarea {
   font: inherit; width: 100%; color: var(--ink); background: var(--elevated);
   border: 1px solid var(--line); border-radius: 6px; padding: 0.45rem 0.6rem;
@@ -224,8 +226,42 @@ dialog::backdrop { background: #000000aa; }
 .parts .detach { padding: 0.1rem 0.45rem; font-size: 0.8rem; flex: none; }
 .parts .none { color: var(--muted); border: 0; background: none; padding: 0.2rem 0; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--header); word-break: break-all; }
-.grid-fields { display: flex; gap: 0.6rem; align-items: flex-end; }
-.grid-fields > div { flex: 1; }
+.grid-fields { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
+.grid-fields > div { flex: 1; min-width: 6rem; }
+.grid-fields > button { flex: none; white-space: nowrap; }
+.cell-groups { list-style: none; margin: 0.4rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.cell-groups li {
+  font-size: 0.85rem; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px; padding: 0.3rem 0.5rem; background: var(--elevated);
+  display: flex; align-items: center; gap: 0.5rem; text-align: left; width: 100%;
+}
+.cell-groups button.group {
+  display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; text-align: left;
+  padding: 0.15rem 0.4rem; background: transparent; color: inherit; border-color: transparent;
+}
+.cell-groups button.group.active { border-color: var(--accent-hover); color: var(--header); }
+.cell-groups .count { margin-left: auto; flex: none; color: var(--muted); }
+.cell-groups .none { border: 0; background: none; padding: 0.2rem 0; color: var(--muted); }
+.cell-groups[hidden] { display: none; }
+#sheet-picker { width: min(960px, 96vw); }
+.sheet-wrap {
+  display: flex; justify-content: center; align-items: center;
+  margin: 0.8rem 0 0; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--elevated); padding: 1rem; min-height: 200px;
+}
+.sheet-stage { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.sheet-stage img {
+  max-width: 100%; max-height: min(70vh, 640px); height: auto; width: auto;
+  display: block; image-rendering: pixelated;
+}
+.sheet-grid { position: absolute; inset: 0; display: grid; }
+.sheet-cell {
+  padding: 0; margin: 0; min-width: 0; min-height: 0; border-radius: 0;
+  border: 1px solid #5ec8ff; background: transparent;
+}
+.sheet-cell:hover { border-color: #8ed8ff; background: rgba(94, 200, 255, 0.16); }
+.sheet-cell.selected { background: rgba(94, 200, 255, 0.4); }
+.sheet-toolbar { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; flex-wrap: wrap; }
 .dialog-actions { display: flex; gap: 0.6rem; align-items: center; margin-top: 1.2rem; }
 .dialog-actions .spacer { flex: 1; }
 .error { color: var(--danger); font-size: 0.86rem; margin: 0.6rem 0 0; min-height: 1.2rem; }
@@ -236,8 +272,8 @@ const SCRIPT = `
 const DATA = JSON.parse(document.getElementById("asset-data").textContent);
 const ACCEPTED = JSON.parse(document.getElementById("accepted-data").textContent);
 const KIND_GLYPH = { image: "\\u{1F5BC}", model: "\\u{1F9CA}", audio: "\\u{1F50A}", font: "\\u{1F524}" };
-const state = { assets: DATA, queue: [], current: null };
-const REPLACE_HINT = "Drop a file here to replace these bytes. The filename, description, tags, and grid all stay.";
+const state = { assets: DATA, queue: [], current: null, cellGroupsDraft: [] };
+const REPLACE_HINT = "Drop a file here to replace these bytes. The filename, description, tags, grid, and labeled sprites all stay.";
 
 const $ = (id) => document.getElementById(id);
 const gallery = $("gallery");
@@ -466,7 +502,9 @@ function openDetail(asset, queueLabel) {
   $("grid-block").hidden = asset.kind !== "image";
   $("cell-width").value = asset.grid ? asset.grid.cellWidth : "";
   $("cell-height").value = asset.grid ? asset.grid.cellHeight : "";
+  state.cellGroupsDraft = copyGroups(asset.cellGroups);
   updateGridHint();
+  renderGroupSummary();
   $("delete").hidden = state.queue.length > 0;
   $("next").hidden = state.queue.length === 0;
   $("save").hidden = state.queue.length > 0;
@@ -506,13 +544,43 @@ function renderParts(asset) {
   }
 }
 
+function copyGroups(groups) {
+  return (groups || []).map((group) => ({
+    description: group.description,
+    cells: (group.cells || []).map((cell) => ({ col: cell.col, row: cell.row })),
+  }));
+}
+
+function renderGroupSummary() {
+  const list = $("cell-groups");
+  const groups = state.cellGroupsDraft || [];
+  list.replaceChildren();
+  if (groups.length === 0) {
+    list.hidden = true;
+    return;
+  }
+  list.hidden = false;
+  for (const group of groups) {
+    const li = document.createElement("li");
+    const n = group.cells.length;
+    li.textContent = group.description + " — " + n + (n === 1 ? " cell" : " cells");
+    list.appendChild(li);
+  }
+}
+
 function updateGridHint() {
   const asset = state.current;
   const hint = $("grid-hint");
-  if (!asset || asset.kind !== "image") { hint.textContent = ""; return; }
+  const button = $("label-sprites");
+  if (!asset || asset.kind !== "image") {
+    hint.textContent = "";
+    button.disabled = true;
+    return;
+  }
   const w = parseInt($("cell-width").value, 10);
   const h = parseInt($("cell-height").value, 10);
   const m = asset.measured || {};
+  button.disabled = !(w > 0 && h > 0 && m.width && m.height && Math.floor(m.width / w) >= 1 && Math.floor(m.height / h) >= 1);
   if (!w || !h || !m.width || !m.height) {
     hint.textContent = "Leave blank unless this is a uniform sprite sheet. Row labels go in the description as prose.";
     return;
@@ -520,6 +588,206 @@ function updateGridHint() {
   const columns = Math.floor(m.width / w);
   const rows = Math.floor(m.height / h);
   hint.textContent = columns + " x " + rows + " = " + columns * rows + " frames";
+}
+
+const GROUP_FILL = [
+  "rgba(255, 180, 80, 0.28)",
+  "rgba(140, 220, 120, 0.28)",
+  "rgba(200, 140, 255, 0.28)",
+  "rgba(255, 120, 160, 0.28)",
+  "rgba(80, 220, 220, 0.28)",
+  "rgba(255, 220, 80, 0.28)",
+];
+const picker = { groups: [], selection: new Set(), anchor: null, editingIndex: -1, columns: 0, rows: 0 };
+
+function cellKey(col, row) { return col + "," + row; }
+function parseCellKey(key) {
+  const parts = key.split(",");
+  return { col: parseInt(parts[0], 10), row: parseInt(parts[1], 10) };
+}
+
+function groupFillAt(col, row) {
+  for (let i = 0; i < picker.groups.length; i += 1) {
+    const cells = picker.groups[i].cells;
+    for (let n = 0; n < cells.length; n += 1) {
+      if (cells[n].col === col && cells[n].row === row) {
+        return GROUP_FILL[i % GROUP_FILL.length];
+      }
+    }
+  }
+  return "";
+}
+
+function paintCells() {
+  const nodes = $("sheet-grid").children;
+  for (let i = 0; i < nodes.length; i += 1) {
+    const btn = nodes[i];
+    const col = parseInt(btn.dataset.col, 10);
+    const row = parseInt(btn.dataset.row, 10);
+    const selected = picker.selection.has(cellKey(col, row));
+    btn.classList.toggle("selected", selected);
+    btn.style.background = selected ? "" : groupFillAt(col, row);
+  }
+  const n = picker.selection.size;
+  $("sheet-selected").textContent = n === 0 ? "" : n === 1 ? "1 cell selected" : n + " cells selected";
+}
+
+function onCellClick(event, col, row) {
+  event.preventDefault();
+  if (event.shiftKey && picker.anchor) {
+    const c0 = Math.min(picker.anchor.col, col);
+    const c1 = Math.max(picker.anchor.col, col);
+    const r0 = Math.min(picker.anchor.row, row);
+    const r1 = Math.max(picker.anchor.row, row);
+    for (let r = r0; r <= r1; r += 1) {
+      for (let c = c0; c <= c1; c += 1) {
+        picker.selection.add(cellKey(c, r));
+      }
+    }
+  } else if (event.ctrlKey || event.metaKey) {
+    const key = cellKey(col, row);
+    if (picker.selection.has(key)) { picker.selection.delete(key); } else { picker.selection.add(key); }
+    picker.anchor = { col: col, row: row };
+  } else {
+    picker.selection = new Set([cellKey(col, row)]);
+    picker.anchor = { col: col, row: row };
+  }
+  paintCells();
+}
+
+function renderSheetGrid() {
+  const asset = state.current;
+  if (!asset) { return; }
+  const w = parseInt($("cell-width").value, 10);
+  const h = parseInt($("cell-height").value, 10);
+  const m = asset.measured || {};
+  const columns = Math.floor(m.width / w);
+  const rows = Math.floor(m.height / h);
+  picker.columns = columns;
+  picker.rows = rows;
+  const grid = $("sheet-grid");
+  grid.style.gridTemplateColumns = "repeat(" + columns + ", 1fr)";
+  grid.style.gridTemplateRows = "repeat(" + rows + ", 1fr)";
+  grid.replaceChildren();
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "sheet-cell";
+      btn.dataset.col = String(col);
+      btn.dataset.row = String(row);
+      btn.addEventListener("mousedown", (event) => { if (event.shiftKey) { event.preventDefault(); } });
+      btn.addEventListener("click", (event) => onCellClick(event, col, row));
+      grid.appendChild(btn);
+    }
+  }
+  paintCells();
+}
+
+function renderPickerGroups() {
+  const list = $("sheet-groups");
+  list.replaceChildren();
+  if (picker.groups.length === 0) {
+    const li = document.createElement("li");
+    li.className = "none";
+    li.textContent = "No groups yet.";
+    list.appendChild(li);
+    return;
+  }
+  picker.groups.forEach((group, index) => {
+    const li = document.createElement("li");
+    const choose = document.createElement("button");
+    choose.type = "button";
+    choose.className = "group" + (picker.editingIndex === index ? " active" : "");
+    const label = document.createElement("span");
+    label.textContent = group.description;
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(group.cells.length);
+    choose.append(label, count);
+    choose.addEventListener("click", () => editPickerGroup(index));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger detach";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      picker.groups.splice(index, 1);
+      if (picker.editingIndex === index) { picker.editingIndex = -1; $("sheet-group-desc").value = ""; $("sheet-add").textContent = "Add group"; }
+      else if (picker.editingIndex > index) { picker.editingIndex -= 1; }
+      renderPickerGroups();
+      paintCells();
+    });
+    li.append(choose, remove);
+    list.appendChild(li);
+  });
+}
+
+function editPickerGroup(index) {
+  const group = picker.groups[index];
+  if (!group) { return; }
+  picker.editingIndex = index;
+  picker.selection = new Set(group.cells.map((cell) => cellKey(cell.col, cell.row)));
+  picker.anchor = group.cells[0] ? { col: group.cells[0].col, row: group.cells[0].row } : null;
+  $("sheet-group-desc").value = group.description;
+  $("sheet-add").textContent = "Update group";
+  $("sheet-error").textContent = "";
+  renderPickerGroups();
+  paintCells();
+}
+
+function selectedCells() {
+  return [...picker.selection].map(parseCellKey).sort((a, b) => a.row - b.row || a.col - b.col);
+}
+
+function addPickerGroup() {
+  const description = $("sheet-group-desc").value.trim();
+  const cells = selectedCells();
+  if (description === "" || cells.length === 0) {
+    $("sheet-error").textContent = "Select cells and add a description.";
+    return;
+  }
+  const group = { description: description, cells: cells };
+  if (picker.editingIndex >= 0) {
+    picker.groups[picker.editingIndex] = group;
+    picker.editingIndex = -1;
+  } else {
+    picker.groups.push(group);
+  }
+  picker.selection = new Set();
+  $("sheet-group-desc").value = "";
+  $("sheet-add").textContent = "Add group";
+  $("sheet-error").textContent = "";
+  renderPickerGroups();
+  paintCells();
+}
+
+function openPicker() {
+  const asset = state.current;
+  if (!asset || $("label-sprites").disabled) { return; }
+  picker.groups = copyGroups(state.cellGroupsDraft);
+  picker.selection = new Set();
+  picker.anchor = null;
+  picker.editingIndex = -1;
+  $("sheet-group-desc").value = "";
+  $("sheet-add").textContent = "Add group";
+  $("sheet-error").textContent = "";
+  const img = $("sheet-image");
+  img.alt = asset.id;
+  img.onload = () => renderSheetGrid();
+  img.src = fileUrl(asset);
+  if (img.complete) { renderSheetGrid(); }
+  renderPickerGroups();
+  paintCells();
+  $("sheet-picker").showModal();
+}
+
+function closePicker(commit) {
+  if (commit) {
+    state.cellGroupsDraft = copyGroups(picker.groups);
+    renderGroupSummary();
+  }
+  $("sheet-picker").close();
 }
 
 async function post(url, body, isJson) {
@@ -669,6 +937,7 @@ async function save() {
   const w = parseInt($("cell-width").value, 10);
   const h = parseInt($("cell-height").value, 10);
   form.set("grid", w > 0 && h > 0 ? JSON.stringify({ cellWidth: w, cellHeight: h }) : "");
+  form.set("cellGroups", JSON.stringify(state.cellGroupsDraft || []));
   const thumb = await captureThumb();
   if (thumb) { form.set("thumb", thumb, "thumb.png"); }
   const result = await post("/assets/" + encodeURIComponent(asset.id), form, false);
@@ -758,6 +1027,11 @@ $("delete").addEventListener("click", () => void remove());
 $("close").addEventListener("click", () => { state.queue = []; state.current = null; dialog.close(); });
 $("cell-width").addEventListener("input", updateGridHint);
 $("cell-height").addEventListener("input", updateGridHint);
+$("label-sprites").addEventListener("click", () => openPicker());
+$("sheet-clear").addEventListener("click", () => { picker.selection = new Set(); paintCells(); });
+$("sheet-add").addEventListener("click", () => addPickerGroup());
+$("sheet-done").addEventListener("click", () => closePicker(true));
+$("sheet-cancel").addEventListener("click", () => closePicker(false));
 for (const button of document.querySelectorAll("[data-view]")) {
   button.addEventListener("click", () => {
     const view = button.getAttribute("data-view");
@@ -839,7 +1113,7 @@ export function assetPortalPage(assets: AssetMeta[]): string {
   </div>
   <div class="dialog-body">
     <div id="preview" class="preview"></div>
-    <p id="replace-hint" class="hint">Drop a file here to replace these bytes. The filename, description, tags, and grid all stay.</p>
+    <p id="replace-hint" class="hint">Drop a file here to replace these bytes. The filename, description, tags, grid, and labeled sprites all stay.</p>
     <ul id="facts" class="facts"></ul>
 
     <label for="filename">Filename</label>
@@ -863,8 +1137,10 @@ export function assetPortalPage(assets: AssetMeta[]): string {
       <div class="grid-fields">
         <div><input id="cell-width" type="number" min="1" placeholder="cell width"></div>
         <div><input id="cell-height" type="number" min="1" placeholder="cell height"></div>
+        <button type="button" id="label-sprites" disabled>Label sprites</button>
       </div>
       <p id="grid-hint" class="hint"></p>
+      <ul id="cell-groups" class="cell-groups" hidden></ul>
     </div>
 
     <label>Companion files <span class="hint">optional</span></label>
@@ -883,6 +1159,37 @@ export function assetPortalPage(assets: AssetMeta[]): string {
       <span class="spacer"></span>
       <button type="button" id="delete" class="danger">Delete</button>
       <button type="button" id="close">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="sheet-picker">
+  <div class="dialog-head">
+    <h2>Label sprites</h2>
+  </div>
+  <div class="dialog-body">
+    <div class="sheet-wrap">
+      <div class="sheet-stage">
+        <img id="sheet-image" alt="">
+        <div id="sheet-grid" class="sheet-grid"></div>
+      </div>
+    </div>
+    <p class="hint">Click a cell to select it. Ctrl-click adds or removes. Shift-click fills a rectangle from the last cell.</p>
+    <div class="sheet-toolbar">
+      <button type="button" id="sheet-clear">Clear selection</button>
+      <span id="sheet-selected" class="hint"></span>
+    </div>
+    <label for="sheet-group-desc">Group description</label>
+    <div class="filename-row">
+      <input id="sheet-group-desc" type="text" placeholder="flower variants">
+      <button type="button" id="sheet-add" class="primary">Add group</button>
+    </div>
+    <ul id="sheet-groups" class="cell-groups"></ul>
+    <p id="sheet-error" class="error"></p>
+    <div class="dialog-actions">
+      <button type="button" id="sheet-done" class="primary">Done</button>
+      <span class="spacer"></span>
+      <button type="button" id="sheet-cancel">Cancel</button>
     </div>
   </div>
 </dialog>

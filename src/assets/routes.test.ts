@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { crc32, deflateSync } from "node:zlib";
 import { handleAssetRequest, multipartBoundary, parseMultipart } from "./routes.js";
-import { assetFilePath, listAssets, saveAsset, thumbFilePath } from "./store.js";
+import { assetFilePath, listAssets, readAssetMeta, saveAsset, thumbFilePath } from "./store.js";
 import { assetManifestPath } from "./manifest.js";
 
 const PASSWORD = "ente123";
@@ -517,6 +517,63 @@ test("attaching and detaching need the password, and companion paths cannot trav
     );
     assert.equal((await fetch(`${h.base}/assets/part/truck.glb/..%2F..%2Fescape.bin`)).status, 403);
     assert.equal((await fetch(`${h.base}/assets/part/..%2Fescape/a.bin`)).status, 403);
+  } finally {
+    await h.close();
+  }
+});
+
+test("saving cell groups stores them and omitting the field leaves them in place", async () => {
+  const h = await harness();
+  try {
+    const created = await upload(h, "hero_walk.png", makePng(512, 256, 0x20));
+    const { asset } = (await created.json()) as { asset: { id: string } };
+    const groups = JSON.stringify([
+      {
+        description: "flower variants",
+        cells: [
+          { col: 2, row: 0 },
+          { col: 3, row: 0 },
+          { col: 4, row: 0 },
+        ],
+      },
+    ]);
+    const saved = await save(h, asset.id, {
+      description: "Hero sprites",
+      grid: JSON.stringify({ cellWidth: 32, cellHeight: 32 }),
+      cellGroups: groups,
+    });
+    assert.equal(saved.status, 200);
+    const updated = (await saved.json()) as {
+      asset: { id: string; cellGroups?: Array<{ description: string; cells: Array<{ col: number; row: number }> }> };
+    };
+    assert.deepEqual(updated.asset.cellGroups, [
+      {
+        description: "flower variants",
+        cells: [
+          { col: 2, row: 0 },
+          { col: 3, row: 0 },
+          { col: 4, row: 0 },
+        ],
+      },
+    ]);
+
+    const again = await save(h, updated.asset.id, {
+      description: "Hero sprites, idle and walk",
+      grid: JSON.stringify({ cellWidth: 32, cellHeight: 32 }),
+    });
+    assert.equal(again.status, 200);
+    const kept = (await again.json()) as { asset: { cellGroups?: unknown } };
+    assert.deepEqual(kept.asset.cellGroups, updated.asset.cellGroups);
+    assert.deepEqual(readAssetMeta(h.dataDir, updated.asset.id)?.cellGroups, updated.asset.cellGroups);
+
+    const cleared = await save(h, updated.asset.id, {
+      description: "Hero sprites, idle and walk",
+      grid: JSON.stringify({ cellWidth: 32, cellHeight: 32 }),
+      cellGroups: "[]",
+    });
+    const empty = (await cleared.json()) as { asset: { cellGroups?: unknown } };
+    assert.equal(empty.asset.cellGroups, undefined);
+    assert.equal("cellGroups" in (readAssetMeta(h.dataDir, updated.asset.id) ?? {}), false);
   } finally {
     await h.close();
   }

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AssetKind } from "./allowlist.js";
-import { describedAssets, promotedAssetPath, type AssetMeta } from "./store.js";
+import { describedAssets, formatCellGroupCoords, formatCellGroups, promotedAssetPath, type AssetMeta } from "./store.js";
 
 /**
  * `ASSETS.md` is generated from the sidecars, mirroring `GAME_MAP.md`: deterministic,
@@ -115,6 +115,12 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
 }
 
+function descriptionCell(meta: AssetMeta): string {
+  const regions = formatCellGroups(meta.cellGroups);
+  const text = regions === "" ? meta.description : `${meta.description} Regions: ${regions}`;
+  return oneLine(text);
+}
+
 function groupByKind(assets: AssetMeta[]): Array<{ kind: AssetKind; assets: AssetMeta[] }> {
   return KIND_ORDER.map((kind) => ({ kind, assets: assets.filter((meta) => meta.kind === kind) })).filter(
     (group) => group.assets.length > 0,
@@ -168,7 +174,7 @@ export function renderAssetManifest(assets: AssetMeta[]): string {
       if (withParts) {
         cells.push(shipsWith(meta) || "—");
       }
-      cells.push(oneLine(meta.description));
+      cells.push(descriptionCell(meta));
       lines.push(`| ${cells.join(" | ")} |`);
     }
     if (omitted > 0 && index === groups.length - 1) {
@@ -220,7 +226,7 @@ export function assetIndexPromptSection(assets: AssetMeta[]): string[] {
   for (const group of groupByKind(rows)) {
     lines.push(`## ${KIND_HEADINGS[group.kind]}`);
     for (const meta of group.assets) {
-      lines.push(`- \`${meta.id}\` — ${oneLine(meta.description)}`);
+      lines.push(`- \`${meta.id}\` — ${descriptionCell(meta)}`);
     }
     lines.push("");
   }
@@ -228,6 +234,32 @@ export function assetIndexPromptSection(assets: AssetMeta[]): string[] {
     lines.push(`(… ${String(omitted)} more)`, "");
   }
   return lines;
+}
+
+function cellGroupPromptLines(assets: AssetMeta[]): string[] {
+  const lined: string[] = [];
+  for (const meta of assets) {
+    const groups = meta.cellGroups;
+    if (groups === undefined || groups.length === 0) {
+      continue;
+    }
+    const cell =
+      meta.grid !== null
+        ? `cell ${String(meta.grid.cellWidth)}×${String(meta.grid.cellHeight)}`
+        : "cell size unknown";
+    lined.push(`\`${meta.id}\` regions (0-based col, row; ${cell}):`);
+    for (const group of groups) {
+      lined.push(`- ${oneLine(group.description)}: ${formatCellGroupCoords(group.cells)}`);
+    }
+  }
+  if (lined.length === 0) {
+    return [];
+  }
+  return [
+    "",
+    "Sprite sheet regions. Pixel origin of a cell is (col × cell width, row × cell height), which is what `AtlasTexture` / `SpriteFrames` want.",
+    ...lined,
+  ];
 }
 
 function resolveDeclaredAssets(ids: string[], assets: AssetMeta[]): AssetMeta[] {
@@ -280,6 +312,7 @@ export function declaredAssetsPromptSection(ids: string[], assets: AssetMeta[]):
       "asset references them by. Do not move or rename them.",
     );
   }
+  lines.push(...cellGroupPromptLines(declared));
   lines.push("");
   return lines;
 }

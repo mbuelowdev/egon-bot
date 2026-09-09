@@ -159,3 +159,35 @@ test("a spec that declares no assets gets no implementer section at all", () => 
   assert.deepEqual(declaredAssetsPromptSection([], [TRUCK]), []);
   assert.deepEqual(declaredAssetsPromptSection(["not-in-library.glb"], [TRUCK]), []);
 });
+
+test("sprite cell groups appear in the manifest and implementer slice only when present", () => {
+  const sheet = asset({
+    ...HERO,
+    cellGroups: [
+      {
+        description: "flower variants",
+        cells: [
+          { col: 2, row: 0 },
+          { col: 3, row: 0 },
+          { col: 4, row: 0 },
+        ],
+      },
+    ],
+  });
+  const markdown = renderAssetManifest([sheet, GRASS]);
+  assert.match(
+    markdown,
+    /Hero walk cycle, rows are down\/up\/left\/right Regions: flower variants \(row 0, cols 2–4\)/,
+  );
+  assert.doesNotMatch(markdown, /grass-plain\.png` \| .*Regions:/);
+
+  const index = assetIndexPromptSection([sheet, GRASS]).join("\n");
+  assert.match(index, /flower variants \(row 0, cols 2–4\)/);
+  assert.match(index, /- `grass-plain\.png` — Top-down seamless grass tile, 4-colour palette$/m);
+
+  const lines = declaredAssetsPromptSection(["hero-walk.png", "grass-plain.png"], [sheet, GRASS]).join("\n");
+  assert.match(lines, /`hero-walk\.png` regions \(0-based col, row; cell 32×32\):/);
+  assert.match(lines, /- flower variants: \(2,0\)–\(4,0\)/);
+  assert.match(lines, /col × cell width/);
+  assert.doesNotMatch(lines, /grass-plain\.png` regions/);
+});

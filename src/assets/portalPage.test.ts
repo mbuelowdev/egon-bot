@@ -50,6 +50,7 @@ test("the portal ships every asset, described or not, so the gallery can flag th
     ["garbage-truck-orange.glb", "a3f9c2d1.png"],
   );
   assert.equal(data[1]?.description, "");
+  assert.equal("cellGroups" in (data[1] ?? {}), false);
 });
 
 test("a description that closes a script tag cannot break out of the JSON island", () => {
@@ -81,6 +82,9 @@ test("the page carries the drop zone, the undescribed badge, the view toggle, an
   assert.match(html, /required/);
   assert.match(html, /id="cell-width"/);
   assert.match(html, /id="cell-height"/);
+  assert.match(html, /id="label-sprites"/);
+  assert.match(html, /<dialog id="sheet-picker">/);
+  assert.match(html, /id="sheet-grid"/);
   assert.match(html, /id="filename"/);
   assert.match(html, /id="replace-hint"/);
   assert.match(html, /id="attach"/);

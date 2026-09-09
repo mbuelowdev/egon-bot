@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -28,6 +28,10 @@ import {
   slugifyAssetName,
   thumbFilePath,
   updateAsset,
+  formatCellGroupCells,
+  formatCellGroupCoords,
+  formatCellGroups,
+  normalizeCellGroups,
 } from "./store.js";
 
 function dataDir(): string {
@@ -184,6 +188,108 @@ test("a grid spec derives columns, rows, and frames on every save", () => {
   assert.equal(cleared?.measured?.width, 512);
 });
 
+test("cell groups persist, prune out of bounds, and stay off unlabeled sidecars", () => {
+  const dir = dataDir();
+  const sheet = saveAsset({
+    dataDir: dir,
+    buffer: Buffer.from("sheet"),
+    originalFilename: "hero_walk.png",
+    detected: SHEET,
+  });
+  const sidecar = sidecarPath(dir, sheet.id) as string;
+  assert.equal("cellGroups" in JSON.parse(readFileSync(sidecar, "utf8")), false);
+
+  const labeled = updateAsset(dir, sheet.id, {
+    description: "Hero sprites",
+    grid: { cellWidth: 32, cellHeight: 32 },
+    cellGroups: [
+      {
+        description: "  flower variants ",
+        cells: [
+          { col: 2, row: 0 },
+          { col: 2, row: 0 },
+          { col: 4, row: 0 },
+          { col: 3, row: 0 },
+          { col: 99, row: 0 },
+          { col: -1, row: 0 },
+        ],
+      },
+      { description: "", cells: [{ col: 0, row: 0 }] },
+      { description: "empty", cells: [] },
+    ],
+  });
+  assert.deepEqual(labeled?.cellGroups, [
+    {
+      description: "flower variants",
+      cells: [
+        { col: 2, row: 0 },
+        { col: 3, row: 0 },
+        { col: 4, row: 0 },
+      ],
+    },
+  ]);
+  assert.deepEqual(JSON.parse(readFileSync(sidecarPath(dir, labeled?.id as string) as string, "utf8")).cellGroups, [
+    {
+      description: "flower variants",
+      cells: [
+        { col: 2, row: 0 },
+        { col: 3, row: 0 },
+        { col: 4, row: 0 },
+      ],
+    },
+  ]);
+
+  const kept = updateAsset(dir, labeled?.id as string, { description: "Hero sprites, idle and walk" });
+  assert.deepEqual(kept?.cellGroups, labeled?.cellGroups);
+
+  const clearedGroups = updateAsset(dir, kept?.id as string, { cellGroups: [] });
+  assert.equal(clearedGroups?.cellGroups, undefined);
+  assert.equal("cellGroups" in JSON.parse(readFileSync(sidecarPath(dir, kept?.id as string) as string, "utf8")), false);
+
+  const again = updateAsset(dir, kept?.id as string, {
+    grid: { cellWidth: 32, cellHeight: 32 },
+    cellGroups: [{ description: "walk down", cells: [{ col: 0, row: 1 }] }],
+  });
+  const noGrid = updateAsset(dir, again?.id as string, { grid: null });
+  assert.equal(noGrid?.cellGroups, undefined);
+});
+
+test("an old sidecar without cellGroups still loads", () => {
+  const dir = dataDir();
+  const saved = saveAsset({
+    dataDir: dir,
+    buffer: Buffer.from("sheet"),
+    originalFilename: "grass.png",
+    detected: SHEET,
+    description: "Grass tile",
+  });
+  const path = sidecarPath(dir, saved.id) as string;
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  delete raw.cellGroups;
+  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`);
+  const loaded = readAssetMeta(dir, saved.id);
+  assert.equal(loaded?.cellGroups, undefined);
+  assert.equal(loaded?.description, "Grass tile");
+});
+
+test("cell group formatting collapses consecutive columns", () => {
+  const cells = [
+    { col: 2, row: 0 },
+    { col: 3, row: 0 },
+    { col: 4, row: 0 },
+    { col: 0, row: 1 },
+  ];
+  assert.equal(formatCellGroupCells(cells), "row 0, cols 2–4; row 1, col 0");
+  assert.equal(formatCellGroupCoords(cells), "(2,0)–(4,0), (0,1)");
+  assert.equal(
+    formatCellGroups([{ description: "flower variants", cells }]),
+    "flower variants (row 0, cols 2–4; row 1, col 0)",
+  );
+  assert.equal(formatCellGroups(undefined), "");
+  assert.equal(formatCellGroups([]), "");
+  assert.deepEqual(normalizeCellGroups("nope"), []);
+});
+
 test("delete removes the asset, its sidecar, and its thumbnail", () => {
   const dir = dataDir();
   const saved = saveAsset({
@@ -277,6 +383,9 @@ test("replacing an asset swaps the bytes and re-measures but keeps what a human 
     description: "Hero walk cycle",
     tags: ["hero"],
     grid: { cellWidth: 32, cellHeight: 32 },
+    cellGroups: [
+      { description: "flower variants", cells: [{ col: 2, row: 0 }, { col: 15, row: 0 }, { col: 0, row: 7 }] },
+    ],
   });
   const replaced = replaceAssetBytes({
     dataDir: dir,
@@ -298,6 +407,10 @@ test("replacing an asset swaps the bytes and re-measures but keeps what a human 
   // The typed grid is kept and re-derived against the new dimensions.
   assert.deepEqual(replaced.meta.grid, { cellWidth: 32, cellHeight: 32 });
   assert.equal(replaced.meta.measured?.grid?.frames, 64);
+  // 512-wide sheet had col 15; the 256-wide replacement is 8 columns, so that cell drops.
+  assert.deepEqual(replaced.meta.cellGroups, [
+    { description: "flower variants", cells: [{ col: 2, row: 0 }, { col: 0, row: 7 }] },
+  ]);
   assert.equal(readFileSync(assetFilePath(dir, "hero-walk-cycle.png") as string, "utf8"), "new-sheet-bytes");
 });
 

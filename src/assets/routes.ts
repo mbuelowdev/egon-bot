@@ -386,12 +386,14 @@ async function handleSave(
   }
   const description = textField(fields, "description");
   const tagsRaw = parseJsonField(textField(fields, "tags"));
+  const cellGroupsField = textField(fields, "cellGroups");
   const updated = updateAsset(deps.dataDir, id, {
     ...(description !== undefined ? { description } : {}),
     ...(Array.isArray(tagsRaw)
       ? { tags: tagsRaw.filter((tag): tag is string => typeof tag === "string") }
       : {}),
     grid: normalizeGrid(parseJsonField(textField(fields, "grid"))),
+    ...(cellGroupsField !== undefined ? { cellGroups: parseJsonField(cellGroupsField) ?? [] } : {}),
   });
   if (updated === undefined) {
     sendText(res, 404, "Not found");
@@ -423,8 +425,9 @@ async function handleSave(
 }
 
 /**
- * Swap the bytes behind an existing asset. The description, tags, grid, and id all stay:
- * this is "here is a better export of the same thing", not a new asset.
+ * Swap the bytes behind an existing asset. The description, tags, grid, labeled
+ * sprites, and id all stay: this is "here is a better export of the same thing",
+ * not a new asset.
  */
 async function handleReplace(
   req: IncomingMessage,
